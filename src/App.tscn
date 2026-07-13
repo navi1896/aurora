@@ -1,0 +1,34 @@
+[gd_scene type="Control" load_steps=2 format=3 uid="uid=1234567890abcdef"]
+
+[ext_resource type="Script" path="res://src/App.gd"]
+
+[node name="App" type="Control"]
+script = ExtResource("res://src/App.gd")
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="ScreenContainer" type="Control" parent="CanvasLayer"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="PopupLayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="Managers" type="Node" parent="."]
+
+[node name="SceneManager" type="Node" parent="Managers"]
+script = ExtResource("res://src/managers/SceneManager.gd")
+
+[node name="GameManager" type="Node" parent="Managers"]
+script = ExtResource("res://src/managers/GameManager.gd")
+
+[node name="SongManager" type="Node" parent="Managers"]
+script = ExtResource("res://src/managers/SongManager.gd")
+
+[node name="SettingsManager" type="Node" parent="Managers"]
+script = ExtResource("res://src/managers/SettingsManager.gd")
+
+[node name="InputManager" type="Node" parent="Managers"]
+script = ExtResource("res://src/managers/InputManager.gd")
