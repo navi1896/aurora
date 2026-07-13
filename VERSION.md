@@ -1,16 +1,16 @@
-Aurora v0.0.2
+Aurora v0.0.3
 
 Agregado:
-- Arquitectura profesional escalable
-- App.tscn con sistema de capas (CanvasLayer, ScreenContainer, PopupLayer)
-- Managers: SceneManager, GameManager, SongManager, SettingsManager, InputManager
-- Scripts GD para pantallas: MainMenu, SongSelect, Gameplay, Results, Editor, Settings
-- Sistema de navegación de escenas dinámico
-- InputManager para manejo centralizado de entrada
-- Estructura preparada para crecimiento hasta v1.0
+- MainMenu.tscn con diseño responsive y centrado
+- MarginContainer + VBoxContainer para layout profesional
+- 4 botones: Jugar, Editor, Configuración, Salir
+- Título "AURORA" en tamaño 64
+- Signals en MainMenu.gd para comunicación con SceneManager
+- Sistema de conexiones de botones preparado
 
 Próximos pasos:
-- Crear escenas .tscn para cada pantalla
-- Diseñar componentes reutilizables (SongCard, SettingsCategory, etc.)
-- Implementar tema global (theme.tres)
-- Conectar UI con lógica de juego
+- Crear SongSelect.tscn con lista scrollable y panel de detalles
+- Crear Settings.tscn con categorías
+- Crear Gameplay.tscn con estructura de carriles
+- Crear Results.tscn con estadísticas
+- Crear Editor.tscn con timeline
