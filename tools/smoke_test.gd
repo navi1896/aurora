@@ -708,6 +708,26 @@ func _run() -> void:
 			"El editor conserva la carga directa de OGV"
 		)
 		_expect(
+			editor.video_dialog.use_native_dialog
+			and editor.audio_dialog.use_native_dialog,
+			"Los archivos multimedia se eligen con el explorador nativo"
+		)
+		_expect(
+			editor.VIDEO_CONVERSION_PROFILE.contains("v4")
+			and editor._is_untrusted_legacy_video_cache(
+				"user://aurora_editor/media/probe_theora_v3_720p30.ogv"
+			),
+			"La caché nueva no reutiliza conversiones v3 potencialmente corruptas"
+		)
+		editor._set_video_conversion_controls_disabled(true)
+		_expect(
+			not editor.video_select_button.disabled
+			and editor.video_select_button.text
+			== AuroraLocale.text("CANCELAR CONVERSIÓN"),
+			"Una conversión en curso se puede cancelar desde el editor"
+		)
+		editor._set_video_conversion_controls_disabled(false)
+		_expect(
 			"libtheora" in Array(editor._build_ffmpeg_arguments("input.mp4", "output.ogv")),
 			"La conversión genera un video Ogg Theora compatible con Godot"
 		)
@@ -745,6 +765,13 @@ func _run() -> void:
 		editor._set_creation_mode("automatic")
 		editor._refresh_editor_state()
 		_expect(editor.timeline != null, "El editor incluye una línea de tiempo interactiva")
+		_expect(
+			editor.timeline_snap_option != null
+			and editor.timeline_zoom_label != null
+			and editor.timeline.viewport_model.get_visible_duration()
+			< editor.duration_seconds,
+			"El timeline ofrece ajuste, zoom y un viewport desplazable"
+		)
 		_expect(editor.record_button != null, "El editor ofrece grabación manual de notas")
 		_expect(
 			editor.creation_mode_switch != null
@@ -824,12 +851,26 @@ func _run() -> void:
 			var editor_rect: Rect2 = editor.get_global_rect()
 			var timeline_rect: Rect2 = editor.timeline.get_global_rect()
 			var toggle_rect: Rect2 = editor.properties_toggle_button.get_global_rect()
-			_expect(
+			var responsive_layout_valid := (
 				editor_rect.size.x > 0.0
 				and editor_rect.size.y > 0.0
 				and timeline_rect.position.y >= editor_rect.position.y
 				and timeline_rect.end.y <= editor_rect.end.y + 2.0
-				and toggle_rect.end.x <= editor_rect.end.x + 2.0,
+				and toggle_rect.end.x <= editor_rect.end.x + 2.0
+			)
+			if not responsive_layout_valid:
+				print(
+					"EDITOR LAYOUT %dx%d: editor=%s timeline=%s toggle=%s"
+					% [
+						viewport_size.x,
+						viewport_size.y,
+						editor_rect,
+						timeline_rect,
+						toggle_rect,
+					]
+				)
+			_expect(
+				responsive_layout_valid,
 				"El editor conserva controles utilizables en %dx%d"
 				% [viewport_size.x, viewport_size.y]
 			)
@@ -860,6 +901,55 @@ func _run() -> void:
 			== PROJECT_STORE.PROJECT_VERSION
 			and not editor_project_document.has("notes"),
 			"El editor usa chart.json como única fuente de notas"
+		)
+		var smoke_timeline_notes: Array[Dictionary] = [
+			{"time": 1.0, "lane": 0, "duration": 0.0},
+			{"time": 3.0, "lane": 1, "duration": 1.0},
+		]
+		editor.notes = smoke_timeline_notes
+		editor.key_count = 4
+		editor.duration_seconds = 20.0
+		editor._reset_editor_history()
+		editor._refresh_editor_state()
+		var timeline_ids: Array[int] = editor.timeline_state.get_note_ids()
+		editor._on_timeline_selection_requested(timeline_ids[0], false, false)
+		editor._on_timeline_move_requested(0.5, 1)
+		var timeline_snap_seconds: float = editor.timeline.get_snap_seconds()
+		var expected_moved_time := snappedf(1.5, timeline_snap_seconds)
+		_expect(
+			is_equal_approx(float(editor.notes[0]["time"]), expected_moved_time)
+			and int(editor.notes[0]["lane"]) == 1
+			and editor.chart_history.can_undo(),
+			"El timeline mueve notas con snapping y registra Deshacer"
+		)
+		editor._on_timeline_resize_requested(timeline_ids[1], 1.5)
+		var expected_hold_duration := (
+			snappedf(3.0 + 1.5, timeline_snap_seconds) - 3.0
+		)
+		_expect(
+			is_equal_approx(
+				float(editor.notes[1]["duration"]),
+				expected_hold_duration
+			),
+			"El timeline permite redimensionar notas sostenidas"
+		)
+		editor._on_timeline_create_note_requested(6.12, 2)
+		_expect(
+			editor.notes.size() == 3
+			and editor.timeline_state.selected_note_ids.size() == 1,
+			"El doble clic del timeline puede crear y seleccionar una nota"
+		)
+		editor._timeline_copy_selection()
+		editor.preview_time = 8.0
+		editor._timeline_paste_at_playhead()
+		_expect(
+			editor.notes.size() == 4,
+			"El timeline copia y pega notas con IDs nuevos"
+		)
+		editor._undo_chart_action()
+		_expect(
+			editor.notes.size() == 3,
+			"Deshacer revierte una operación completa del timeline"
 		)
 		var history_notes: Array[Dictionary] = [
 			{"time": 10.0, "lane": 1, "duration": 0.0}

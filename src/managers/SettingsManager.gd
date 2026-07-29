@@ -33,6 +33,8 @@ const DEFAULT_SETTINGS := {
 	"graphics_quality": "high",
 	"favorite_song_ids": [],
 	"recent_song_ids": [],
+	"last_video_directory": "",
+	"last_audio_directory": "",
 	"lane_bindings": {
 		"4": [KEY_D, KEY_F, KEY_J, KEY_K],
 		"6": [KEY_S, KEY_D, KEY_F, KEY_J, KEY_K, KEY_L],
@@ -265,6 +267,8 @@ func _validate_setting(key: String) -> void:
 					if not song_id.is_empty() and song_id not in normalized_ids:
 						normalized_ids.append(song_id)
 				settings[key] = normalized_ids
+		"last_video_directory", "last_audio_directory":
+			settings[key] = str(settings[key]).strip_edges()
 		"lane_bindings":
 			if not (settings[key] is Dictionary):
 				settings[key] = DEFAULT_SETTINGS["lane_bindings"].duplicate(true)

@@ -5,9 +5,14 @@ class_name Editor
 const PROJECT_STORE = preload("res://src/screens/editor/EditorProjectStore.gd")
 const CHART_STATE_MODEL = preload("res://src/screens/editor/EditorChartState.gd")
 const CHART_HISTORY_MODEL = preload("res://src/screens/editor/ChartEditHistory.gd")
+const TIMELINE_EDIT_OPERATIONS = preload(
+	"res://src/screens/editor/TimelineEditOperations.gd"
+)
 const EDITOR_DIRECTORY := "user://aurora_editor"
 const EDITOR_MEDIA_DIRECTORY := "user://aurora_editor/media"
-const VIDEO_CONVERSION_PROFILE := "theora_v3_720p30"
+const EDITOR_LOG_DIRECTORY := "user://aurora_editor/logs"
+const MEDIA_IMPORT_LOG_PATH := "user://aurora_editor/logs/media_import.log"
+const VIDEO_CONVERSION_PROFILE := "theora_v4_720p30_validated"
 const MIN_HOLD_DURATION := 0.18
 const SUPPORTED_KEY_COUNTS: Array[int] = [4, 6, 8]
 const DIRECT_VIDEO_EXTENSIONS: Array[String] = ["ogv"]
@@ -32,6 +37,7 @@ var scene_manager: SceneManager
 var game_manager: GameManager
 var input_manager: InputManager
 var song_manager: SongManager
+var settings_manager: SettingsManager
 
 var notes: Array[Dictionary] = []
 var active_recording_holds: Dictionary = {}
@@ -47,6 +53,8 @@ var recording := false
 var preview_running := false
 var automatic_density := 1
 var chart_history
+var timeline_state
+var timeline_operations
 var saved_metadata_signature := ""
 var suppress_dirty_tracking := true
 var pending_confirmation_action := Callable()
@@ -93,6 +101,8 @@ var general_properties_container: VBoxContainer
 var automatic_properties_container: VBoxContainer
 var manual_properties_container: VBoxContainer
 var properties_collapsed := false
+var timeline_snap_option: OptionButton
+var timeline_zoom_label: Label
 var video_dialog: FileDialog
 var audio_dialog: FileDialog
 var project_dialog: FileDialog
@@ -103,12 +113,15 @@ var video_conversion_source_path := ""
 var video_conversion_output_path := ""
 var video_conversion_temporary_path := ""
 var video_conversion_progress_path := ""
+var video_conversion_manifest_path := ""
 var video_conversion_legacy_path := ""
 var video_conversion_ffmpeg_path := ""
 var video_conversion_phase := ""
 var video_conversion_expected_seconds := 0.0
 var video_conversion_started_msec := 0
 var video_conversion_status_tick := -1
+var video_conversion_job_sequence := 0
+var active_video_conversion_job := 0
 var recording_countdown_active := false
 var recording_countdown_token := 0
 
@@ -120,7 +133,9 @@ func _ready() -> void:
 	game_manager = managers.get_node("GameManager") as GameManager
 	input_manager = managers.get_node("InputManager") as InputManager
 	song_manager = managers.get_node("SongManager") as SongManager
+	settings_manager = managers.get_node("SettingsManager") as SettingsManager
 	chart_history = CHART_HISTORY_MODEL.new()
+	timeline_operations = TIMELINE_EDIT_OPERATIONS.new()
 	_setup_ui()
 	_setup_file_dialogs()
 	_set_creation_mode(creation_mode)
@@ -456,26 +471,241 @@ func _build_timeline(workspace: VBoxContainer) -> void:
 	var header := HBoxContainer.new()
 	box.add_child(header)
 	var timeline_title := AuroraUi.make_pixel_label(
-		AuroraLocale.text("LINEA DE TIEMPO // CLIC PARA BUSCAR"),
+		AuroraLocale.text("TIMELINE // DOBLE CLIC CREA // ARRASTRA EDITA"),
 		8,
 		AuroraUi.TEAL
 	)
 	timeline_title.autowrap_mode = TextServer.AUTOWRAP_OFF
+	timeline_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	timeline_title.tooltip_text = AuroraLocale.text(
+		"CTRL+C/V/D COPIAR, PEGAR Y DUPLICAR // SUPR BORRAR // CTRL+RUEDA ZOOM"
+	)
 	header.add_child(timeline_title)
-	var hold_hint := AuroraUi.make_pixel_label(
-		AuroraLocale.text("TOQUE = NOTA   MANTENER = NOTA LARGA"),
+	header.add_child(
+		AuroraUi.make_pixel_label(
+			AuroraLocale.text("AJUSTE"),
+			7,
+			AuroraUi.MUTED
+		)
+	)
+	timeline_snap_option = OptionButton.new()
+	timeline_snap_option.name = "TimelineSnap"
+	timeline_snap_option.custom_minimum_size = Vector2(90.0, 34.0)
+	for snap_label in ["1/1", "1/2", "1/4", "1/8", "1/16"]:
+		timeline_snap_option.add_item(snap_label)
+	timeline_snap_option.select(2)
+	AuroraUi.apply_pixel_font(timeline_snap_option, 7)
+	timeline_snap_option.item_selected.connect(_on_timeline_snap_selected)
+	header.add_child(timeline_snap_option)
+	var zoom_out := _make_tool_button("−", 34.0)
+	zoom_out.custom_minimum_size.y = 34.0
+	zoom_out.pressed.connect(_adjust_timeline_zoom.bind(0.8))
+	header.add_child(zoom_out)
+	timeline_zoom_label = AuroraUi.make_pixel_label(
+		"100 PX/S",
 		7,
 		AuroraUi.MUTED
 	)
-	hold_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	hold_hint.autowrap_mode = TextServer.AUTOWRAP_OFF
-	hold_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	header.add_child(hold_hint)
+	timeline_zoom_label.custom_minimum_size.x = 82.0
+	timeline_zoom_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	timeline_zoom_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	header.add_child(timeline_zoom_label)
+	var zoom_in := _make_tool_button("+", 34.0)
+	zoom_in.custom_minimum_size.y = 34.0
+	zoom_in.pressed.connect(_adjust_timeline_zoom.bind(1.25))
+	header.add_child(zoom_in)
 	timeline = ChartTimeline.new()
 	timeline.name = "ChartTimeline"
 	timeline.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	timeline.seek_requested.connect(_seek_preview)
+	timeline.selection_requested.connect(_on_timeline_selection_requested)
+	timeline.marquee_selection_requested.connect(_on_timeline_marquee_requested)
+	timeline.create_note_requested.connect(_on_timeline_create_note_requested)
+	timeline.move_selection_requested.connect(_on_timeline_move_requested)
+	timeline.resize_hold_requested.connect(_on_timeline_resize_requested)
+	timeline.zoom_changed.connect(_on_timeline_zoom_changed)
 	box.add_child(timeline)
+
+
+func _on_timeline_snap_selected(index: int) -> void:
+	if timeline == null:
+		return
+	var snap_steps: Array[int] = [1, 2, 4, 8, 16]
+	timeline.set_snap_steps(snap_steps[clampi(index, 0, snap_steps.size() - 1)])
+
+
+func _adjust_timeline_zoom(factor: float) -> void:
+	if timeline != null:
+		timeline.zoom_by(factor)
+
+
+func _on_timeline_zoom_changed(_pixels_per_second: float) -> void:
+	if timeline_zoom_label != null and timeline != null:
+		timeline_zoom_label.text = timeline.get_zoom_text()
+
+
+func _on_timeline_selection_requested(
+	note_id: int,
+	additive: bool,
+	toggle: bool
+) -> void:
+	_ensure_timeline_state()
+	if timeline_operations.select_note(timeline_state, note_id, additive, toggle):
+		_refresh_editor_state()
+
+
+func _on_timeline_marquee_requested(
+	note_ids: Array[int],
+	additive: bool
+) -> void:
+	_ensure_timeline_state()
+	timeline_operations.select_notes(timeline_state, note_ids, not additive)
+	_refresh_editor_state()
+
+
+func _on_timeline_create_note_requested(seconds: float, lane: int) -> void:
+	_ensure_timeline_state()
+	var result: Dictionary = timeline_operations.create_note(
+		timeline_state,
+		seconds,
+		lane,
+		0.0,
+		timeline.get_snap_seconds()
+	)
+	_finish_timeline_edit(result, "Crear nota")
+
+
+func _on_timeline_move_requested(
+	delta_seconds: float,
+	delta_lane: int
+) -> void:
+	_ensure_timeline_state()
+	var result: Dictionary = timeline_operations.move_selection(
+		timeline_state,
+		delta_seconds,
+		delta_lane,
+		timeline.get_snap_seconds()
+	)
+	_finish_timeline_edit(result, "Mover notas")
+
+
+func _on_timeline_resize_requested(
+	note_id: int,
+	duration_seconds_value: float
+) -> void:
+	_ensure_timeline_state()
+	var result: Dictionary = timeline_operations.resize_hold(
+		timeline_state,
+		note_id,
+		duration_seconds_value,
+		timeline.get_snap_seconds(),
+		MIN_HOLD_DURATION
+	)
+	_finish_timeline_edit(result, "Redimensionar hold")
+
+
+func _timeline_delete_selection() -> void:
+	_ensure_timeline_state()
+	_finish_timeline_edit(
+		timeline_operations.delete_selection(timeline_state),
+		"Borrar selección"
+	)
+
+
+func _timeline_copy_selection() -> void:
+	_ensure_timeline_state()
+	var result: Dictionary = timeline_operations.copy_selection(timeline_state)
+	if bool(result.get("ok", false)):
+		_set_status(
+			AuroraLocale.text("%d NOTAS COPIADAS")
+			% int(result.get("copied_count", 0))
+		)
+	else:
+		_show_timeline_operation_error(result)
+
+
+func _timeline_paste_at_playhead() -> void:
+	_ensure_timeline_state()
+	_finish_timeline_edit(
+		timeline_operations.paste(
+			timeline_state,
+			preview_time,
+			-1,
+			timeline.get_snap_seconds()
+		),
+		"Pegar notas"
+	)
+
+
+func _timeline_duplicate_selection() -> void:
+	_ensure_timeline_state()
+	_finish_timeline_edit(
+		timeline_operations.duplicate_selection(
+			timeline_state,
+			60.0 / maxf(float(bpm_spin.value), 1.0),
+			0,
+			timeline.get_snap_seconds()
+		),
+		"Duplicar notas"
+	)
+
+
+func _timeline_select_all() -> void:
+	_ensure_timeline_state()
+	timeline_operations.select_notes(
+		timeline_state,
+		timeline_state.get_note_ids()
+	)
+	_refresh_editor_state()
+
+
+func _timeline_move_from_keyboard(delta_time: float, delta_lane: int) -> void:
+	_ensure_timeline_state()
+	_finish_timeline_edit(
+		timeline_operations.move_selection(
+			timeline_state,
+			delta_time,
+			delta_lane,
+			timeline.get_snap_seconds()
+		),
+		"Mover notas"
+	)
+
+
+func _timeline_resize_from_keyboard(duration_delta: float) -> void:
+	_ensure_timeline_state()
+	_finish_timeline_edit(
+		timeline_operations.resize_selected_holds(
+			timeline_state,
+			duration_delta,
+			timeline.get_snap_seconds(),
+			MIN_HOLD_DURATION
+		),
+		"Redimensionar holds"
+	)
+
+
+func _finish_timeline_edit(result: Dictionary, label: String) -> void:
+	if not bool(result.get("ok", false)):
+		_show_timeline_operation_error(result)
+		return
+	if not bool(result.get("changed", false)):
+		_refresh_editor_state()
+		return
+	notes = timeline_state.export_notes()
+	_commit_chart_state(null, label)
+	_refresh_editor_state()
+	_set_status(AuroraLocale.text(label.to_upper()))
+
+
+func _show_timeline_operation_error(result: Dictionary) -> void:
+	var reason := str(result.get("reason", "")).strip_edges()
+	_set_status(
+		AuroraLocale.text(
+			reason if not reason.is_empty() else "NO SE PUDO EDITAR LA SELECCIÓN"
+		),
+		true
+	)
 
 
 func _build_properties(body: HBoxContainer) -> void:
@@ -740,6 +970,7 @@ func _setup_file_dialogs() -> void:
 	video_dialog = FileDialog.new()
 	video_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	video_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	video_dialog.use_native_dialog = true
 	video_dialog.filters = PackedStringArray(
 		[
 			"*.ogv,*.mp4,*.mov,*.mkv,*.webm,*.avi,*.m4v ; Video",
@@ -757,6 +988,7 @@ func _setup_file_dialogs() -> void:
 	audio_dialog = FileDialog.new()
 	audio_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	audio_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	audio_dialog.use_native_dialog = true
 	audio_dialog.filters = PackedStringArray(["*.mp3,*.ogg,*.wav ; Audio"])
 	audio_dialog.title = AuroraLocale.text("Seleccionar audio separado")
 	audio_dialog.file_selected.connect(_load_audio)
@@ -818,10 +1050,23 @@ func _add_spin_box(
 
 
 func _open_video_dialog() -> void:
+	if video_conversion_pid > 0:
+		_cancel_video_conversion()
+		return
+	var last_directory := str(
+		settings_manager.get_setting("last_video_directory", "")
+	)
+	if not last_directory.is_empty() and DirAccess.dir_exists_absolute(last_directory):
+		video_dialog.current_dir = last_directory
 	video_dialog.popup_centered_ratio(0.72)
 
 
 func _open_audio_dialog() -> void:
+	var last_directory := str(
+		settings_manager.get_setting("last_audio_directory", "")
+	)
+	if not last_directory.is_empty() and DirAccess.dir_exists_absolute(last_directory):
+		audio_dialog.current_dir = last_directory
 	audio_dialog.popup_centered_ratio(0.72)
 
 
@@ -831,6 +1076,7 @@ func _open_project_dialog() -> void:
 
 
 func _load_video(path: String) -> void:
+	_remember_media_directory("last_video_directory", path)
 	var import_mode := _get_video_import_mode(path)
 	if import_mode == "convert":
 		_start_video_conversion(path)
@@ -883,6 +1129,17 @@ func _get_video_import_mode(path: String) -> String:
 	return "unsupported"
 
 
+func _is_untrusted_legacy_video_cache(path: String) -> bool:
+	var normalized := path.replace("\\", "/").to_lower()
+	return (
+		normalized.begins_with(EDITOR_MEDIA_DIRECTORY)
+		and (
+			normalized.contains("_theora_v3_720p30.ogv")
+			or normalized.ends_with("_theora_v2_720p30.ogv")
+		)
+	)
+
+
 func _start_video_conversion(source_path: String) -> void:
 	if video_conversion_pid > 0:
 		_set_status(AuroraLocale.text("YA HAY UN VIDEO EN CONVERSIÓN"), true)
@@ -910,15 +1167,27 @@ func _start_video_conversion(source_path: String) -> void:
 		_set_status(AuroraLocale.text("NO SE PUDO LEER EL VIDEO SELECCIONADO"), true)
 		return
 	var safe_name := _slugify(source_path.get_file().get_basename())
+	video_conversion_job_sequence += 1
+	active_video_conversion_job = video_conversion_job_sequence
 	video_conversion_output_path = "%s/%s_%s_%s.ogv" % [
 		EDITOR_MEDIA_DIRECTORY,
 		source_hash,
 		safe_name,
 		VIDEO_CONVERSION_PROFILE,
 	]
-	if FileAccess.file_exists(video_conversion_output_path):
+	video_conversion_manifest_path = (
+		video_conversion_output_path.get_basename() + ".manifest.json"
+	)
+	if _is_valid_cached_conversion(video_conversion_output_path, source_hash):
+		_append_media_import_log(
+			"job=%d cache_hit source=%s output=%s"
+			% [active_video_conversion_job, source_path, video_conversion_output_path]
+		)
 		_assign_video_stream(video_conversion_output_path, true, source_path)
+		_reset_video_conversion_state()
 		return
+	_remove_generated_file(video_conversion_output_path)
+	_remove_generated_file(video_conversion_manifest_path)
 
 	video_conversion_temporary_path = "%s/%s_%s_%s.convirtiendo.ogv" % [
 		EDITOR_MEDIA_DIRECTORY,
@@ -946,6 +1215,16 @@ func _start_video_conversion(source_path: String) -> void:
 	video_conversion_expected_seconds = _probe_media_duration(ffmpeg_path, source_absolute)
 	video_conversion_ffmpeg_path = ffmpeg_path
 	video_conversion_phase = "encoding"
+	_append_media_import_log(
+		"job=%d start profile=%s source=%s output=%s encoder=%s"
+		% [
+			active_video_conversion_job,
+			VIDEO_CONVERSION_PROFILE,
+			source_path,
+			video_conversion_output_path,
+			_ffmpeg_identity(ffmpeg_path),
+		]
+	)
 	var arguments := _build_ffmpeg_arguments(
 		source_absolute,
 		temporary_absolute,
@@ -1177,6 +1456,8 @@ func _poll_video_conversion() -> void:
 	var completed_source_path := video_conversion_source_path
 	var completed_legacy_path := video_conversion_legacy_path
 	var completed_progress_path := video_conversion_progress_path
+	var completed_job := active_video_conversion_job
+	var completed_encoder_identity := _ffmpeg_identity(video_conversion_ffmpeg_path)
 	_reset_video_conversion_state()
 	_set_video_conversion_controls_disabled(false)
 	if exit_code != 0 or not FileAccess.file_exists(completed_temporary_path):
@@ -1191,11 +1472,26 @@ func _poll_video_conversion() -> void:
 		ProjectSettings.globalize_path(completed_output_path)
 	)
 	if rename_error != OK:
+		_append_media_import_log(
+			"job=%d failed phase=publish error=%d"
+			% [completed_job, rename_error]
+		)
 		_set_status(AuroraLocale.text("EL VIDEO SE CONVIRTIÓ, PERO NO SE PUDO GUARDAR"), true)
 		return
 	_remove_generated_file(completed_progress_path)
 	if completed_legacy_path != completed_output_path:
 		_remove_generated_file(completed_legacy_path)
+	var source_key := _media_source_cache_key(completed_source_path)
+	_write_conversion_manifest(
+		completed_output_path,
+		completed_source_path,
+		source_key,
+		completed_encoder_identity
+	)
+	_append_media_import_log(
+		"job=%d complete source=%s output=%s"
+		% [completed_job, completed_source_path, completed_output_path]
+	)
 	_assign_video_stream(completed_output_path, true, completed_source_path)
 
 
@@ -1236,6 +1532,10 @@ func _read_video_conversion_progress() -> int:
 
 
 func _fail_video_conversion(message: String) -> void:
+	_append_media_import_log(
+		"job=%d failed phase=%s message=%s"
+		% [active_video_conversion_job, video_conversion_phase, message]
+	)
 	_remove_generated_file(video_conversion_temporary_path)
 	_remove_generated_file(video_conversion_progress_path)
 	_reset_video_conversion_state()
@@ -1251,9 +1551,31 @@ func _remove_generated_file(path: String) -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 
 
+func _cancel_video_conversion(update_ui: bool = true) -> void:
+	if video_conversion_pid <= 0:
+		return
+	var canceled_job := active_video_conversion_job
+	if OS.is_process_running(video_conversion_pid):
+		OS.kill(video_conversion_pid)
+	_remove_generated_file(video_conversion_temporary_path)
+	_remove_generated_file(video_conversion_progress_path)
+	_append_media_import_log(
+		"job=%d canceled phase=%s" % [canceled_job, video_conversion_phase]
+	)
+	_reset_video_conversion_state()
+	if update_ui:
+		_set_video_conversion_controls_disabled(false)
+		media_status_label.text = AuroraLocale.text("CONVERSIÓN CANCELADA")
+		media_status_label.add_theme_color_override("font_color", AuroraUi.MUTED)
+		_set_status(AuroraLocale.text("CONVERSIÓN CANCELADA // EL ORIGINAL SIGUE INTACTO"))
+
+
 func _set_video_conversion_controls_disabled(disabled: bool) -> void:
 	if video_select_button != null:
-		video_select_button.disabled = disabled
+		video_select_button.disabled = false
+		video_select_button.text = AuroraLocale.text(
+			"CANCELAR CONVERSIÓN" if disabled else "ELEGIR VIDEO"
+		)
 	if audio_select_button != null:
 		audio_select_button.disabled = disabled
 	if record_button != null:
@@ -1270,15 +1592,18 @@ func _reset_video_conversion_state() -> void:
 	video_conversion_output_path = ""
 	video_conversion_temporary_path = ""
 	video_conversion_progress_path = ""
+	video_conversion_manifest_path = ""
 	video_conversion_legacy_path = ""
 	video_conversion_ffmpeg_path = ""
 	video_conversion_phase = ""
 	video_conversion_expected_seconds = 0.0
 	video_conversion_started_msec = 0
 	video_conversion_status_tick = -1
+	active_video_conversion_job = 0
 
 
 func _load_audio(path: String) -> void:
+	_remember_media_directory("last_audio_directory", path)
 	var imported_path := _import_media_file(path, ["mp3", "ogg", "wav"])
 	if imported_path.is_empty():
 		_set_status(AuroraLocale.text("NO SE PUDO COPIAR EL AUDIO AL PROYECTO"), true)
@@ -1366,6 +1691,127 @@ func _media_source_cache_key(source_path: String) -> String:
 		source_file.seek(sample_offset)
 		hash_context.update(source_file.get_buffer(sample_size))
 	return hash_context.finish().hex_encode().substr(0, 16)
+
+
+func _remember_media_directory(setting_key: String, selected_path: String) -> void:
+	if selected_path.is_empty():
+		return
+	var absolute_path := ProjectSettings.globalize_path(selected_path)
+	var directory_path := absolute_path.get_base_dir()
+	if not directory_path.is_empty() and DirAccess.dir_exists_absolute(directory_path):
+		settings_manager.set_setting(setting_key, directory_path, false)
+
+
+func _conversion_manifest_path(output_path: String) -> String:
+	return output_path.get_basename() + ".manifest.json"
+
+
+func _is_valid_cached_conversion(output_path: String, source_key: String) -> bool:
+	if not FileAccess.file_exists(output_path):
+		return false
+	var manifest_path := _conversion_manifest_path(output_path)
+	if not FileAccess.file_exists(manifest_path):
+		return false
+	var manifest_file := FileAccess.open(manifest_path, FileAccess.READ)
+	if manifest_file == null:
+		return false
+	var parsed = JSON.parse_string(manifest_file.get_as_text())
+	if not (parsed is Dictionary):
+		return false
+	var manifest: Dictionary = parsed
+	var actual_output_size := _file_size(output_path)
+	return (
+		int(manifest.get("version", 0)) == 1
+		and str(manifest.get("profile", "")) == VIDEO_CONVERSION_PROFILE
+		and str(manifest.get("source_key", "")) == source_key
+		and int(manifest.get("output_size", -1)) == actual_output_size
+		and actual_output_size > 0
+	)
+
+
+func _write_conversion_manifest(
+	output_path: String,
+	source_path: String,
+	source_key: String,
+	encoder_identity: String
+) -> bool:
+	if source_key.is_empty() or not FileAccess.file_exists(output_path):
+		return false
+	var manifest_path := _conversion_manifest_path(output_path)
+	var temporary_path := manifest_path + ".tmp"
+	var manifest_file := FileAccess.open(temporary_path, FileAccess.WRITE)
+	if manifest_file == null:
+		return false
+	manifest_file.store_string(
+		JSON.stringify(
+			{
+				"version": 1,
+				"profile": VIDEO_CONVERSION_PROFILE,
+				"source_key": source_key,
+				"source_file": source_path.get_file(),
+				"output_file": output_path.get_file(),
+				"output_size": _file_size(output_path),
+				"created_unix": int(Time.get_unix_time_from_system()),
+				"encoder": encoder_identity,
+			},
+			"\t"
+		)
+	)
+	manifest_file.flush()
+	manifest_file.close()
+	_remove_generated_file(manifest_path)
+	var publish_error := DirAccess.rename_absolute(
+		ProjectSettings.globalize_path(temporary_path),
+		ProjectSettings.globalize_path(manifest_path)
+	)
+	if publish_error != OK:
+		_remove_generated_file(temporary_path)
+		return false
+	return true
+
+
+func _file_size(path: String) -> int:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return -1
+	return file.get_length()
+
+
+func _ffmpeg_identity(executable_path: String) -> String:
+	if executable_path.is_empty():
+		return ""
+	var output: Array = []
+	var exit_code := OS.execute(
+		executable_path,
+		PackedStringArray(["-version"]),
+		output,
+		true,
+		false
+	)
+	if exit_code != 0 or output.is_empty():
+		return executable_path.get_file()
+	var first_line := str(output[0]).split("\n", false)[0].strip_edges()
+	var executable_hash := ""
+	if FileAccess.file_exists(executable_path):
+		executable_hash = FileAccess.get_sha256(executable_path).substr(0, 16)
+	return "%s sha256=%s" % [first_line, executable_hash]
+
+
+func _append_media_import_log(message: String) -> void:
+	var absolute_log_directory := ProjectSettings.globalize_path(EDITOR_LOG_DIRECTORY)
+	if DirAccess.make_dir_recursive_absolute(absolute_log_directory) != OK:
+		return
+	var absolute_log_path := ProjectSettings.globalize_path(MEDIA_IMPORT_LOG_PATH)
+	var log_file := FileAccess.open(absolute_log_path, FileAccess.READ_WRITE)
+	if log_file == null:
+		log_file = FileAccess.open(absolute_log_path, FileAccess.WRITE)
+	if log_file == null:
+		return
+	log_file.seek_end()
+	log_file.store_line(
+		"[%s] %s" % [Time.get_datetime_string_from_system(false, true), message]
+	)
+	log_file.flush()
 
 
 func _load_audio_stream(path: String) -> AudioStream:
@@ -1479,6 +1925,8 @@ func _update_playhead_ui() -> void:
 		seek_slider.set_value_no_signal(preview_time)
 	if timeline != null:
 		timeline.set_playhead(preview_time)
+		if preview_running:
+			timeline.reveal_time(preview_time)
 	if time_label != null:
 		time_label.text = "%s / %s" % [_format_time(preview_time), _format_time(duration_seconds)]
 
@@ -1813,7 +2261,26 @@ func _on_duration_changed(value: float) -> void:
 
 
 func _capture_chart_state():
-	return CHART_STATE_MODEL.new(notes, key_count, duration_seconds)
+	_ensure_timeline_state()
+	return timeline_state.duplicate_state()
+
+
+func _ensure_timeline_state() -> void:
+	var needs_rebuild: bool = (
+		timeline_state == null
+		or int(timeline_state.key_count) != key_count
+		or not is_equal_approx(
+			float(timeline_state.duration_seconds),
+			duration_seconds
+		)
+		or timeline_state.export_notes() != notes
+	)
+	if needs_rebuild:
+		timeline_state = CHART_STATE_MODEL.new(
+			notes,
+			key_count,
+			duration_seconds
+		)
 
 
 func _commit_chart_state(_before_state, label: String) -> void:
@@ -1826,6 +2293,7 @@ func _commit_chart_state(_before_state, label: String) -> void:
 func _apply_chart_state(state) -> void:
 	if state == null:
 		return
+	timeline_state = state.duplicate_state()
 	notes = state.export_notes()
 	key_count = state.key_count
 	duration_seconds = state.duration_seconds
@@ -1936,9 +2404,17 @@ func _request_open_project_dialog() -> void:
 
 func _refresh_editor_state() -> void:
 	_refresh_duration_display()
+	_ensure_timeline_state()
 	if timeline != null:
-		timeline.set_chart(notes, duration_seconds, float(bpm_spin.value), key_count)
+		timeline.set_chart(
+			timeline_state.notes,
+			duration_seconds,
+			float(bpm_spin.value),
+			key_count,
+			timeline_state.selected_note_ids
+		)
 		timeline.set_playhead(preview_time)
+		_on_timeline_zoom_changed(timeline.viewport_model.pixels_per_second)
 	if note_count_label != null:
 		var hold_count := 0
 		for note in notes:
@@ -2068,8 +2544,16 @@ func _load_project(path: String) -> void:
 	video_path = str(media.get("video_path", ""))
 	video_source_path = str(media.get("video_source_path", ""))
 	audio_path = str(media.get("audio_path", ""))
+	var legacy_video_needs_source := false
 	if not video_source_path.is_empty() and FileAccess.file_exists(video_source_path):
 		_load_video(video_source_path)
+	elif _is_untrusted_legacy_video_cache(video_path):
+		legacy_video_needs_source = true
+		video_path = ""
+		video_player.stream = null
+		preview_placeholder.show()
+		media_status_label.text = AuroraLocale.text("VIDEO ANTIGUO EN CUARENTENA")
+		media_status_label.add_theme_color_override("font_color", AuroraUi.CORAL)
 	elif not video_path.is_empty():
 		_load_video(video_path)
 	if not audio_path.is_empty():
@@ -2081,6 +2565,13 @@ func _load_project(path: String) -> void:
 	_refresh_editor_state()
 	if bool(load_result.get("needs_migration", false)):
 		_set_status(AuroraLocale.text("PROYECTO ANTIGUO ABIERTO // SE MIGRARA AL GUARDAR"))
+	elif legacy_video_needs_source:
+		_set_status(
+			AuroraLocale.text(
+				"EL VIDEO ANTIGUO NO ES CONFIABLE. VUELVE A ELEGIR EL ARCHIVO ORIGINAL."
+			),
+			true
+		)
 	else:
 		_set_status(AuroraLocale.text("PROYECTO ABIERTO"))
 
@@ -2248,6 +2739,10 @@ func _input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				return
 
+		if event.pressed and _handle_timeline_keyboard_event(event):
+			get_viewport().set_input_as_handled()
+			return
+
 		if event.pressed and event.keycode == KEY_SPACE:
 			var focus_owner := get_viewport().gui_get_focus_owner()
 			if not (focus_owner is LineEdit or focus_owner is TextEdit):
@@ -2264,18 +2759,61 @@ func _input(event: InputEvent) -> void:
 				_request_leave_editor()
 
 
+func _handle_timeline_keyboard_event(event: InputEventKey) -> bool:
+	if timeline == null or not timeline.has_focus():
+		return false
+	if event.ctrl_pressed:
+		match event.keycode:
+			KEY_A:
+				_timeline_select_all()
+				return true
+			KEY_C:
+				_timeline_copy_selection()
+				return true
+			KEY_V:
+				_timeline_paste_at_playhead()
+				return true
+			KEY_D:
+				_timeline_duplicate_selection()
+				return true
+			KEY_Z:
+				if event.shift_pressed:
+					_redo_chart_action()
+				else:
+					_undo_chart_action()
+				return true
+			KEY_Y:
+				_redo_chart_action()
+				return true
+	if event.keycode == KEY_DELETE or event.keycode == KEY_BACKSPACE:
+		_timeline_delete_selection()
+		return true
+	var snap_seconds := timeline.get_snap_seconds()
+	match event.keycode:
+		KEY_LEFT:
+			if event.shift_pressed:
+				_timeline_resize_from_keyboard(-snap_seconds)
+			else:
+				_timeline_move_from_keyboard(-snap_seconds, 0)
+			return true
+		KEY_RIGHT:
+			if event.shift_pressed:
+				_timeline_resize_from_keyboard(snap_seconds)
+			else:
+				_timeline_move_from_keyboard(snap_seconds, 0)
+			return true
+		KEY_UP:
+			_timeline_move_from_keyboard(0.0, -1)
+			return true
+		KEY_DOWN:
+			_timeline_move_from_keyboard(0.0, 1)
+			return true
+	return false
+
+
 func _exit_tree() -> void:
-	if video_conversion_pid > 0 and OS.is_process_running(video_conversion_pid):
-		OS.kill(video_conversion_pid)
-	if not video_conversion_temporary_path.is_empty() and FileAccess.file_exists(
-		video_conversion_temporary_path
-	):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(video_conversion_temporary_path))
-	if not video_conversion_progress_path.is_empty() and FileAccess.file_exists(
-		video_conversion_progress_path
-	):
-		DirAccess.remove_absolute(ProjectSettings.globalize_path(video_conversion_progress_path))
-	_reset_video_conversion_state()
+	if video_conversion_pid > 0:
+		_cancel_video_conversion(false)
 	if video_player != null:
 		video_player.stop()
 	if audio_player != null:
