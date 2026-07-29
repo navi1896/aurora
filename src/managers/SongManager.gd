@@ -4,8 +4,15 @@ class_name SongManager
 
 const SONGS_DIRECTORY := "res://songs"
 const EDITOR_DIRECTORY := "user://aurora_editor"
+const PACKAGES_DIRECTORY := "user://aurora_packages"
+const PACKAGE_SERVICE_TYPE := preload(
+	"res://src/packages/SongPackageService.gd"
+)
 
 var songs: Array[SongData] = []
+var package_roots_by_song_id: Dictionary = {}
+var package_media_by_song_id: Dictionary = {}
+var package_service = PACKAGE_SERVICE_TYPE.new()
 
 
 func _ready() -> void:
@@ -15,8 +22,11 @@ func _ready() -> void:
 func load_songs() -> void:
 	# Song resources remain editable in Godot and can be grouped in folders.
 	songs.clear()
+	package_roots_by_song_id.clear()
+	package_media_by_song_id.clear()
 	_scan_directory(SONGS_DIRECTORY)
 	_scan_editor_directory(EDITOR_DIRECTORY)
+	_scan_package_directory(PACKAGES_DIRECTORY)
 	songs.sort_custom(_sort_songs)
 
 
@@ -48,6 +58,227 @@ func get_song(index: int) -> SongData:
 
 func get_all_songs() -> Array[SongData]:
 	return songs
+
+
+func import_song_package(package_path: String) -> Dictionary:
+	var inspection: Dictionary = package_service.validate_package_manifest(
+		package_path
+	)
+	if not bool(inspection.get("ok", false)):
+		return inspection
+	var manifest: Dictionary = inspection.get("manifest", {})
+	var package_id := str(
+		manifest.get("package_id", "")
+	).strip_edges()
+	var destination := PACKAGES_DIRECTORY.path_join(package_id)
+	var result: Dictionary = package_service.import_package(
+		package_path,
+		destination
+	)
+	if not bool(result.get("ok", false)):
+		return result
+	load_songs()
+	result["song_id"] = "package_%s" % package_id
+	result["package_root"] = destination
+	return result
+
+
+func _scan_package_directory(directory_path: String) -> void:
+	var directory := DirAccess.open(directory_path)
+	if directory == null:
+		return
+	directory.list_dir_begin()
+	var entry_name := directory.get_next()
+	while not entry_name.is_empty():
+		if (
+			not entry_name.begins_with(".")
+			and directory.current_is_dir()
+			and not entry_name.ends_with(
+				PACKAGE_SERVICE_TYPE.IMPORT_TEMP_SUFFIX
+			)
+		):
+			_load_package_staging(
+				directory_path.path_join(entry_name)
+			)
+		entry_name = directory.get_next()
+	directory.list_dir_end()
+
+
+func _load_package_staging(package_root: String) -> void:
+	var validation: Dictionary = package_service.validate_staging(
+		package_root,
+		false
+	)
+	if not bool(validation.get("ok", false)):
+		return
+	var manifest: Dictionary = validation.get("manifest", {})
+	var package_id := str(
+		manifest.get("package_id", "")
+	).strip_edges()
+	var song_document: Dictionary = manifest.get("song", {})
+	var song_id := "package_%s" % package_id
+	if package_roots_by_song_id.has(song_id):
+		return
+
+	var charts: Array[ChartData] = []
+	for chart_value in song_document.get("charts", []):
+		if not (chart_value is Dictionary):
+			return
+		var chart_document: Dictionary = chart_value
+		var chart := ChartData.new()
+		chart.key_count = int(chart_document.get("key_count", 4))
+		chart.difficulty_name = str(
+			chart_document.get("difficulty", "NORMAL")
+		).to_upper()
+		chart.difficulty_level = clampi(
+			int(chart_document.get("difficulty_level", 4)),
+			1,
+			20
+		)
+		chart.chart_path = package_root.path_join(
+			str(chart_document.get("path", ""))
+		)
+		if not chart.has_valid_file_chart():
+			return
+		charts.append(chart)
+	if charts.is_empty():
+		return
+
+	var song := SongData.new()
+	song.song_id = StringName(song_id)
+	song.title = str(song_document.get("title", "Paquete Aurora"))
+	song.artist = str(song_document.get("artist", "Aurora Creator"))
+	song.bpm = clampf(
+		float(song_document.get("bpm", 128.0)),
+		1.0,
+		400.0
+	)
+	song.duration_seconds = maxf(
+		float(song_document.get("duration_seconds", 0.0)),
+		0.0
+	)
+	song.preview_start_seconds = clampf(
+		float(song_document.get("preview_start_seconds", 0.0)),
+		0.0,
+		song.duration_seconds
+	)
+	song.preview_duration_seconds = clampf(
+		float(song_document.get("preview_duration_seconds", 15.0)),
+		1.0,
+		120.0
+	)
+	song.background_video_start_seconds = maxf(
+		float(
+			song_document.get(
+				"background_video_start_seconds",
+				0.0
+			)
+		),
+		0.0
+	)
+	song.charts = charts
+
+	var media_document: Dictionary = song_document.get("media", {})
+	var media_paths := {
+		"audio_path": _package_media_path(
+			package_root,
+			media_document,
+			"audio"
+		),
+		"video_path": _package_media_path(
+			package_root,
+			media_document,
+			"video"
+		),
+		"cover_path": _package_media_path(
+			package_root,
+			media_document,
+			"cover"
+		),
+	}
+	package_roots_by_song_id[song_id] = package_root
+	package_media_by_song_id[song_id] = media_paths
+	songs.append(song)
+
+
+func _package_media_path(
+	package_root: String,
+	media_document: Dictionary,
+	media_kind: String
+) -> String:
+	if not media_document.has(media_kind):
+		return ""
+	var descriptor_value: Variant = media_document.get(media_kind)
+	if not (descriptor_value is Dictionary):
+		return ""
+	var descriptor: Dictionary = descriptor_value
+	return package_root.path_join(str(descriptor.get("path", "")))
+
+
+func has_available_media(song: SongData) -> bool:
+	if song == null:
+		return false
+	if song.audio != null or song.background_video != null:
+		return true
+	var media: Dictionary = package_media_by_song_id.get(
+		str(song.song_id),
+		{}
+	)
+	return (
+		not str(media.get("audio_path", "")).is_empty()
+		or not str(media.get("video_path", "")).is_empty()
+	)
+
+
+func ensure_song_cover_loaded(song: SongData) -> void:
+	if song == null or song.cover != null:
+		return
+	var media: Dictionary = package_media_by_song_id.get(
+		str(song.song_id),
+		{}
+	)
+	var cover_path := str(media.get("cover_path", ""))
+	if cover_path.is_empty() or not FileAccess.file_exists(cover_path):
+		return
+	var image := Image.load_from_file(
+		ProjectSettings.globalize_path(cover_path)
+	)
+	if image != null and not image.is_empty():
+		song.cover = ImageTexture.create_from_image(image)
+
+
+func ensure_song_media_loaded(song: SongData) -> bool:
+	if song == null:
+		return false
+	ensure_song_cover_loaded(song)
+	var media: Dictionary = package_media_by_song_id.get(
+		str(song.song_id),
+		{}
+	)
+	if media.is_empty():
+		return song.audio != null or song.background_video != null
+	if song.audio == null:
+		var audio_path := str(media.get("audio_path", ""))
+		if not audio_path.is_empty() and FileAccess.file_exists(audio_path):
+			song.audio = _load_audio_stream(audio_path)
+	if song.background_video == null:
+		var video_path := str(media.get("video_path", ""))
+		if not video_path.is_empty() and FileAccess.file_exists(video_path):
+			var loaded_video := load(video_path)
+			if loaded_video is VideoStream:
+				song.background_video = loaded_video as VideoStream
+	return song.audio != null or song.background_video != null
+
+
+func release_unselected_package_media(selected_song: SongData) -> void:
+	for candidate in songs:
+		if (
+			candidate == selected_song
+			or not is_local_package_song(candidate)
+		):
+			continue
+		candidate.audio = null
+		candidate.background_video = null
 
 
 func _scan_editor_directory(directory_path: String) -> void:
@@ -133,24 +364,97 @@ func is_editor_song(song: SongData) -> bool:
 	)
 
 
+func is_local_package_song(song: SongData) -> bool:
+	if song == null:
+		return false
+	var package_root := str(
+		package_roots_by_song_id.get(str(song.song_id), "")
+	).simplify_path()
+	if package_root.is_empty():
+		return false
+	var packages_absolute := _normalized_absolute_path(
+		PACKAGES_DIRECTORY
+	).trim_suffix("/")
+	var package_absolute := _normalized_absolute_path(
+		package_root
+	).trim_suffix("/")
+	return (
+		package_absolute.begins_with(packages_absolute + "/")
+		and package_absolute.get_base_dir() == packages_absolute
+		and FileAccess.file_exists(
+			package_root.path_join(
+				PACKAGE_SERVICE_TYPE.MANIFEST_PATH
+			)
+		)
+	)
+
+
+func is_removable_local_song(song: SongData) -> bool:
+	return is_editor_song(song) or is_local_package_song(song)
+
+
 func move_editor_song_to_trash(song: SongData) -> Error:
 	if not is_editor_song(song):
 		return ERR_UNAUTHORIZED
-	var project_directory := song.editor_project_path.get_base_dir().simplify_path()
-	var editor_root_absolute := ProjectSettings.globalize_path(EDITOR_DIRECTORY).simplify_path()
-	var project_absolute := ProjectSettings.globalize_path(project_directory).simplify_path()
-	var normalized_root := editor_root_absolute.replace("\\", "/").trim_suffix("/")
-	var normalized_project := project_absolute.replace("\\", "/").trim_suffix("/")
+	return _move_local_directory_to_trash(
+		song.editor_project_path.get_base_dir().simplify_path(),
+		EDITOR_DIRECTORY,
+		"project.json",
+		false
+	)
+
+
+func move_local_song_to_trash(song: SongData) -> Error:
+	if is_editor_song(song):
+		return move_editor_song_to_trash(song)
+	if not is_local_package_song(song):
+		return ERR_UNAUTHORIZED
+	var package_root := str(
+		package_roots_by_song_id.get(str(song.song_id), "")
+	)
+	return _move_local_directory_to_trash(
+		package_root,
+		PACKAGES_DIRECTORY,
+		PACKAGE_SERVICE_TYPE.MANIFEST_PATH,
+		true
+	)
+
+
+func _move_local_directory_to_trash(
+	content_directory: String,
+	allowed_root: String,
+	required_file_name: String,
+	require_immediate_child: bool
+) -> Error:
+	var content_absolute := _normalized_absolute_path(
+		content_directory
+	).trim_suffix("/")
+	var root_absolute := _normalized_absolute_path(
+		allowed_root
+	).trim_suffix("/")
 	if (
-		normalized_project == normalized_root
-		or not normalized_project.begins_with(normalized_root + "/")
-		or not DirAccess.dir_exists_absolute(project_absolute)
+		content_absolute == root_absolute
+		or not content_absolute.begins_with(root_absolute + "/")
+		or (
+			require_immediate_child
+			and content_absolute.get_base_dir() != root_absolute
+		)
+		or not DirAccess.dir_exists_absolute(content_absolute)
+		or not FileAccess.file_exists(
+			content_directory.path_join(required_file_name)
+		)
 	):
 		return ERR_INVALID_PARAMETER
-	var move_error := OS.move_to_trash(project_absolute)
+	var move_error := OS.move_to_trash(content_absolute)
 	if move_error == OK:
 		load_songs()
 	return move_error
+
+
+func _normalized_absolute_path(path: String) -> String:
+	return ProjectSettings.globalize_path(
+		path
+	).simplify_path().replace("\\", "/")
 
 
 func _load_audio_stream(path: String) -> AudioStream:

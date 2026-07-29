@@ -194,11 +194,26 @@ theme_override_fonts/font = ExtResource("6_font")
 theme_override_font_sizes/font_size = 13
 text = "ELIGE UNA PISTA Y UN MODO DE TECLAS"
 
-[node name="SongCountLabel" type="Label" parent="LibraryMargins/PageLayout/Header"]
+[node name="HeaderActions" type="VBoxContainer" parent="LibraryMargins/PageLayout/Header"]
+custom_minimum_size = Vector2(230, 0)
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 6
+
+[node name="ImportPackageButton" type="Button" parent="LibraryMargins/PageLayout/Header/HeaderActions"]
+custom_minimum_size = Vector2(230, 46)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_action_buttons")
+theme_override_font_sizes/font_size = 11
+text = "IMPORTAR .AURORA"
+
+[node name="SongCountLabel" type="Label" parent="LibraryMargins/PageLayout/Header/HeaderActions"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.75, 0.55, 1, 1)
 theme_override_fonts/font = ExtResource("6_font")
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 11
 text = "0 CANCIONES"
 vertical_alignment = 1
 horizontal_alignment = 2
@@ -381,7 +396,7 @@ theme_override_fonts/font = ExtResource("6_font")
 theme_override_font_sizes/font_size = 13
 text = "MODO DE TECLAS"
 
-[node name="ModeButtons" type="HBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+[node name="ModeButtons" type="HFlowContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
 layout_mode = 2
 theme = SubResource("Theme_mode_buttons")
 theme_override_constants/separation = 12

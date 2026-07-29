@@ -219,6 +219,136 @@ func validate_package(package_path: String) -> Dictionary:
 	return _inspect_archive(package_path, true)
 
 
+func validate_staging(
+	staging_root: String,
+	validate_all_payloads: bool = true
+) -> Dictionary:
+	var staging_absolute := _absolute_path(staging_root)
+	if not DirAccess.dir_exists_absolute(staging_absolute):
+		return _failure(
+			"staging_not_found",
+			ERR_FILE_NOT_FOUND,
+			"No se encontró la carpeta de staging."
+		)
+	var manifest_path := staging_absolute.path_join(MANIFEST_PATH)
+	var manifest_file := FileAccess.open(manifest_path, FileAccess.READ)
+	if manifest_file == null:
+		return _failure(
+			"manifest_missing",
+			FileAccess.get_open_error(),
+			"El staging no contiene manifest.json."
+		)
+	var manifest_size := manifest_file.get_length()
+	if (
+		manifest_size <= 0
+		or manifest_size > _limit("max_manifest_bytes")
+	):
+		return _failure(
+			"manifest_too_large",
+			ERR_OUT_OF_MEMORY,
+			"El manifiesto del staging está vacío o supera el límite."
+		)
+	var parsed_manifest = JSON.parse_string(
+		manifest_file.get_as_text()
+	)
+	var manifest_check := validate_manifest(parsed_manifest, true)
+	if not bool(manifest_check.get("ok", false)):
+		return manifest_check
+	var references: Dictionary = manifest_check.get("references", {})
+	var total_payload_bytes := 0
+	for relative_path_value in references.keys():
+		var relative_path := str(relative_path_value)
+		var record: Dictionary = references[relative_path]
+		var descriptor: Dictionary = record.get("descriptor", {})
+		if (
+			not validate_all_payloads
+			and str(record.get("kind", "")) != "chart"
+		):
+			var payload_path := staging_absolute.path_join(
+				relative_path
+			).simplify_path()
+			var payload_file := FileAccess.open(
+				payload_path,
+				FileAccess.READ
+			)
+			if payload_file == null:
+				return _failure(
+					"staging_file_missing",
+					FileAccess.get_open_error(),
+					"No se encontró %s dentro del staging."
+					% relative_path
+				)
+			var payload_size := payload_file.get_length()
+			if payload_size != int(
+				descriptor.get("size_bytes", -1)
+			):
+				return _failure(
+					"size_mismatch",
+					ERR_INVALID_DATA,
+					"El tamaño de %s no coincide con el manifiesto."
+					% relative_path
+				)
+			total_payload_bytes += payload_size
+			if total_payload_bytes > _limit(
+				"max_total_uncompressed_bytes"
+			):
+				return _failure(
+					"package_too_large",
+					ERR_OUT_OF_MEMORY,
+					"El staging supera el límite total permitido."
+				)
+			continue
+		var read_result := _read_staging_file(
+			staging_absolute,
+			relative_path
+		)
+		if not bool(read_result.get("ok", false)):
+			return read_result
+		var bytes: PackedByteArray = read_result.get(
+			"bytes",
+			PackedByteArray()
+		)
+		if bytes.size() != int(descriptor.get("size_bytes", -1)):
+			return _failure(
+				"size_mismatch",
+				ERR_INVALID_DATA,
+				"El tamaño de %s no coincide con el manifiesto."
+				% relative_path
+			)
+		if compute_sha256(bytes).to_lower() != str(
+			descriptor.get("sha256", "")
+		).to_lower():
+			return _failure(
+				"hash_mismatch",
+				ERR_INVALID_DATA,
+				"El hash SHA-256 de %s no coincide."
+				% relative_path
+			)
+		total_payload_bytes += bytes.size()
+		if total_payload_bytes > _limit(
+			"max_total_uncompressed_bytes"
+		):
+			return _failure(
+				"package_too_large",
+				ERR_OUT_OF_MEMORY,
+				"El staging supera el límite total permitido."
+			)
+		if str(record.get("kind", "")) == "chart":
+			var chart_check := _validate_chart_bytes(
+				bytes,
+				int(record.get("key_count", 0)),
+				relative_path
+			)
+			if not bool(chart_check.get("ok", false)):
+				return chart_check
+	return _success({
+		"manifest": parsed_manifest,
+		"file_count": references.size() + 1,
+		"payload_bytes": total_payload_bytes,
+		"payloads_validated": validate_all_payloads,
+	})
+
+
 func import_package(
 	package_path: String,
 	destination_staging_path: String
