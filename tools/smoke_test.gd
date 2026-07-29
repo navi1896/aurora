@@ -779,6 +779,51 @@ func _run() -> void:
 			and not editor_project_document.has("notes"),
 			"El editor usa chart.json como única fuente de notas"
 		)
+		var history_notes: Array[Dictionary] = [
+			{"time": 10.0, "lane": 1, "duration": 0.0}
+		]
+		editor.notes = history_notes
+		editor.key_count = 4
+		editor.duration_seconds = 20.0
+		editor._reset_editor_history()
+		var before_insert = editor._capture_chart_state()
+		editor.notes.append({"time": 5.0, "lane": 0, "duration": 0.0})
+		editor.notes = ChartData.normalize_notes(editor.notes, editor.key_count)
+		editor._commit_chart_state(before_insert, "Insertar nota de prueba")
+		_expect(
+			editor.chart_history.can_undo() and editor._is_editor_dirty(),
+			"Editar el chart activa Deshacer y el indicador sin guardar"
+		)
+		editor._undo_chart_action()
+		_expect(
+			editor.notes.size() == 1
+			and is_equal_approx(float(editor.notes[0]["time"]), 10.0),
+			"Deshacer restaura la operación, no la última nota cronológica"
+		)
+		editor._redo_chart_action()
+		_expect(
+			editor.notes.size() == 2,
+			"Rehacer recupera la operación deshecha"
+		)
+		editor._mark_editor_saved()
+		_expect(not editor._is_editor_dirty(), "Guardar establece un punto limpio")
+		editor.title_edit.text = "Cambio sin guardar"
+		_expect(
+			editor._is_editor_dirty(),
+			"Modificar metadatos también activa el aviso sin guardar"
+		)
+		editor._request_new_project()
+		_expect(
+			editor.confirmation_dialog.visible and editor.notes.size() == 2,
+			"Nuevo pide confirmación antes de descartar cambios"
+		)
+		editor.confirmation_dialog.hide()
+		editor._cancel_pending_confirmation()
+		editor._new_project()
+		_expect(
+			editor.creation_mode == "automatic",
+			"Un proyecto nuevo empieza en el modo Automático recomendado"
+		)
 		game_manager.start_editor_test(
 			demo_song,
 			demo_song.charts[0],

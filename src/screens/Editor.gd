@@ -3,6 +3,8 @@ extends Control
 class_name Editor
 
 const PROJECT_STORE = preload("res://src/screens/editor/EditorProjectStore.gd")
+const CHART_STATE_MODEL = preload("res://src/screens/editor/EditorChartState.gd")
+const CHART_HISTORY_MODEL = preload("res://src/screens/editor/ChartEditHistory.gd")
 const EDITOR_DIRECTORY := "user://aurora_editor"
 const EDITOR_MEDIA_DIRECTORY := "user://aurora_editor/media"
 const VIDEO_CONVERSION_PROFILE := "theora_v3_720p30"
@@ -41,6 +43,10 @@ var creation_mode := "manual"
 var recording := false
 var preview_running := false
 var automatic_density := 1
+var chart_history
+var saved_metadata_signature := ""
+var suppress_dirty_tracking := true
+var pending_confirmation_action := Callable()
 
 var video_player: VideoStreamPlayer
 var audio_player: AudioStreamPlayer
@@ -58,6 +64,10 @@ var manual_mode_label: Label
 var automatic_mode_label: Label
 var generate_button: Button
 var test_button: Button
+var undo_button: Button
+var redo_button: Button
+var dirty_label: Label
+var confirmation_dialog: ConfirmationDialog
 var recording_countdown_label: Label
 var title_edit: LineEdit
 var artist_edit: LineEdit
@@ -95,8 +105,11 @@ func _ready() -> void:
 	game_manager = managers.get_node("GameManager") as GameManager
 	input_manager = managers.get_node("InputManager") as InputManager
 	song_manager = managers.get_node("SongManager") as SongManager
+	chart_history = CHART_HISTORY_MODEL.new()
 	_setup_ui()
 	_setup_file_dialogs()
+	_reset_editor_history()
+	suppress_dirty_tracking = false
 	if not _restore_editor_test_if_needed():
 		_refresh_editor_state()
 
@@ -180,7 +193,7 @@ func _build_header(page: VBoxContainer) -> void:
 	page.add_child(header)
 
 	var back := _make_tool_button(AuroraLocale.text("◀ VOLVER"), 132.0)
-	back.pressed.connect(Callable(scene_manager, "load_scene").bind("main_menu"))
+	back.pressed.connect(_request_leave_editor)
 	header.add_child(back)
 
 	var title_box := VBoxContainer.new()
@@ -200,11 +213,17 @@ func _build_header(page: VBoxContainer) -> void:
 		)
 	)
 
+	dirty_label = AuroraUi.make_pixel_label("", 7, AuroraUi.MUTED)
+	dirty_label.custom_minimum_size.x = 200.0
+	dirty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	dirty_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	header.add_child(dirty_label)
+
 	var new_button := _make_tool_button(AuroraLocale.text("NUEVO"), 110.0)
-	new_button.pressed.connect(_new_project)
+	new_button.pressed.connect(_request_new_project)
 	header.add_child(new_button)
-	var import_button := _make_tool_button(AuroraLocale.text("IMPORTAR"), 130.0)
-	import_button.pressed.connect(_open_project_dialog)
+	var import_button := _make_tool_button(AuroraLocale.text("ABRIR PROYECTO"), 150.0)
+	import_button.pressed.connect(_request_open_project_dialog)
 	header.add_child(import_button)
 	var save_button := _make_tool_button(AuroraLocale.text("GUARDAR"), 130.0, true)
 	save_button.pressed.connect(_save_project)
@@ -370,11 +389,14 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	test_button.pressed.connect(_test_chart)
 	row.add_child(test_button)
 
-	var undo_button := _make_tool_button(AuroraLocale.text("DESHACER"), 122.0)
-	undo_button.pressed.connect(_undo_last_note)
+	undo_button = _make_tool_button(AuroraLocale.text("DESHACER"), 122.0)
+	undo_button.pressed.connect(_undo_chart_action)
 	row.add_child(undo_button)
+	redo_button = _make_tool_button(AuroraLocale.text("REHACER"), 112.0)
+	redo_button.pressed.connect(_redo_chart_action)
+	row.add_child(redo_button)
 	var clear_button := _make_tool_button(AuroraLocale.text("LIMPIAR"), 112.0)
-	clear_button.pressed.connect(_clear_notes)
+	clear_button.pressed.connect(_request_clear_notes)
 	row.add_child(clear_button)
 	row.add_child(AuroraUi.spacer(1))
 
@@ -445,6 +467,9 @@ func _build_properties(body: HBoxContainer) -> void:
 	title_edit = _add_line_edit(controls, AuroraLocale.text("TITULO"), "Nuevo nivel")
 	artist_edit = _add_line_edit(controls, AuroraLocale.text("ARTISTA"), "Aurora Creator")
 	difficulty_edit = _add_line_edit(controls, AuroraLocale.text("DIFICULTAD"), "NORMAL")
+	title_edit.text_changed.connect(_on_metadata_text_changed)
+	artist_edit.text_changed.connect(_on_metadata_text_changed)
+	difficulty_edit.text_changed.connect(_on_metadata_text_changed)
 
 	bpm_spin = _add_spin_box(controls, "BPM", 40.0, 300.0, 1.0, 128.0)
 	bpm_spin.value_changed.connect(_on_chart_property_changed)
@@ -465,6 +490,7 @@ func _build_properties(body: HBoxContainer) -> void:
 		1.0,
 		4.0
 	)
+	difficulty_level_spin.value_changed.connect(_on_chart_property_changed)
 
 	controls.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("CANTIDAD DE TECLAS"), 7, AuroraUi.MUTED))
 	key_count_option = OptionButton.new()
@@ -542,9 +568,17 @@ func _setup_file_dialogs() -> void:
 	project_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	project_dialog.filters = PackedStringArray(["*.json ; Aurora Editor Project"])
 	project_dialog.current_dir = EDITOR_DIRECTORY
-	project_dialog.title = AuroraLocale.text("Importar proyecto de Aurora")
+	project_dialog.title = AuroraLocale.text("Abrir proyecto de Aurora")
 	project_dialog.file_selected.connect(_load_project)
 	add_child(project_dialog)
+
+	confirmation_dialog = ConfirmationDialog.new()
+	confirmation_dialog.title = AuroraLocale.text("CONFIRMAR CAMBIO")
+	confirmation_dialog.ok_button_text = AuroraLocale.text("CONTINUAR")
+	confirmation_dialog.cancel_button_text = AuroraLocale.text("CANCELAR")
+	confirmation_dialog.confirmed.connect(_run_pending_confirmation)
+	confirmation_dialog.canceled.connect(_cancel_pending_confirmation)
+	add_child(confirmation_dialog)
 
 
 func _make_tool_button(text: String, width: float = 0.0, primary: bool = false) -> Button:
@@ -638,6 +672,7 @@ func _assign_video_stream(
 	else:
 		_set_status(AuroraLocale.text("VIDEO CARGADO. YA PUEDES GRABAR O GENERAR NOTAS."))
 	_refresh_editor_state()
+	_refresh_dirty_state()
 
 
 func _get_video_import_mode(path: String) -> String:
@@ -1067,6 +1102,7 @@ func _load_audio(path: String) -> void:
 	media_status_label.add_theme_color_override("font_color", AuroraUi.GOLD)
 	_refresh_media_duration()
 	_set_status(AuroraLocale.text("AUDIO CARGADO Y LISTO PARA CREAR EL CHART."))
+	_refresh_dirty_state()
 
 
 func _import_media_file(source_path: String, allowed_extensions: Array) -> String:
@@ -1150,6 +1186,7 @@ func _load_audio_stream(path: String) -> AudioStream:
 
 
 func _refresh_media_duration() -> void:
+	var before_state = _capture_chart_state()
 	var detected_duration := 0.0
 	if video_player.stream != null:
 		detected_duration = maxf(detected_duration, video_player.get_stream_length())
@@ -1163,6 +1200,7 @@ func _refresh_media_duration() -> void:
 			key_count
 		)
 	seek_slider.max_value = maxf(duration_seconds, 1.0)
+	_commit_chart_state(before_state, "Ajustar duración al medio")
 	_refresh_editor_state()
 
 
@@ -1271,6 +1309,7 @@ func _set_creation_mode(mode: String) -> void:
 		if creation_mode == "manual"
 		else AuroraLocale.text("MODO AUTOMATICO: GENERACION BASE POR BPM")
 	)
+	_refresh_dirty_state()
 
 
 func _on_creation_mode_switched(automatic_enabled: bool) -> void:
@@ -1351,6 +1390,7 @@ func _record_lane_pressed(lane: int) -> void:
 func _record_lane_released(lane: int) -> void:
 	if not active_recording_holds.has(lane):
 		return
+	var before_state = _capture_chart_state()
 	var start_time := float(active_recording_holds[lane])
 	active_recording_holds.erase(lane)
 	var hold_duration := maxf(preview_time - start_time, 0.0)
@@ -1360,6 +1400,7 @@ func _record_lane_released(lane: int) -> void:
 		"duration": snappedf(hold_duration, 0.001) if hold_duration >= MIN_HOLD_DURATION else 0.0,
 	})
 	notes = ChartData.normalize_notes(notes, key_count)
+	_commit_chart_state(before_state, "Grabar nota")
 	_refresh_editor_state()
 
 
@@ -1373,13 +1414,27 @@ func _generate_automatic_chart() -> void:
 	if not _has_media():
 		_set_status(AuroraLocale.text("SELECCIONA VIDEO O AUDIO ANTES DE GENERAR"), true)
 		return
+	if not notes.is_empty():
+		_request_confirmation(
+			AuroraLocale.text(
+				"GENERAR DE NUEVO REEMPLAZARA TODAS LAS NOTAS. PODRAS DESHACER EL CAMBIO."
+			),
+			_apply_automatic_chart
+		)
+		return
+	_apply_automatic_chart()
+
+
+func _apply_automatic_chart() -> void:
 	_finish_open_recorded_notes()
+	var before_state = _capture_chart_state()
 	notes = _build_automatic_notes(
 		float(bpm_spin.value),
 		duration_seconds,
 		key_count,
 		automatic_density
 	)
+	_commit_chart_state(before_state, "Generar chart automático")
 	_refresh_editor_state()
 	_set_status(
 		AuroraLocale.text(
@@ -1426,17 +1481,40 @@ func _build_automatic_notes(
 	return ChartData.normalize_notes(generated, chart_key_count)
 
 
+func _undo_chart_action() -> void:
+	if chart_history == null or not chart_history.can_undo():
+		return
+	var action_label: String = str(chart_history.get_undo_label())
+	_apply_chart_state(chart_history.undo())
+	_set_status(AuroraLocale.text("DESHECHO: %s") % action_label)
+
+
+func _redo_chart_action() -> void:
+	if chart_history == null or not chart_history.can_redo():
+		return
+	var action_label: String = str(chart_history.get_redo_label())
+	_apply_chart_state(chart_history.redo())
+	_set_status(AuroraLocale.text("REHECHO: %s") % action_label)
+
+
 func _undo_last_note() -> void:
+	_undo_chart_action()
+
+
+func _request_clear_notes() -> void:
 	if notes.is_empty():
 		return
-	notes.remove_at(notes.size() - 1)
-	_refresh_editor_state()
-	_set_status(AuroraLocale.text("ULTIMA NOTA ELIMINADA"))
+	_request_confirmation(
+		AuroraLocale.text("¿LIMPIAR TODAS LAS NOTAS? PODRAS DESHACER EL CAMBIO."),
+		_clear_notes
+	)
 
 
 func _clear_notes() -> void:
 	_finish_open_recorded_notes()
+	var before_state = _capture_chart_state()
 	notes.clear()
+	_commit_chart_state(before_state, "Limpiar chart")
 	_refresh_editor_state()
 	_set_status(AuroraLocale.text("CHART LIMPIO"))
 
@@ -1444,29 +1522,179 @@ func _clear_notes() -> void:
 func _on_key_count_selected(index: int) -> void:
 	if index < 0 or index >= SUPPORTED_KEY_COUNTS.size():
 		return
+	var next_key_count := SUPPORTED_KEY_COUNTS[index]
+	if next_key_count == key_count:
+		return
+	var removes_notes := false
+	for note in notes:
+		if int(note.get("lane", 0)) >= next_key_count:
+			removes_notes = true
+			break
+	if next_key_count < key_count and removes_notes:
+		key_count_option.select(SUPPORTED_KEY_COUNTS.find(key_count))
+		_request_confirmation(
+			AuroraLocale.text(
+				"REDUCIR A %dK ELIMINARA NOTAS DE LOS CARRILES EXCEDENTES. PODRAS DESHACER."
+			) % next_key_count,
+			Callable(self, "_apply_key_count").bind(next_key_count)
+		)
+		return
+	_apply_key_count(next_key_count)
+
+
+func _apply_key_count(next_key_count: int) -> void:
 	_finish_open_recorded_notes()
-	key_count = SUPPORTED_KEY_COUNTS[index]
+	var before_state = _capture_chart_state()
+	key_count = next_key_count
+	key_count_option.select(SUPPORTED_KEY_COUNTS.find(key_count))
 	notes = ChartData.normalize_notes(notes, key_count)
+	_commit_chart_state(before_state, "Cambiar a %dK" % key_count)
 	_refresh_editor_state()
 	_set_status(AuroraLocale.text("MODO DE TECLAS CAMBIADO A %dK") % key_count)
 
 
 func _on_density_selected(index: int) -> void:
 	automatic_density = clampi(index, 0, 2)
+	_refresh_dirty_state()
 
 
 func _on_chart_property_changed(_value: float) -> void:
 	_refresh_editor_state()
+	_refresh_dirty_state()
 
 
 func _on_duration_changed(value: float) -> void:
+	var before_state = _capture_chart_state()
 	duration_seconds = maxf(value, 1.0)
 	seek_slider.max_value = duration_seconds
 	notes = ChartData.normalize_notes(
 		notes.filter(func(note: Dictionary) -> bool: return float(note["time"]) <= duration_seconds),
 		key_count
 	)
+	_commit_chart_state(before_state, "Cambiar duración")
 	_refresh_editor_state()
+
+
+func _capture_chart_state():
+	return CHART_STATE_MODEL.new(notes, key_count, duration_seconds)
+
+
+func _commit_chart_state(_before_state, label: String) -> void:
+	if chart_history == null or suppress_dirty_tracking:
+		return
+	chart_history.commit(_capture_chart_state(), label)
+	_refresh_dirty_state()
+
+
+func _apply_chart_state(state) -> void:
+	if state == null:
+		return
+	notes = state.export_notes()
+	key_count = state.key_count
+	duration_seconds = state.duration_seconds
+	if key_count_option != null:
+		key_count_option.select(SUPPORTED_KEY_COUNTS.find(key_count))
+	if duration_spin != null:
+		duration_spin.set_value_no_signal(duration_seconds)
+	if seek_slider != null:
+		seek_slider.max_value = duration_seconds
+	_refresh_editor_state()
+
+
+func _reset_editor_history() -> void:
+	if chart_history == null:
+		return
+	chart_history.initialize(_capture_chart_state())
+	saved_metadata_signature = _metadata_signature()
+	_refresh_dirty_state()
+
+
+func _mark_editor_saved() -> void:
+	if chart_history != null:
+		chart_history.mark_saved()
+	saved_metadata_signature = _metadata_signature()
+	_refresh_dirty_state()
+
+
+func _metadata_signature() -> String:
+	if title_edit == null:
+		return ""
+	return JSON.stringify(_make_project_document("chart.json"))
+
+
+func _is_editor_dirty() -> bool:
+	if suppress_dirty_tracking:
+		return false
+	var chart_dirty: bool = chart_history != null and bool(chart_history.is_dirty())
+	return chart_dirty or _metadata_signature() != saved_metadata_signature
+
+
+func _refresh_dirty_state() -> void:
+	if undo_button != null:
+		undo_button.disabled = chart_history == null or not chart_history.can_undo()
+	if redo_button != null:
+		redo_button.disabled = chart_history == null or not chart_history.can_redo()
+	if dirty_label != null:
+		if _is_editor_dirty():
+			dirty_label.text = AuroraLocale.text("● CAMBIOS SIN GUARDAR")
+			dirty_label.add_theme_color_override("font_color", AuroraUi.GOLD)
+		else:
+			dirty_label.text = AuroraLocale.text("✓ GUARDADO")
+			dirty_label.add_theme_color_override("font_color", AuroraUi.MUTED)
+
+
+func _on_metadata_text_changed(_value: String) -> void:
+	_refresh_dirty_state()
+
+
+func _request_confirmation(message: String, action: Callable) -> void:
+	if confirmation_dialog == null:
+		action.call()
+		return
+	pending_confirmation_action = action
+	confirmation_dialog.dialog_text = message
+	confirmation_dialog.popup_centered(Vector2i(760, 230))
+
+
+func _run_pending_confirmation() -> void:
+	var action := pending_confirmation_action
+	pending_confirmation_action = Callable()
+	if action.is_valid():
+		action.call()
+
+
+func _cancel_pending_confirmation() -> void:
+	pending_confirmation_action = Callable()
+
+
+func _request_leave_editor() -> void:
+	if _is_editor_dirty():
+		_request_confirmation(
+			AuroraLocale.text("HAY CAMBIOS SIN GUARDAR. ¿SALIR DEL EDITOR Y DESCARTARLOS?"),
+			Callable(scene_manager, "load_scene").bind("main_menu")
+		)
+	else:
+		scene_manager.load_scene("main_menu")
+
+
+func _request_new_project() -> void:
+	if _is_editor_dirty():
+		_request_confirmation(
+			AuroraLocale.text("HAY CAMBIOS SIN GUARDAR. ¿CREAR UN PROYECTO NUEVO?"),
+			_new_project
+		)
+	else:
+		_new_project()
+
+
+func _request_open_project_dialog() -> void:
+	if _is_editor_dirty():
+		_request_confirmation(
+			AuroraLocale.text("HAY CAMBIOS SIN GUARDAR. ¿ABRIR OTRO PROYECTO?"),
+			_open_project_dialog
+		)
+	else:
+		_open_project_dialog()
 
 
 func _refresh_editor_state() -> void:
@@ -1496,6 +1724,7 @@ func _refresh_editor_state() -> void:
 	if test_button != null:
 		test_button.disabled = not _has_media() or notes.is_empty()
 	_update_playhead_ui()
+	_refresh_dirty_state()
 
 
 func _save_project() -> bool:
@@ -1529,6 +1758,7 @@ func _save_project() -> bool:
 		return false
 
 	current_project_path = str(save_result.get("project_path", next_project_path))
+	_mark_editor_saved()
 	song_manager.load_songs()
 
 	if not _has_media():
@@ -1571,6 +1801,7 @@ func _load_project(path: String) -> void:
 		return
 
 	_stop_preview()
+	suppress_dirty_tracking = true
 	current_project_path = str(load_result.get("project_path", path))
 	var parsed: Dictionary = load_result.get("project", {})
 	var metadata: Dictionary = parsed.get("metadata", {})
@@ -1600,6 +1831,8 @@ func _load_project(path: String) -> void:
 		_load_audio(audio_path)
 	_set_creation_mode(str(metadata.get("creation_mode", "manual")))
 	seek_slider.max_value = duration_seconds
+	_reset_editor_history()
+	suppress_dirty_tracking = false
 	_refresh_editor_state()
 	if bool(load_result.get("needs_migration", false)):
 		_set_status(AuroraLocale.text("PROYECTO ANTIGUO ABIERTO // SE MIGRARA AL GUARDAR"))
@@ -1609,6 +1842,7 @@ func _load_project(path: String) -> void:
 
 func _new_project() -> void:
 	_stop_preview()
+	suppress_dirty_tracking = true
 	notes.clear()
 	active_recording_holds.clear()
 	video_path = ""
@@ -1633,7 +1867,9 @@ func _new_project() -> void:
 	preview_placeholder.text = AuroraLocale.text("SELECCIONA VIDEO O AUDIO")
 	media_status_label.text = AuroraLocale.text("MEDIO REQUERIDO")
 	media_status_label.add_theme_color_override("font_color", AuroraUi.CORAL)
-	_set_creation_mode("manual")
+	_set_creation_mode("automatic")
+	_reset_editor_history()
+	suppress_dirty_tracking = false
 	_refresh_editor_state()
 	_set_status(AuroraLocale.text("PROYECTO NUEVO"))
 
@@ -1740,7 +1976,7 @@ func _input(event: InputEvent) -> void:
 			if recording_countdown_active:
 				_toggle_recording()
 			else:
-				scene_manager.load_scene("main_menu")
+				_request_leave_editor()
 			return
 
 	if event is InputEventKey and not event.echo:
@@ -1768,7 +2004,7 @@ func _input(event: InputEvent) -> void:
 			if recording or recording_countdown_active:
 				_toggle_recording()
 			else:
-				scene_manager.load_scene("main_menu")
+				_request_leave_editor()
 
 
 func _exit_tree() -> void:
