@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://bsh2vrhuis50e"]
+
+[ext_resource type="Script" uid="uid://dwbo5bf8iixk6" path="res://src/screens/Settings.gd" id="1_settings"]
+
+[node name="Settings" type="Control" unique_id=439837806]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture_filter = 1
+script = ExtResource("1_settings")

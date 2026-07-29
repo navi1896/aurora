@@ -1,0 +1,37 @@
+AURORA 1.0.0
+============
+
+1. Extrae todo el contenido del ZIP.
+2. Ejecuta Aurora.exe.
+3. Aurora comienza sin canciones incluidas.
+4. Entra en EDITOR DE NIVELES para crear o importar tu contenido.
+5. Los proyectos creados aparecerán después en la BIBLIOTECA DE CANCIONES.
+
+Formatos
+--------
+- Audio: MP3, OGG y WAV.
+- Video directo: OGV.
+- Video con conversión automática: MP4, MOV, MKV, WEBM, AVI y M4V.
+
+Aurora ya incluye una copia portátil compatible de FFmpeg. El jugador no
+necesita instalar FFmpeg ni modificar el archivo original.
+
+Requisito de la compilación incluida: Windows 10 22H2 o posterior, 64 bits.
+
+Controles
+---------
+- Compatible con teclado y mandos Xbox/PlayStation.
+- Las asignaciones se pueden cambiar desde CONFIGURACIÓN > CONTROLES.
+
+Créditos y licencias
+--------------------
+- Dentro del juego: OPCIONES > CRÉDITOS.
+- Archivos completos: carpeta licenses.
+- Información para publicar o compartir: PUBLICACION.txt.
+
+Notas
+-----
+- Conserva Aurora.exe, Aurora.pck, tools y licenses dentro de la misma carpeta.
+- Aurora funciona de forma local y no incluye cuentas, anuncios ni analítica.
+- Las canciones, videos y charts importados son responsabilidad de quien los
+  utiliza y no forman parte de la distribución oficial de Aurora.

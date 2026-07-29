@@ -1,0 +1,110 @@
+AURORA 1.0.0 — CRÉDITOS Y AVISOS DE TERCEROS
+================================================
+
+Aurora
+------
+Diseño, desarrollo, arte original y composición procedural del menú:
+Aurora Project.
+
+Copyright (c) 2026 Aurora Project. Todos los derechos reservados salvo los
+componentes de terceros enumerados a continuación.
+
+
+Godot Engine
+------------
+Aurora utiliza Godot Engine.
+
+Copyright (c) 2014-present Godot Engine contributors.
+Copyright (c) 2007-2014 Juan Linietsky, Ariel Manzur.
+Licencia: MIT.
+
+El texto completo se incluye en:
+licenses/Godot/GODOT_LICENSE.txt
+
+El inventario exhaustivo de licencias de la revisión exacta del motor se
+incluye en:
+licenses/Godot/GODOT_COPYRIGHT.txt
+
+También puede consultarse desde CONFIGURACIÓN > CRÉDITOS > VER LICENCIAS
+COMPLETAS. Aurora obtiene esos datos directamente de la versión de Godot con
+la que se ejecuta.
+
+Sitio oficial: https://godotengine.org/
+Código fuente: https://github.com/godotengine/godot
+
+
+FFmpeg
+------
+Aurora distribuye FFmpeg 6.1.6 como un programa independiente y reemplazable
+para convertir archivos de video seleccionados por el usuario a Ogg Theora.
+Aurora invoca el ejecutable mediante argumentos de línea de comandos y no
+enlaza FFmpeg con Aurora.exe.
+
+Compilación Windows x86_64 preparada para Aurora sin componentes GPL ni
+nonfree. No se aplicaron parches al código fuente; únicamente se seleccionó
+una configuración mínima de compilación.
+
+Copyright: FFmpeg developers y respectivos colaboradores.
+Licencia del ejecutable incluido: GNU Lesser General Public License,
+versión 2.1 o posterior.
+FFmpeg es una marca de Fabrice Bellard.
+Partes de FFmpeg contienen software desarrollado por Independent JPEG Group.
+
+Los textos, la configuración, la receta reproducible y las fuentes exactas se
+incluyen en:
+licenses/FFmpeg/LICENSE.txt
+licenses/FFmpeg/LICENSE.md
+licenses/FFmpeg/SOURCE_AND_BUILD.txt
+licenses/FFmpeg/BUILD_CONFIGURATION.txt
+licenses/FFmpeg/EXTERNAL_LIBRARIES.txt
+licenses/FFmpeg/MINGW_RUNTIME_LICENSES.txt
+licenses/FFmpeg/GCC_RUNTIME_EXCEPTION.txt
+licenses/FFmpeg/Xiph/libogg-COPYING.txt
+licenses/FFmpeg/Xiph/libvorbis-COPYING.txt
+licenses/FFmpeg/Xiph/libtheora-COPYING.txt
+licenses/FFmpeg/Xiph/libtheora-LICENSE.txt
+licenses/FFmpeg/source/ffmpeg-6.1.6.tar.xz
+licenses/FFmpeg/source/ffmpeg-6.1.6.tar.xz.asc
+licenses/FFmpeg/source/ffmpeg-devel.asc
+licenses/FFmpeg/source/libogg-1.3.6.tar.xz
+licenses/FFmpeg/source/libvorbis-1.3.7.tar.xz
+licenses/FFmpeg/source/libtheora-1.2.0.tar.gz
+licenses/FFmpeg/source/build_ffmpeg_minimal.ps1
+licenses/FFmpeg/source/build-all.sh
+
+Sitio oficial: https://ffmpeg.org/
+
+
+Xiph.org libraries
+------------------
+La compilación de FFmpeg incluye de forma estática:
+
+- libogg 1.3.6
+- libvorbis 1.3.7
+- libtheora 1.2.0
+
+Copyright de Xiph.org Foundation. Licencia BSD de 3 cláusulas.
+Los avisos completos y la declaración de patentes de Theora se reproducen en:
+licenses/FFmpeg/EXTERNAL_LIBRARIES.txt
+
+Fuentes oficiales: https://xiph.org/downloads/
+
+
+Press Start 2P
+--------------
+Tipografía utilizada por la interfaz de Aurora.
+
+Copyright 2012 The Press Start 2P Project Authors
+(cody@zone38.net).
+Licencia: SIL Open Font License, versión 1.1.
+
+El texto completo se incluye en:
+licenses/PressStart2P/OFL.txt
+
+
+Contenido importado por el usuario
+----------------------------------
+Las canciones, videos, imágenes y charts que cada jugador importe o cree no
+forman parte de la distribución oficial de Aurora. Sus derechos y permisos
+siguen perteneciendo a sus respectivos autores. Cada usuario es responsable de
+contar con permiso para utilizar y compartir ese contenido.

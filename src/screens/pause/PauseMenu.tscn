@@ -1,0 +1,471 @@
+[gd_scene load_steps=15 format=3]
+
+[ext_resource type="Script" path="res://src/screens/pause/PauseMenu.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/menu/buttons/button_normal.png" id="2_button_normal"]
+[ext_resource type="Texture2D" path="res://assets/menu/buttons/button_selected.png" id="3_button_selected"]
+[ext_resource type="FontFile" path="res://assets/menu/fonts/PressStart2P-Regular.ttf" id="4_font"]
+
+[sub_resource type="StyleBoxTexture" id="StyleBox_action_normal"]
+texture = ExtResource("2_button_normal")
+texture_margin_left = 80.0
+texture_margin_top = 45.0
+texture_margin_right = 80.0
+texture_margin_bottom = 45.0
+content_margin_left = 38.0
+content_margin_right = 38.0
+
+[sub_resource type="StyleBoxTexture" id="StyleBox_action_selected"]
+texture = ExtResource("3_button_selected")
+texture_margin_left = 80.0
+texture_margin_top = 45.0
+texture_margin_right = 80.0
+texture_margin_bottom = 45.0
+content_margin_left = 38.0
+content_margin_right = 38.0
+
+[sub_resource type="Theme" id="Theme_actions"]
+Button/colors/font_color = Color(0.94, 0.96, 1, 1)
+Button/colors/font_focus_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/fonts/font = ExtResource("4_font")
+Button/font_sizes/font_size = 18
+Button/styles/focus = SubResource("StyleBox_action_selected")
+Button/styles/hover = SubResource("StyleBox_action_selected")
+Button/styles/normal = SubResource("StyleBox_action_normal")
+Button/styles/pressed = SubResource("StyleBox_action_selected")
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_settings_panel"]
+bg_color = Color(0.012, 0.018, 0.06, 0.97)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.43, 0.18, 0.72, 0.92)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_small_normal"]
+bg_color = Color(0.03, 0.035, 0.1, 0.98)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.43, 0.18, 0.72, 0.9)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_small_selected"]
+bg_color = Color(0.03, 0.035, 0.1, 0.98)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.05, 0.88, 1, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="Theme" id="Theme_small_controls"]
+Button/colors/font_color = Color(0.74, 0.76, 0.88, 1)
+Button/colors/font_focus_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/fonts/font = ExtResource("4_font")
+Button/font_sizes/font_size = 13
+Button/styles/focus = SubResource("StyleBox_small_selected")
+Button/styles/hover = SubResource("StyleBox_small_selected")
+Button/styles/normal = SubResource("StyleBox_small_normal")
+Button/styles/pressed = SubResource("StyleBox_small_selected")
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_slider_track"]
+bg_color = Color(0.035, 0.04, 0.11, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.25, 0.18, 0.5, 0.9)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+content_margin_top = 6.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_slider_fill"]
+bg_color = Color(0.1, 0.72, 0.94, 1)
+border_width_top = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.9, 1, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+content_margin_top = 6.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_track_progress_background"]
+bg_color = Color(0.035, 0.04, 0.11, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.26, 0.19, 0.5, 0.9)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_track_progress_fill"]
+bg_color = Color(0.08, 0.78, 0.96, 1)
+border_width_top = 1
+border_width_bottom = 1
+border_color = Color(0.3, 0.92, 1, 1)
+corner_radius_top_left = 2
+corner_radius_top_right = 2
+corner_radius_bottom_right = 2
+corner_radius_bottom_left = 2
+
+[node name="PauseMenu" type="Control"]
+process_mode = 3
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+texture_filter = 1
+script = ExtResource("1_script")
+
+[node name="Dimmer" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.004, 0.006, 0.03, 0.86)
+
+[node name="PauseMargins" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 280
+theme_override_constants/margin_top = 52
+theme_override_constants/margin_right = 280
+theme_override_constants/margin_bottom = 42
+
+[node name="Page" type="VBoxContainer" parent="PauseMargins"]
+layout_mode = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="Title" type="Label" parent="PauseMargins/Page"]
+custom_minimum_size = Vector2(0, 78)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.98, 1, 1)
+theme_override_colors/font_shadow_color = Color(0.44, 0.04, 0.72, 0.9)
+theme_override_constants/shadow_offset_x = 4
+theme_override_constants/shadow_offset_y = 4
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 42
+text = "PAUSA"
+vertical_alignment = 1
+horizontal_alignment = 1
+
+[node name="TrackContext" type="VBoxContainer" parent="PauseMargins/Page"]
+custom_minimum_size = Vector2(0, 68)
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="TrackTitle" type="Label" parent="PauseMargins/Page/TrackContext"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.12, 0.88, 1, 1)
+theme_override_colors/font_shadow_color = Color(0.02, 0.16, 0.3, 0.9)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 16
+text = "AURORA DEMO"
+horizontal_alignment = 1
+
+[node name="TrackMeta" type="Label" parent="PauseMargins/Page/TrackContext"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.58, 0.9, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 10
+text = "AURORA PROJECT  //  4K  //  NORMAL 04"
+horizontal_alignment = 1
+
+[node name="ProgressRow" type="HBoxContainer" parent="PauseMargins/Page/TrackContext"]
+layout_mode = 2
+theme_override_constants/separation = 12
+alignment = 1
+
+[node name="TrackProgress" type="ProgressBar" parent="PauseMargins/Page/TrackContext/ProgressRow"]
+custom_minimum_size = Vector2(360, 10)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/background = SubResource("StyleBox_track_progress_background")
+theme_override_styles/fill = SubResource("StyleBox_track_progress_fill")
+value = 0.25
+show_percentage = false
+
+[node name="TrackTime" type="Label" parent="PauseMargins/Page/TrackContext/ProgressRow"]
+custom_minimum_size = Vector2(130, 16)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.72, 0.78, 0.92, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 9
+text = "00:32 / 02:10"
+vertical_alignment = 1
+horizontal_alignment = 2
+
+[node name="TitleDivider" type="ColorRect" parent="PauseMargins/Page"]
+custom_minimum_size = Vector2(0, 3)
+layout_mode = 2
+mouse_filter = 2
+color = Color(0.16, 0.72, 0.94, 0.8)
+
+[node name="ActionCenter" type="CenterContainer" parent="PauseMargins/Page"]
+layout_mode = 2
+
+[node name="Actions" type="VBoxContainer" parent="PauseMargins/Page/ActionCenter"]
+custom_minimum_size = Vector2(720, 0)
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="ContinueButton" type="Button" parent="PauseMargins/Page/ActionCenter/Actions"]
+custom_minimum_size = Vector2(720, 72)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_actions")
+text = "CONTINUAR"
+
+[node name="RestartButton" type="Button" parent="PauseMargins/Page/ActionCenter/Actions"]
+custom_minimum_size = Vector2(720, 72)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_actions")
+text = "REINICIAR"
+
+[node name="SongSelectButton" type="Button" parent="PauseMargins/Page/ActionCenter/Actions"]
+custom_minimum_size = Vector2(720, 72)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_actions")
+text = "SELECCION DE CANCIONES"
+
+[node name="ExitButton" type="Button" parent="PauseMargins/Page/ActionCenter/Actions"]
+custom_minimum_size = Vector2(720, 72)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_actions")
+text = "SALIR"
+
+[node name="SettingsPanel" type="PanelContainer" parent="PauseMargins/Page"]
+custom_minimum_size = Vector2(0, 196)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_settings_panel")
+
+[node name="SettingsMargins" type="MarginContainer" parent="PauseMargins/Page/SettingsPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 24
+theme_override_constants/margin_bottom = 18
+
+[node name="SettingsRow" type="HBoxContainer" parent="PauseMargins/Page/SettingsPanel/SettingsMargins"]
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="SpeedModule" type="VBoxContainer" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow"]
+custom_minimum_size = Vector2(300, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/SpeedModule"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.55, 1, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 12
+text = "VELOCIDAD DE NOTAS"
+horizontal_alignment = 1
+
+[node name="SpeedControls" type="HBoxContainer" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/SpeedModule"]
+layout_mode = 2
+theme_override_constants/separation = 10
+alignment = 1
+
+[node name="DecreaseButton" type="Button" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/SpeedModule/SpeedControls"]
+custom_minimum_size = Vector2(54, 48)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_small_controls")
+text = "<"
+
+[node name="ValueLabel" type="Label" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/SpeedModule/SpeedControls"]
+custom_minimum_size = Vector2(96, 48)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.98, 1, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 20
+text = "5.5x"
+vertical_alignment = 1
+horizontal_alignment = 1
+
+[node name="IncreaseButton" type="Button" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/SpeedModule/SpeedControls"]
+custom_minimum_size = Vector2(54, 48)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_small_controls")
+text = ">"
+
+[node name="RangeLabel" type="Label" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/SpeedModule"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.46, 0.5, 0.65, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 10
+text = "1.0 - 10.0"
+horizontal_alignment = 1
+
+[node name="Divider1" type="VSeparator" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow"]
+layout_mode = 2
+
+[node name="KeySoundModule" type="VBoxContainer" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow"]
+custom_minimum_size = Vector2(280, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 18
+
+[node name="Title" type="Label" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/KeySoundModule"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.55, 1, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 12
+text = "SONIDO DE TECLAS"
+horizontal_alignment = 1
+
+[node name="ToggleRow" type="HBoxContainer" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/KeySoundModule"]
+layout_mode = 2
+theme_override_constants/separation = 10
+alignment = 1
+
+[node name="OnButton" type="Button" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/KeySoundModule/ToggleRow"]
+custom_minimum_size = Vector2(92, 48)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_small_controls")
+toggle_mode = true
+text = "ON"
+
+[node name="OffButton" type="Button" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/KeySoundModule/ToggleRow"]
+custom_minimum_size = Vector2(92, 48)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_small_controls")
+toggle_mode = true
+text = "OFF"
+
+[node name="Hint" type="Label" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/KeySoundModule"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.46, 0.5, 0.65, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 10
+text = "EFECTO AL PULSAR"
+horizontal_alignment = 1
+
+[node name="Divider2" type="VSeparator" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow"]
+layout_mode = 2
+
+[node name="BackgroundModule" type="VBoxContainer" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow"]
+custom_minimum_size = Vector2(380, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/BackgroundModule"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.55, 1, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 12
+text = "ANIMACION DE FONDO"
+horizontal_alignment = 1
+
+[node name="ToggleRow" type="HBoxContainer" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/BackgroundModule"]
+layout_mode = 2
+theme_override_constants/separation = 10
+alignment = 1
+
+[node name="OnButton" type="Button" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/BackgroundModule/ToggleRow"]
+custom_minimum_size = Vector2(92, 42)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_small_controls")
+toggle_mode = true
+text = "ON"
+
+[node name="OffButton" type="Button" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/BackgroundModule/ToggleRow"]
+custom_minimum_size = Vector2(92, 42)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_small_controls")
+toggle_mode = true
+text = "OFF"
+
+[node name="IntensityRow" type="HBoxContainer" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/BackgroundModule"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Caption" type="Label" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/BackgroundModule/IntensityRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.46, 0.5, 0.65, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 9
+text = "INTENSIDAD"
+vertical_alignment = 1
+
+[node name="Slider" type="HSlider" parent="PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow/BackgroundModule/IntensityRow"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_default_cursor_shape = 2
+theme_override_styles/slider = SubResource("StyleBox_slider_track")
+theme_override_styles/grabber_area = SubResource("StyleBox_slider_fill")
+theme_override_styles/grabber_area_highlight = SubResource("StyleBox_slider_fill")
+min_value = 1.0
+max_value = 5.0
+step = 1.0
+value = 3.0
+ticks_on_borders = true
+
+[node name="Footer" type="Label" parent="PauseMargins/Page"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.52, 0.64, 1)
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 10
+text = "↑↓ SELECCIONAR   ENTER CONFIRMAR   ESC CONTINUAR"
+horizontal_alignment = 1

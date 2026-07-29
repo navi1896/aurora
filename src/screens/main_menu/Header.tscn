@@ -1,0 +1,17 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/menu/logo/aurora_logo.png" id="1_logo"]
+
+[node name="Header" type="CenterContainer"]
+custom_minimum_size = Vector2(0, 300)
+layout_mode = 2
+size_flags_vertical = 0
+mouse_filter = 2
+
+[node name="AuroraLogo" type="TextureRect" parent="."]
+custom_minimum_size = Vector2(1120, 300)
+layout_mode = 2
+mouse_filter = 2
+texture = ExtResource("1_logo")
+expand_mode = 3
+stretch_mode = 5

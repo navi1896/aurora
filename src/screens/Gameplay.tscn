@@ -1,0 +1,13 @@
+[gd_scene format=3 uid="uid://cengjlmh0gxjy"]
+
+[ext_resource type="Script" uid="uid://chvuikby8yetx" path="res://src/screens/Gameplay.gd" id="1_gameplay"]
+
+[node name="Gameplay" type="Control" unique_id=60931428]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture_filter = 1
+script = ExtResource("1_gameplay")

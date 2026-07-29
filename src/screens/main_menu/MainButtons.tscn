@@ -1,0 +1,101 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://src/screens/main_menu/MainMenuButtons.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/menu/buttons/button_normal.png" id="2_normal"]
+[ext_resource type="Texture2D" path="res://assets/menu/buttons/button_selected.png" id="3_selected"]
+[ext_resource type="Texture2D" path="res://assets/menu/ui/selector_arrow.png" id="4_selector"]
+[ext_resource type="FontFile" path="res://assets/menu/fonts/PressStart2P-Regular.ttf" id="5_font"]
+
+[sub_resource type="StyleBoxTexture" id="StyleBox_normal"]
+texture = ExtResource("2_normal")
+texture_margin_left = 80.0
+texture_margin_top = 45.0
+texture_margin_right = 80.0
+texture_margin_bottom = 45.0
+content_margin_left = 72.0
+content_margin_right = 40.0
+
+[sub_resource type="StyleBoxTexture" id="StyleBox_selected"]
+texture = ExtResource("3_selected")
+texture_margin_left = 80.0
+texture_margin_top = 45.0
+texture_margin_right = 80.0
+texture_margin_bottom = 45.0
+content_margin_left = 72.0
+content_margin_right = 40.0
+
+[sub_resource type="Theme" id="Theme_buttons"]
+Button/colors/font_color = Color(0.94, 0.96, 1, 1)
+Button/colors/font_focus_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/colors/icon_normal_color = Color(1, 1, 1, 0)
+Button/colors/icon_focus_color = Color(1, 1, 1, 1)
+Button/colors/icon_hover_color = Color(1, 1, 1, 1)
+Button/colors/icon_pressed_color = Color(1, 1, 1, 1)
+Button/constants/h_separation = 18
+Button/fonts/font = ExtResource("5_font")
+Button/font_sizes/font_size = 28
+Button/styles/disabled = SubResource("StyleBox_normal")
+Button/styles/focus = SubResource("StyleBox_selected")
+Button/styles/hover = SubResource("StyleBox_selected")
+Button/styles/normal = SubResource("StyleBox_normal")
+Button/styles/pressed = SubResource("StyleBox_selected")
+
+[node name="MainButtons" type="VBoxContainer"]
+custom_minimum_size = Vector2(680, 0)
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 3
+theme = SubResource("Theme_buttons")
+theme_override_constants/separation = 18
+alignment = 1
+script = ExtResource("1_script")
+
+[node name="BtnStart" type="Button" parent="."]
+custom_minimum_size = Vector2(620, 96)
+layout_mode = 2
+focus_neighbor_top = NodePath("../BtnExit")
+focus_neighbor_bottom = NodePath("../BtnOptions")
+focus_mode = 2
+mouse_default_cursor_shape = 2
+icon = ExtResource("4_selector")
+expand_icon = true
+icon_max_width = 42
+text = "INICIAR"
+
+[node name="BtnOptions" type="Button" parent="."]
+custom_minimum_size = Vector2(620, 96)
+layout_mode = 2
+focus_neighbor_top = NodePath("../BtnStart")
+focus_neighbor_bottom = NodePath("../BtnLevelEditor")
+focus_mode = 2
+mouse_default_cursor_shape = 2
+icon = ExtResource("4_selector")
+expand_icon = true
+icon_max_width = 42
+text = "OPCIONES"
+
+[node name="BtnLevelEditor" type="Button" parent="."]
+custom_minimum_size = Vector2(620, 96)
+layout_mode = 2
+focus_neighbor_top = NodePath("../BtnOptions")
+focus_neighbor_bottom = NodePath("../BtnExit")
+focus_mode = 2
+mouse_default_cursor_shape = 2
+icon = ExtResource("4_selector")
+expand_icon = true
+icon_max_width = 42
+text = "EDITOR DE NIVELES"
+
+[node name="BtnExit" type="Button" parent="."]
+custom_minimum_size = Vector2(620, 96)
+layout_mode = 2
+focus_neighbor_top = NodePath("../BtnLevelEditor")
+focus_neighbor_bottom = NodePath("../BtnStart")
+focus_mode = 2
+mouse_default_cursor_shape = 2
+icon = ExtResource("4_selector")
+expand_icon = true
+icon_max_width = 42
+text = "SALIR"

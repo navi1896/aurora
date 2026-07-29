@@ -1,0 +1,39 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/menu/character/menu_character.png" id="1_character"]
+[ext_resource type="Script" path="res://src/screens/main_menu/CharacterIdleRig.gd" id="2_idle"]
+
+[node name="CharacterShowcase" type="CenterContainer"]
+custom_minimum_size = Vector2(480, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="IdleRig" type="Control" parent="."]
+custom_minimum_size = Vector2(430, 650)
+layout_mode = 2
+mouse_filter = 2
+texture_filter = 1
+script = ExtResource("2_idle")
+
+[node name="MenuCharacter" type="TextureRect" parent="IdleRig"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("1_character")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="HeadphonePulse" type="Line2D" parent="IdleRig/MenuCharacter"]
+visible = false
+z_index = 1
+points = PackedVector2Array(158, 119, 179, 125, 194, 143, 200, 161, 194, 180, 179, 197, 158, 203, 136, 197, 122, 180, 117, 161, 122, 143, 136, 125)
+width = 4.0
+default_color = Color(0.15, 0.93, 1, 0.9)
+closed = true
+antialiased = false

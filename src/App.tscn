@@ -1,34 +1,51 @@
-[gd_scene type="Control" load_steps=2 format=3 uid="uid=1234567890abcdef"]
+[gd_scene format=3 uid="uid://bymqfjqjvu8fy"]
 
-[ext_resource type="Script" path="res://src/App.gd"]
+[ext_resource type="Script" uid="uid://bfy3rlqkvymxo" path="res://src/App.gd" id="1_app"]
+[ext_resource type="Script" uid="uid://cgcaubcbc7joi" path="res://src/managers/SceneManager.gd" id="2_scene"]
+[ext_resource type="Script" uid="uid://c2x1y5yuny6p6" path="res://src/managers/GameManager.gd" id="3_game"]
+[ext_resource type="Script" uid="uid://palt6tyrhctd" path="res://src/managers/SongManager.gd" id="4_song"]
+[ext_resource type="Script" uid="uid://m01aus8uxtoj" path="res://src/managers/SettingsManager.gd" id="5_settings"]
+[ext_resource type="Script" uid="uid://c57vmtxcvds2j" path="res://src/managers/InputManager.gd" id="6_input"]
+[ext_resource type="Script" path="res://src/managers/MenuMusicManager.gd" id="7_menu_music"]
 
-[node name="App" type="Control"]
-script = ExtResource("res://src/App.gd")
+[node name="App" type="Control" unique_id=1718485473]
+layout_mode = 3
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_app")
 
-[node name="CanvasLayer" type="CanvasLayer" parent="."]
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=735534810]
 
-[node name="ScreenContainer" type="Control" parent="CanvasLayer"]
+[node name="ScreenContainer" type="Control" parent="CanvasLayer" unique_id=562622221]
+layout_mode = 3
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 
-[node name="PopupLayer" type="CanvasLayer" parent="."]
+[node name="PopupLayer" type="CanvasLayer" parent="." unique_id=1272545478]
 layer = 10
 
-[node name="Managers" type="Node" parent="."]
+[node name="Managers" type="Node" parent="." unique_id=210622319]
 
-[node name="SceneManager" type="Node" parent="Managers"]
-script = ExtResource("res://src/managers/SceneManager.gd")
+[node name="SceneManager" type="Node" parent="Managers" unique_id=745818642]
+script = ExtResource("2_scene")
 
-[node name="GameManager" type="Node" parent="Managers"]
-script = ExtResource("res://src/managers/GameManager.gd")
+[node name="GameManager" type="Node" parent="Managers" unique_id=604080460]
+script = ExtResource("3_game")
 
-[node name="SongManager" type="Node" parent="Managers"]
-script = ExtResource("res://src/managers/SongManager.gd")
+[node name="SongManager" type="Node" parent="Managers" unique_id=804608526]
+script = ExtResource("4_song")
 
-[node name="SettingsManager" type="Node" parent="Managers"]
-script = ExtResource("res://src/managers/SettingsManager.gd")
+[node name="SettingsManager" type="Node" parent="Managers" unique_id=1176523731]
+script = ExtResource("5_settings")
 
-[node name="InputManager" type="Node" parent="Managers"]
-script = ExtResource("res://src/managers/InputManager.gd")
+[node name="InputManager" type="Node" parent="Managers" unique_id=504431256]
+script = ExtResource("6_input")
+
+[node name="MenuMusicManager" type="Node" parent="Managers"]
+script = ExtResource("7_menu_music")

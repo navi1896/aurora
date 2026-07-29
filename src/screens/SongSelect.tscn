@@ -1,0 +1,447 @@
+[gd_scene load_steps=13 format=3 uid="uid://c2xfllvkd01bt"]
+
+[ext_resource type="Script" path="res://src/screens/SongSelect.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/menu/background/menu_background.png" id="2_background"]
+[ext_resource type="Texture2D" path="res://assets/menu/buttons/button_normal.png" id="3_button_normal"]
+[ext_resource type="Texture2D" path="res://assets/menu/buttons/button_selected.png" id="4_button_selected"]
+[ext_resource type="Texture2D" path="res://assets/menu/ui/selector_arrow.png" id="5_selector"]
+[ext_resource type="FontFile" path="res://assets/menu/fonts/PressStart2P-Regular.ttf" id="6_font"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_library"]
+bg_color = Color(0.018, 0.024, 0.075, 0.94)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.32, 0.13, 0.62, 0.9)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_preview"]
+bg_color = Color(0.012, 0.02, 0.065, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.03, 0.78, 0.92, 0.86)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxTexture" id="StyleBox_button_normal"]
+texture = ExtResource("3_button_normal")
+texture_margin_left = 80.0
+texture_margin_top = 45.0
+texture_margin_right = 80.0
+texture_margin_bottom = 45.0
+content_margin_left = 38.0
+content_margin_right = 38.0
+
+[sub_resource type="StyleBoxTexture" id="StyleBox_button_selected"]
+texture = ExtResource("4_button_selected")
+texture_margin_left = 80.0
+texture_margin_top = 45.0
+texture_margin_right = 80.0
+texture_margin_bottom = 45.0
+content_margin_left = 38.0
+content_margin_right = 38.0
+
+[sub_resource type="Theme" id="Theme_action_buttons"]
+Button/colors/font_color = Color(0.94, 0.96, 1, 1)
+Button/colors/font_focus_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/colors/icon_normal_color = Color(1, 1, 1, 0)
+Button/colors/icon_focus_color = Color(1, 1, 1, 1)
+Button/colors/icon_hover_color = Color(1, 1, 1, 1)
+Button/colors/icon_pressed_color = Color(1, 1, 1, 1)
+Button/constants/h_separation = 14
+Button/fonts/font = ExtResource("6_font")
+Button/font_sizes/font_size = 18
+Button/styles/focus = SubResource("StyleBox_button_selected")
+Button/styles/hover = SubResource("StyleBox_button_selected")
+Button/styles/normal = SubResource("StyleBox_button_normal")
+Button/styles/pressed = SubResource("StyleBox_button_selected")
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_mode_normal"]
+bg_color = Color(0.04, 0.045, 0.12, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.43, 0.18, 0.72, 0.9)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_mode_selected"]
+bg_color = Color(0.04, 0.045, 0.12, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.05, 0.88, 1, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="Theme" id="Theme_mode_buttons"]
+Button/colors/font_color = Color(0.74, 0.76, 0.88, 1)
+Button/colors/font_focus_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/fonts/font = ExtResource("6_font")
+Button/font_sizes/font_size = 18
+Button/styles/focus = SubResource("StyleBox_mode_selected")
+Button/styles/hover = SubResource("StyleBox_mode_selected")
+Button/styles/normal = SubResource("StyleBox_mode_normal")
+Button/styles/pressed = SubResource("StyleBox_mode_selected")
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_speed_panel"]
+bg_color = Color(0.02, 0.025, 0.08, 0.92)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.38, 0.72, 0.72)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[node name="SongSelect" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture_filter = 1
+script = ExtResource("1_script")
+
+[node name="Background" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("2_background")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="BackgroundShade" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.005, 0.008, 0.035, 0.66)
+
+[node name="LibraryMargins" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 48
+theme_override_constants/margin_top = 34
+theme_override_constants/margin_right = 48
+theme_override_constants/margin_bottom = 28
+
+[node name="PageLayout" type="VBoxContainer" parent="LibraryMargins"]
+layout_mode = 2
+theme_override_constants/separation = 18
+
+[node name="Header" type="HBoxContainer" parent="LibraryMargins/PageLayout"]
+custom_minimum_size = Vector2(0, 78)
+layout_mode = 2
+theme_override_constants/separation = 22
+
+[node name="BackButton" type="Button" parent="LibraryMargins/PageLayout/Header"]
+custom_minimum_size = Vector2(180, 62)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_action_buttons")
+text = "VOLVER"
+
+[node name="HeaderCopy" type="VBoxContainer" parent="LibraryMargins/PageLayout/Header"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="TitleLabel" type="Label" parent="LibraryMargins/PageLayout/Header/HeaderCopy"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.97, 1, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 30
+text = "BIBLIOTECA DE CANCIONES"
+
+[node name="SubtitleLabel" type="Label" parent="LibraryMargins/PageLayout/Header/HeaderCopy"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.42, 0.76, 0.9, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 13
+text = "ELIGE UNA PISTA Y UN MODO DE TECLAS"
+
+[node name="SongCountLabel" type="Label" parent="LibraryMargins/PageLayout/Header"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.55, 1, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 14
+text = "0 CANCIONES"
+vertical_alignment = 1
+horizontal_alignment = 2
+
+[node name="LibraryBody" type="HBoxContainer" parent="LibraryMargins/PageLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 28
+
+[node name="SongListPanel" type="PanelContainer" parent="LibraryMargins/PageLayout/LibraryBody"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_stretch_ratio = 1.5
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("StyleBox_library")
+
+[node name="SongListMargins" type="MarginContainer" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 18
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 18
+
+[node name="SongListLayout" type="VBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="SongListHeader" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.55, 1, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 15
+text = "LISTA DE PISTAS"
+
+[node name="SongScroll" type="ScrollContainer" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="SongList" type="VBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/SongScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="PreviewPanel" type="PanelContainer" parent="LibraryMargins/PageLayout/LibraryBody"]
+custom_minimum_size = Vector2(610, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_styles/panel = SubResource("StyleBox_preview")
+
+[node name="PreviewMargins" type="MarginContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 26
+theme_override_constants/margin_top = 22
+theme_override_constants/margin_right = 26
+theme_override_constants/margin_bottom = 22
+
+[node name="PreviewLayout" type="VBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins"]
+layout_mode = 2
+theme_override_constants/separation = 11
+
+[node name="PreviewCover" type="TextureRect" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+custom_minimum_size = Vector2(0, 370)
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 3
+stretch_mode = 5
+
+[node name="PreviewVideo" type="VideoStreamPlayer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewCover"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+expand = true
+
+[node name="NoteSpeedPanel" type="PanelContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+theme_override_styles/panel = SubResource("StyleBox_speed_panel")
+
+[node name="NoteSpeedMargins" type="MarginContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/NoteSpeedPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 5
+
+[node name="NoteSpeedRow" type="HBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/NoteSpeedPanel/NoteSpeedMargins"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Caption" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/NoteSpeedPanel/NoteSpeedMargins/NoteSpeedRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.16, 0.85, 0.96, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 11
+text = "VEL. DE NOTAS"
+vertical_alignment = 1
+
+[node name="DecreaseButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/NoteSpeedPanel/NoteSpeedMargins/NoteSpeedRow"]
+custom_minimum_size = Vector2(42, 30)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_mode_buttons")
+theme_override_font_sizes/font_size = 12
+text = "<"
+
+[node name="ValueLabel" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/NoteSpeedPanel/NoteSpeedMargins/NoteSpeedRow"]
+custom_minimum_size = Vector2(76, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.98, 1, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 13
+text = "5.5x"
+vertical_alignment = 1
+horizontal_alignment = 1
+
+[node name="IncreaseButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/NoteSpeedPanel/NoteSpeedMargins/NoteSpeedRow"]
+custom_minimum_size = Vector2(42, 30)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_mode_buttons")
+theme_override_font_sizes/font_size = 12
+text = ">"
+
+[node name="PreviewTitle" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.96, 0.98, 1, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 24
+text = "SIN CANCIONES"
+text_overrun_behavior = 3
+
+[node name="PreviewArtist" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.16, 0.85, 0.96, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 14
+text = "-"
+text_overrun_behavior = 3
+
+[node name="PreviewMeta" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.67, 0.7, 0.82, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 13
+text = "DURACION --:--"
+
+[node name="ModeCaption" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.55, 1, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 13
+text = "MODO DE TECLAS"
+
+[node name="ModeButtons" type="HBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme = SubResource("Theme_mode_buttons")
+theme_override_constants/separation = 12
+
+[node name="DifficultyLabel" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.58, 0.82, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 14
+text = "DIFICULTAD: -"
+
+[node name="PreviewStatus" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.56, 0.58, 0.7, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 11
+text = "DEMO SIN AUDIO"
+
+[node name="PreviewActions" type="HBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PreviewButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_mode_buttons")
+theme_override_font_sizes/font_size = 11
+text = "VISTA PREVIA"
+
+[node name="DeleteButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_mode_buttons")
+theme_override_colors/font_color = Color(1, 0.42, 0.56, 1)
+theme_override_colors/font_focus_color = Color(1, 0.7, 0.78, 1)
+theme_override_colors/font_hover_color = Color(1, 0.7, 0.78, 1)
+theme_override_colors/font_pressed_color = Color(1, 0.84, 0.88, 1)
+theme_override_font_sizes/font_size = 11
+text = "BORRAR CANCION"
+
+[node name="PreviewSpacer" type="Control" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="PlayButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_action_buttons")
+icon = ExtResource("5_selector")
+expand_icon = true
+icon_max_width = 34
+text = "JUGAR"
+
+[node name="Footer" type="HBoxContainer" parent="LibraryMargins/PageLayout"]
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+
+[node name="ControlsLabel" type="Label" parent="LibraryMargins/PageLayout/Footer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.5, 0.52, 0.64, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 11
+text = "↑↓ CANCION   ←→ MODO   ENTER JUGAR   ESC VOLVER"
+
+[node name="VersionLabel" type="Label" parent="LibraryMargins/PageLayout/Footer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.52, 0.64, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 11
+text = "v1.0.0"
+horizontal_alignment = 2
+
+[node name="PreviewAudio" type="AudioStreamPlayer" parent="."]

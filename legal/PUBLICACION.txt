@@ -1,0 +1,49 @@
+AURORA 1.0.0 — INFORMACIÓN PARA LA PÁGINA DE DESCARGA
+======================================================
+
+Descripción breve
+-----------------
+Aurora es un juego de ritmo gratuito para Windows con editor de niveles,
+biblioteca local y soporte para teclado y mandos Xbox/PlayStation. La versión
+oficial comienza vacía: cada jugador crea o importa sus propias canciones,
+videos y charts.
+
+
+Contenido de la descarga
+------------------------
+- Aurora 1.0.0 para Windows x64.
+- Juego de 4K, 6K y 8K.
+- Editor manual y generación base automática.
+- Notas normales y sostenidas.
+- Importación de MP3, OGG, WAV, OGV, MP4, MOV, MKV, WEBM, AVI y M4V.
+- FFmpeg portátil incluido; no requiere instalación adicional.
+- Créditos, licencias, fuentes correspondientes y hashes SHA-256 incluidos.
+
+
+Aviso que debe permanecer visible
+---------------------------------
+Aurora utiliza una copia independiente de FFmpeg 6.1.6 bajo GNU LGPL 2.1 o
+posterior. El texto de licencia, la configuración, la receta de compilación y
+las fuentes exactas acompañan a la descarga dentro de licenses/FFmpeg/.
+
+Aurora no incluye canciones ni videos de terceros. Quien importe o comparta
+contenido es responsable de contar con los permisos correspondientes.
+
+
+Privacidad
+----------
+Aurora funciona de forma local. El juego no incluye cuentas, anuncios,
+analítica ni envío de canciones o datos personales a un servidor. Los ajustes
+y proyectos del editor se guardan en el perfil local de Godot del jugador.
+
+
+Instalación
+-----------
+Extrae el ZIP completo y ejecuta Aurora.exe. No muevas Aurora.exe fuera de su
+carpeta porque necesita Aurora.pck, tools y licenses a su lado.
+
+
+Integridad
+----------
+Publica también el SHA-256 del ZIP final. El archivo CHECKSUMS-SHA256.txt
+permite verificar cada archivo extraído.

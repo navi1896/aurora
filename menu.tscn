@@ -1,0 +1,79 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://src/screens/MainMenu.gd" id="1_script"]
+[ext_resource type="Texture2D" path="res://assets/menu/background/menu_background.png" id="2_background"]
+[ext_resource type="PackedScene" path="res://src/screens/main_menu/Header.tscn" id="3_header"]
+[ext_resource type="PackedScene" path="res://src/screens/main_menu/CharacterShowcase.tscn" id="4_character"]
+[ext_resource type="PackedScene" path="res://src/screens/main_menu/MainButtons.tscn" id="5_buttons"]
+[ext_resource type="PackedScene" path="res://src/screens/main_menu/Footer.tscn" id="6_footer"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+texture_filter = 1
+script = ExtResource("1_script")
+
+[node name="Background" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("2_background")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="BackgroundShade" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.01, 0.012, 0.04, 0.2)
+
+[node name="MenuMargins" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 72
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 72
+theme_override_constants/margin_bottom = 20
+
+[node name="PageLayout" type="VBoxContainer" parent="MenuMargins"]
+layout_mode = 2
+theme_override_constants/separation = 0
+
+[node name="Header" parent="MenuMargins/PageLayout" instance=ExtResource("3_header")]
+layout_mode = 2
+
+[node name="MenuBody" type="HBoxContainer" parent="MenuMargins/PageLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 42
+
+[node name="CharacterShowcase" parent="MenuMargins/PageLayout/MenuBody" instance=ExtResource("4_character")]
+layout_mode = 2
+
+[node name="MainButtons" parent="MenuMargins/PageLayout/MenuBody" instance=ExtResource("5_buttons")]
+layout_mode = 2
+
+[node name="RightBalance" type="Control" parent="MenuMargins/PageLayout/MenuBody"]
+custom_minimum_size = Vector2(480, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="Footer" parent="MenuMargins/PageLayout" instance=ExtResource("6_footer")]
+layout_mode = 2

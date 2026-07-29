@@ -2,31 +2,278 @@ extends Node
 
 class_name SettingsManager
 
-var settings: Dictionary = {
+const SUPPORTED_LANGUAGES := ["es", "en"]
+
+signal setting_changed(key: String, value)
+signal settings_reset
+
+const SETTINGS_PATH := "user://settings.json"
+
+const DEFAULT_SETTINGS := {
 	"language": "es",
 	"master_volume": 1.0,
-	"music_volume": 1.0,
-	"sfx_volume": 1.0,
+	"menu_music_volume": 0.72,
+	"music_volume": 0.85,
+	"sfx_volume": 0.9,
+	"note_speed": 5.5,
+	"key_sounds_enabled": false,
+	"background_animation_enabled": true,
+	"background_animation_intensity": 3,
+	"background_dim": 0.46,
+	"lane_opacity": 0.82,
+	"show_lane_labels": true,
+	"show_hit_effects": true,
+	"timing_offset_ms": 0,
+	"screen_shake_enabled": true,
+	"reduced_motion": false,
+	"window_mode": "windowed",
+	"resolution": "1920x1080",
+	"vsync_enabled": true,
+	"fps_limit": 120,
+	"graphics_quality": "high",
+	"lane_bindings": {
+		"4": [KEY_D, KEY_F, KEY_J, KEY_K],
+		"6": [KEY_S, KEY_D, KEY_F, KEY_J, KEY_K, KEY_L],
+		"8": [KEY_A, KEY_S, KEY_D, KEY_F, KEY_J, KEY_K, KEY_L, KEY_SEMICOLON],
+	},
+	"controller_bindings": {
+		"actions": {
+			"confirm": JOY_BUTTON_A,
+			"back": JOY_BUTTON_B,
+			"pause": JOY_BUTTON_START,
+			"preview": JOY_BUTTON_Y,
+			"delete": JOY_BUTTON_X,
+		},
+		"4": [
+			JOY_BUTTON_DPAD_LEFT,
+			JOY_BUTTON_DPAD_RIGHT,
+			JOY_BUTTON_X,
+			JOY_BUTTON_B,
+		],
+		"6": [
+			JOY_BUTTON_DPAD_LEFT,
+			JOY_BUTTON_DPAD_UP,
+			JOY_BUTTON_DPAD_RIGHT,
+			JOY_BUTTON_X,
+			JOY_BUTTON_Y,
+			JOY_BUTTON_B,
+		],
+		"8": [
+			JOY_BUTTON_LEFT_SHOULDER,
+			JOY_BUTTON_DPAD_LEFT,
+			JOY_BUTTON_DPAD_UP,
+			JOY_BUTTON_DPAD_RIGHT,
+			JOY_BUTTON_X,
+			JOY_BUTTON_Y,
+			JOY_BUTTON_B,
+			JOY_BUTTON_RIGHT_SHOULDER,
+		],
+	},
 }
+
+var settings: Dictionary = DEFAULT_SETTINGS.duplicate(true)
 
 
 func _ready() -> void:
 	load_settings()
+	apply_language_setting()
+	call_deferred("apply_all_settings")
 
 
 func load_settings() -> void:
-	# TODO: Cargar desde archivo de configuración
-	pass
+	if not FileAccess.file_exists(SETTINGS_PATH):
+		return
+
+	var file := FileAccess.open(SETTINGS_PATH, FileAccess.READ)
+	if file == null:
+		return
+
+	var parsed = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary:
+		for key in parsed.keys():
+			settings[key] = parsed[key]
+	_validate_settings()
 
 
 func save_settings() -> void:
-	# TODO: Guardar a archivo de configuración
-	pass
+	var file := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
+	if file == null:
+		return
+
+	file.store_string(JSON.stringify(settings, "\t"))
 
 
 func get_setting(key: String, default = null):
 	return settings.get(key, default)
 
 
-func set_setting(key: String, value) -> void:
+func set_setting(key: String, value, apply_immediately: bool = true) -> void:
 	settings[key] = value
+	_validate_setting(key)
+	save_settings()
+	if apply_immediately:
+		_apply_setting(key)
+	setting_changed.emit(key, settings[key])
+
+
+func reset_to_defaults() -> void:
+	settings = DEFAULT_SETTINGS.duplicate(true)
+	save_settings()
+	apply_all_settings()
+	settings_reset.emit()
+
+
+func apply_all_settings() -> void:
+	apply_language_setting()
+	apply_audio_settings()
+	apply_display_settings()
+	apply_graphics_settings()
+
+
+func apply_language_setting() -> void:
+	TranslationServer.set_locale(str(get_setting("language", "es")))
+
+
+func apply_audio_settings() -> void:
+	_set_bus_volume("Master", float(get_setting("master_volume", 1.0)))
+	_set_bus_volume("MenuMusic", float(get_setting("menu_music_volume", 0.72)))
+	_set_bus_volume("Music", float(get_setting("music_volume", 0.85)))
+	_set_bus_volume("SFX", float(get_setting("sfx_volume", 0.9)))
+
+
+func apply_display_settings() -> void:
+	var mode := str(get_setting("window_mode", "windowed"))
+	DisplayServer.window_set_flag(DisplayServer.WINDOW_FLAG_BORDERLESS, mode == "borderless")
+	match mode:
+		"fullscreen":
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+		_:
+			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			if mode == "windowed":
+				var resolution := _parse_resolution(str(get_setting("resolution", "1920x1080")))
+				DisplayServer.window_set_size(resolution)
+				var screen_size := DisplayServer.screen_get_size()
+				var centered_position := Vector2i(Vector2(screen_size - resolution) / 2.0)
+				DisplayServer.window_set_position(centered_position)
+
+	var vsync_mode := DisplayServer.VSYNC_ENABLED if bool(get_setting("vsync_enabled", true)) else DisplayServer.VSYNC_DISABLED
+	DisplayServer.window_set_vsync_mode(vsync_mode)
+	Engine.max_fps = int(get_setting("fps_limit", 120))
+
+
+func apply_graphics_settings() -> void:
+	var viewport := get_viewport()
+	if viewport == null:
+		return
+	match str(get_setting("graphics_quality", "high")):
+		"low":
+			viewport.msaa_2d = Viewport.MSAA_DISABLED
+			viewport.use_debanding = false
+		"medium":
+			viewport.msaa_2d = Viewport.MSAA_2X
+			viewport.use_debanding = true
+		_:
+			viewport.msaa_2d = Viewport.MSAA_4X
+			viewport.use_debanding = true
+
+
+func _apply_setting(key: String) -> void:
+	if key == "language":
+		apply_language_setting()
+	elif key in ["master_volume", "menu_music_volume", "music_volume", "sfx_volume"]:
+		apply_audio_settings()
+	elif key in ["window_mode", "resolution", "vsync_enabled", "fps_limit"]:
+		apply_display_settings()
+	elif key == "graphics_quality":
+		apply_graphics_settings()
+
+
+func _set_bus_volume(bus_name: String, linear_value: float) -> void:
+	var bus_index := AudioServer.get_bus_index(bus_name)
+	if bus_index < 0:
+		return
+	var safe_value := clampf(linear_value, 0.0, 1.0)
+	AudioServer.set_bus_mute(bus_index, safe_value <= 0.001)
+	AudioServer.set_bus_volume_db(bus_index, linear_to_db(maxf(safe_value, 0.001)))
+
+
+func _parse_resolution(value: String) -> Vector2i:
+	var parts := value.to_lower().split("x")
+	if parts.size() != 2:
+		return Vector2i(1920, 1080)
+	var width := maxi(int(parts[0]), 960)
+	var height := maxi(int(parts[1]), 540)
+	return Vector2i(width, height)
+
+
+func _validate_settings() -> void:
+	for key in settings.keys():
+		_validate_setting(str(key))
+
+
+func _validate_setting(key: String) -> void:
+	match key:
+		"language":
+			if str(settings[key]) not in SUPPORTED_LANGUAGES:
+				settings[key] = "es"
+		"master_volume", "menu_music_volume", "music_volume", "sfx_volume":
+			settings[key] = clampf(float(settings[key]), 0.0, 1.0)
+		"note_speed":
+			settings[key] = clampf(float(settings[key]), 1.0, 10.0)
+		"background_animation_intensity":
+			settings[key] = clampi(int(settings[key]), 1, 5)
+		"background_dim":
+			settings[key] = clampf(float(settings[key]), 0.0, 0.9)
+		"lane_opacity":
+			settings[key] = clampf(float(settings[key]), 0.25, 1.0)
+		"timing_offset_ms":
+			settings[key] = clampi(int(settings[key]), -200, 200)
+		"fps_limit":
+			settings[key] = int(settings[key])
+			if int(settings[key]) not in [0, 60, 120, 144, 240]:
+				settings[key] = 120
+		"window_mode":
+			if str(settings[key]) not in ["windowed", "borderless", "fullscreen"]:
+				settings[key] = "windowed"
+		"resolution":
+			if str(settings[key]) not in ["1280x720", "1600x900", "1920x1080", "2560x1440"]:
+				settings[key] = "1920x1080"
+		"graphics_quality":
+			if str(settings[key]) not in ["low", "medium", "high"]:
+				settings[key] = "high"
+		"lane_bindings":
+			if not (settings[key] is Dictionary):
+				settings[key] = DEFAULT_SETTINGS["lane_bindings"].duplicate(true)
+		"controller_bindings":
+			_validate_controller_bindings()
+
+
+func _validate_controller_bindings() -> void:
+	var defaults: Dictionary = DEFAULT_SETTINGS["controller_bindings"]
+	if not (settings.get("controller_bindings") is Dictionary):
+		settings["controller_bindings"] = defaults.duplicate(true)
+		return
+
+	var bindings: Dictionary = settings["controller_bindings"].duplicate(true)
+	var default_actions: Dictionary = defaults["actions"]
+	var actions = bindings.get("actions", {})
+	if not (actions is Dictionary):
+		actions = default_actions.duplicate(true)
+	else:
+		actions = actions.duplicate(true)
+		for action_name in default_actions:
+			var button := int(actions.get(action_name, default_actions[action_name]))
+			actions[action_name] = clampi(button, JOY_BUTTON_A, JOY_BUTTON_MAX - 1)
+	bindings["actions"] = actions
+
+	for mode in [4, 6, 8]:
+		var mode_key := str(mode)
+		var values = bindings.get(mode_key, defaults[mode_key])
+		if not (values is Array) or values.size() != mode:
+			bindings[mode_key] = defaults[mode_key].duplicate()
+			continue
+		var validated: Array[int] = []
+		for value in values:
+			validated.append(clampi(int(value), JOY_BUTTON_A, JOY_BUTTON_MAX - 1))
+		bindings[mode_key] = validated
+	settings["controller_bindings"] = bindings

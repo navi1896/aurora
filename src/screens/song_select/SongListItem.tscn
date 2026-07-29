@@ -1,0 +1,61 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/menu/buttons/button_normal.png" id="1_normal"]
+[ext_resource type="Texture2D" path="res://assets/menu/buttons/button_selected.png" id="2_selected"]
+[ext_resource type="FontFile" path="res://assets/menu/fonts/PressStart2P-Regular.ttf" id="3_font"]
+[ext_resource type="Texture2D" path="res://assets/menu/ui/music_note.png" id="4_note"]
+
+[sub_resource type="StyleBoxTexture" id="StyleBox_normal"]
+texture = ExtResource("1_normal")
+texture_margin_left = 80.0
+texture_margin_top = 45.0
+texture_margin_right = 80.0
+texture_margin_bottom = 45.0
+content_margin_left = 24.0
+content_margin_top = 14.0
+content_margin_right = 24.0
+content_margin_bottom = 14.0
+
+[sub_resource type="StyleBoxTexture" id="StyleBox_selected"]
+texture = ExtResource("2_selected")
+texture_margin_left = 80.0
+texture_margin_top = 45.0
+texture_margin_right = 80.0
+texture_margin_bottom = 45.0
+content_margin_left = 24.0
+content_margin_top = 14.0
+content_margin_right = 24.0
+content_margin_bottom = 14.0
+
+[sub_resource type="StyleBoxEmpty" id="StyleBox_empty"]
+
+[sub_resource type="Theme" id="Theme_song_item"]
+Button/colors/font_color = Color(0.78, 0.8, 0.9, 1)
+Button/colors/font_focus_color = Color(1, 1, 1, 1)
+Button/colors/font_hover_color = Color(1, 1, 1, 1)
+Button/colors/font_pressed_color = Color(1, 1, 1, 1)
+Button/colors/icon_normal_color = Color(1, 1, 1, 1)
+Button/colors/icon_focus_color = Color(1, 1, 1, 1)
+Button/colors/icon_hover_color = Color(1, 1, 1, 1)
+Button/colors/icon_pressed_color = Color(1, 1, 1, 1)
+Button/constants/h_separation = 16
+Button/fonts/font = ExtResource("3_font")
+Button/font_sizes/font_size = 16
+Button/styles/disabled = SubResource("StyleBox_empty")
+Button/styles/focus = SubResource("StyleBox_selected")
+Button/styles/hover = SubResource("StyleBox_selected")
+Button/styles/normal = SubResource("StyleBox_normal")
+Button/styles/pressed = SubResource("StyleBox_selected")
+
+[node name="SongListItem" type="Button"]
+custom_minimum_size = Vector2(0, 112)
+size_flags_horizontal = 3
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_song_item")
+alignment = 0
+icon = ExtResource("4_note")
+icon_alignment = 0
+expand_icon = true
+icon_max_width = 24
+text_overrun_behavior = 3

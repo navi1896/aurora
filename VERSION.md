@@ -1,16 +1,15 @@
-Aurora v0.0.2
+Aurora v1.0.0
 
-Agregado:
-- Arquitectura profesional escalable
-- App.tscn con sistema de capas (CanvasLayer, ScreenContainer, PopupLayer)
-- Managers: SceneManager, GameManager, SongManager, SettingsManager, InputManager
-- Scripts GD para pantallas: MainMenu, SongSelect, Gameplay, Results, Editor, Settings
-- Sistema de navegación de escenas dinámico
-- InputManager para manejo centralizado de entrada
-- Estructura preparada para crecimiento hasta v1.0
+Primera versión pública para Windows.
 
-Próximos pasos:
-- Crear escenas .tscn para cada pantalla
-- Diseñar componentes reutilizables (SongCard, SettingsCategory, etc.)
-- Implementar tema global (theme.tres)
-- Conectar UI con lógica de juego
+Incluye:
+- Juego de ritmo de 4, 6 y 8 teclas
+- Compatibilidad con teclado y mandos
+- Biblioteca de canciones con vista previa
+- Editor manual y automático con notas normales y sostenidas
+- Importación de contenido local
+- Configuración independiente de audio, video, jugabilidad y controles
+
+Contenido:
+- Aurora se distribuye sin canciones ni videos protegidos.
+- Cada jugador puede crear o importar contenido local bajo su propia responsabilidad.
