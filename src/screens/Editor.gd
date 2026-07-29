@@ -9,6 +9,12 @@ const CHART_HISTORY_MODEL = preload("res://src/screens/editor/ChartEditHistory.g
 const TIMELINE_EDIT_OPERATIONS = preload(
 	"res://src/screens/editor/TimelineEditOperations.gd"
 )
+const TAP_BPM_ESTIMATOR_MODEL = preload(
+	"res://src/screens/editor/TapBpmEstimator.gd"
+)
+const CHART_DIFFICULTY_ESTIMATOR_MODEL = preload(
+	"res://src/screens/editor/ChartDifficultyEstimator.gd"
+)
 const EDITOR_DIRECTORY := "user://aurora_editor"
 const EDITOR_MEDIA_DIRECTORY := "user://aurora_editor/media"
 const EDITOR_LOG_DIRECTORY := "user://aurora_editor/logs"
@@ -58,6 +64,10 @@ var automatic_density := 1
 var chart_history
 var timeline_state
 var timeline_operations
+var tap_bpm_estimator
+var chart_difficulty_estimator
+var latest_tap_bpm_estimate: Dictionary = {}
+var latest_chart_difficulty_estimate: Dictionary = {}
 var saved_metadata_signature := ""
 var suppress_dirty_tracking := true
 var pending_confirmation_action := Callable()
@@ -97,6 +107,13 @@ var difficulty_option: OptionButton
 var difficulty_level_spin: SpinBox
 var density_option: OptionButton
 var key_legend: HBoxContainer
+var tap_bpm_button: Button
+var tap_bpm_use_button: Button
+var tap_bpm_reset_button: Button
+var tap_bpm_result_label: Label
+var chart_difficulty_result_label: Label
+var chart_difficulty_summary_label: Label
+var chart_difficulty_use_button: Button
 var properties_panel: PanelContainer
 var properties_scroll: ScrollContainer
 var properties_title_label: Label
@@ -140,6 +157,8 @@ func _ready() -> void:
 	settings_manager = managers.get_node("SettingsManager") as SettingsManager
 	chart_history = CHART_HISTORY_MODEL.new()
 	timeline_operations = TIMELINE_EDIT_OPERATIONS.new()
+	tap_bpm_estimator = TAP_BPM_ESTIMATOR_MODEL.new()
+	chart_difficulty_estimator = CHART_DIFFICULTY_ESTIMATOR_MODEL.new()
 	_setup_ui()
 	_setup_file_dialogs()
 	_setup_recovery_timer()
@@ -866,6 +885,75 @@ func _build_properties(body: HBoxContainer) -> void:
 	AuroraUi.apply_pixel_font(key_count_option, 9)
 	general_properties_container.add_child(key_count_option)
 
+	general_properties_container.add_child(HSeparator.new())
+	general_properties_container.add_child(
+		AuroraUi.make_pixel_label(
+			AuroraLocale.text("ASISTENTE DE BPM"),
+			8,
+			AuroraUi.TEAL
+		)
+	)
+	var tap_bpm_row := HBoxContainer.new()
+	tap_bpm_row.name = "TapBpmControls"
+	tap_bpm_row.add_theme_constant_override("separation", 8)
+	general_properties_container.add_child(tap_bpm_row)
+	tap_bpm_button = _make_tool_button(AuroraLocale.text("TAP BPM"), 90.0, true)
+	tap_bpm_button.name = "TapBpmButton"
+	tap_bpm_button.tooltip_text = AuroraLocale.text(
+		"PULSA REPETIDAMENTE AL RITMO CON TECLADO O MANDO"
+	)
+	tap_bpm_button.pressed.connect(_on_tap_bpm_pressed)
+	tap_bpm_row.add_child(tap_bpm_button)
+	tap_bpm_use_button = _make_tool_button(AuroraLocale.text("USAR --"), 104.0)
+	tap_bpm_use_button.name = "UseTapBpmButton"
+	tap_bpm_use_button.disabled = true
+	tap_bpm_use_button.pressed.connect(_use_tap_bpm_estimate)
+	tap_bpm_row.add_child(tap_bpm_use_button)
+	tap_bpm_reset_button = _make_tool_button(AuroraLocale.text("REINICIAR"), 112.0)
+	tap_bpm_reset_button.name = "ResetTapBpmButton"
+	tap_bpm_reset_button.pressed.connect(_reset_tap_bpm_assistant)
+	tap_bpm_row.add_child(tap_bpm_reset_button)
+	tap_bpm_result_label = AuroraUi.make_label(
+		AuroraLocale.text("PULSA TAP BPM VARIAS VECES AL RITMO"),
+		10,
+		AuroraUi.MUTED
+	)
+	tap_bpm_result_label.name = "TapBpmResult"
+	tap_bpm_result_label.custom_minimum_size.y = 34.0
+	general_properties_container.add_child(tap_bpm_result_label)
+
+	general_properties_container.add_child(HSeparator.new())
+	general_properties_container.add_child(
+		AuroraUi.make_pixel_label(
+			AuroraLocale.text("ANALISIS DEL CHART"),
+			8,
+			AuroraUi.TEAL
+		)
+	)
+	chart_difficulty_result_label = AuroraUi.make_pixel_label(
+		AuroraLocale.text("ESTIMACION 01 / 20"),
+		9,
+		AuroraUi.GOLD
+	)
+	chart_difficulty_result_label.name = "ChartDifficultyResult"
+	general_properties_container.add_child(chart_difficulty_result_label)
+	chart_difficulty_summary_label = AuroraUi.make_label(
+		AuroraLocale.text("SIN NOTAS // VALOR SOLO INFORMATIVO"),
+		10,
+		AuroraUi.MUTED
+	)
+	chart_difficulty_summary_label.name = "ChartDifficultySummary"
+	chart_difficulty_summary_label.custom_minimum_size.y = 38.0
+	general_properties_container.add_child(chart_difficulty_summary_label)
+	chart_difficulty_use_button = _make_tool_button(AuroraLocale.text("USAR 01"), 0.0)
+	chart_difficulty_use_button.name = "UseChartDifficultyButton"
+	chart_difficulty_use_button.disabled = true
+	chart_difficulty_use_button.tooltip_text = AuroraLocale.text(
+		"APLICA LA ESTIMACION SIN CAMBIAR LA CATEGORIA DE DIFICULTAD"
+	)
+	chart_difficulty_use_button.pressed.connect(_use_chart_difficulty_estimate)
+	general_properties_container.add_child(chart_difficulty_use_button)
+
 	automatic_properties_container = _make_property_section(
 		controls,
 		AuroraLocale.text("OPCIONES AUTOMATICAS")
@@ -930,6 +1018,8 @@ func _build_properties(body: HBoxContainer) -> void:
 			AuroraUi.MUTED
 		)
 	)
+	_refresh_tap_bpm_display()
+	_refresh_chart_difficulty_analysis()
 	_refresh_mode_visibility()
 	_set_properties_collapsed(false)
 
@@ -2017,6 +2107,181 @@ func _normalize_difficulty_id(value: String) -> String:
 			return "NORMAL"
 
 
+func _on_tap_bpm_pressed() -> void:
+	_register_bpm_tap(float(Time.get_ticks_msec()) / 1000.0)
+
+
+func _register_bpm_tap(timestamp_seconds: float) -> bool:
+	if tap_bpm_estimator == null:
+		return false
+	if not tap_bpm_estimator.register_tap(timestamp_seconds):
+		return false
+	latest_tap_bpm_estimate = tap_bpm_estimator.estimate()
+	_refresh_tap_bpm_display()
+	return true
+
+
+func _reset_tap_bpm_assistant() -> void:
+	if tap_bpm_estimator != null:
+		tap_bpm_estimator.clear()
+	latest_tap_bpm_estimate.clear()
+	_refresh_tap_bpm_display()
+
+
+func _refresh_tap_bpm_display() -> void:
+	if tap_bpm_result_label == null or tap_bpm_use_button == null:
+		return
+	var tap_count := 0
+	if tap_bpm_estimator != null:
+		tap_count = int(tap_bpm_estimator.get_tap_count())
+	if not bool(latest_tap_bpm_estimate.get("valid", false)):
+		tap_bpm_result_label.text = (
+			AuroraLocale.text("PULSA TAP BPM VARIAS VECES AL RITMO")
+			if tap_count == 0
+			else AuroraLocale.text("%d TAP // SIGUE MARCANDO EL RITMO") % tap_count
+		)
+		tap_bpm_result_label.add_theme_color_override("font_color", AuroraUi.MUTED)
+		tap_bpm_use_button.text = AuroraLocale.text("USAR --")
+		tap_bpm_use_button.disabled = true
+		return
+
+	var primary_bpm := float(latest_tap_bpm_estimate.get("primary_bpm", 0.0))
+	var confidence_percent := roundi(
+		float(latest_tap_bpm_estimate.get("confidence", 0.0)) * 100.0
+	)
+	var alternative_texts: Array[String] = []
+	for suggestion in latest_tap_bpm_estimate.get("suggestions", []):
+		var relationship := str(suggestion.get("relationship", ""))
+		if relationship == "half_time":
+			alternative_texts.append(
+				"1/2 %s" % _format_bpm_value(float(suggestion.get("bpm", 0.0)))
+			)
+		elif relationship == "double_time":
+			alternative_texts.append(
+				"x2 %s" % _format_bpm_value(float(suggestion.get("bpm", 0.0)))
+			)
+	var alternatives := ""
+	if not alternative_texts.is_empty():
+		alternatives = "\n%s" % " // ".join(alternative_texts)
+	tap_bpm_result_label.text = AuroraLocale.text(
+		"%s BPM // CONFIANZA %d%%%s"
+	) % [_format_bpm_value(primary_bpm), confidence_percent, alternatives]
+	tap_bpm_result_label.add_theme_color_override("font_color", AuroraUi.TEAL)
+
+	var action_bpm := _get_tap_bpm_action_value()
+	tap_bpm_use_button.disabled = action_bpm <= 0.0
+	tap_bpm_use_button.text = (
+		AuroraLocale.text("USAR --")
+		if action_bpm <= 0.0
+		else AuroraLocale.text("USAR %s") % _format_bpm_value(action_bpm)
+	)
+
+
+func _get_tap_bpm_action_value() -> float:
+	if (
+		bpm_spin == null
+		or not bool(latest_tap_bpm_estimate.get("valid", false))
+	):
+		return 0.0
+	var minimum_bpm := float(bpm_spin.min_value)
+	var maximum_bpm := float(bpm_spin.max_value)
+	var candidates: Array[float] = [
+		float(latest_tap_bpm_estimate.get("primary_bpm", 0.0))
+	]
+	for suggestion in latest_tap_bpm_estimate.get("suggestions", []):
+		if str(suggestion.get("relationship", "")) != "tapped":
+			candidates.append(float(suggestion.get("bpm", 0.0)))
+	for candidate in candidates:
+		if candidate >= minimum_bpm and candidate <= maximum_bpm:
+			return snappedf(candidate, float(bpm_spin.step))
+	return 0.0
+
+
+func _use_tap_bpm_estimate() -> void:
+	var action_bpm := _get_tap_bpm_action_value()
+	if action_bpm <= 0.0:
+		return
+	bpm_spin.value = action_bpm
+	_set_status(
+		AuroraLocale.text("BPM APLICADO MANUALMENTE: %s")
+		% _format_bpm_value(action_bpm)
+	)
+	_refresh_dirty_state()
+
+
+func _format_bpm_value(value: float) -> String:
+	if absf(value - roundf(value)) < 0.05:
+		return "%d" % roundi(value)
+	return "%.1f" % value
+
+
+func _refresh_chart_difficulty_analysis() -> void:
+	if (
+		chart_difficulty_estimator == null
+		or chart_difficulty_result_label == null
+		or chart_difficulty_summary_label == null
+		or chart_difficulty_use_button == null
+	):
+		return
+	latest_chart_difficulty_estimate = chart_difficulty_estimator.estimate(
+		notes,
+		key_count,
+		duration_seconds
+	)
+	if not bool(latest_chart_difficulty_estimate.get("valid", false)):
+		chart_difficulty_result_label.text = AuroraLocale.text("ANALISIS NO DISPONIBLE")
+		chart_difficulty_summary_label.text = AuroraLocale.text(
+			"SOLO DISPONIBLE PARA 4K, 6K Y 8K"
+		)
+		chart_difficulty_use_button.text = AuroraLocale.text("USAR --")
+		chart_difficulty_use_button.disabled = true
+		return
+
+	var estimated_level := int(latest_chart_difficulty_estimate.get("level", 1))
+	chart_difficulty_result_label.text = AuroraLocale.text(
+		"ESTIMACION %02d / 20 // SOLO REFERENCIA"
+	) % estimated_level
+	var metrics: Dictionary = latest_chart_difficulty_estimate.get("metrics", {})
+	if notes.is_empty():
+		chart_difficulty_summary_label.text = AuroraLocale.text(
+			"SIN NOTAS // AGREGA NOTAS PARA ANALIZAR"
+		)
+	else:
+		chart_difficulty_summary_label.text = AuroraLocale.text(
+			"DENS %.2f N/S // ACORDES %d%%\nHOLD %d%% // PICO %.2f N/S"
+		) % [
+			float(metrics.get("average_nps", 0.0)),
+			roundi(float(metrics.get("chord_note_ratio", 0.0)) * 100.0),
+			roundi(float(metrics.get("hold_ratio", 0.0)) * 100.0),
+			float(metrics.get("peak_nps", 0.0)),
+		]
+	chart_difficulty_use_button.text = (
+		AuroraLocale.text("USAR %02d") % estimated_level
+	)
+	chart_difficulty_use_button.disabled = notes.is_empty()
+
+
+func _use_chart_difficulty_estimate() -> void:
+	if (
+		difficulty_level_spin == null
+		or notes.is_empty()
+		or not bool(latest_chart_difficulty_estimate.get("valid", false))
+	):
+		return
+	var estimated_level := clampi(
+		int(latest_chart_difficulty_estimate.get("level", 1)),
+		1,
+		20
+	)
+	difficulty_level_spin.value = float(estimated_level)
+	_set_status(
+		AuroraLocale.text(
+			"VALOR DE DIFICULTAD APLICADO MANUALMENTE: %02d"
+		) % estimated_level
+	)
+	_refresh_dirty_state()
+
+
 func _toggle_recording() -> void:
 	if recording_countdown_active:
 		_cancel_recording_countdown()
@@ -2477,6 +2742,7 @@ func _refresh_editor_state() -> void:
 		generate_button.disabled = creation_mode != "automatic" or not _has_media()
 	if test_button != null:
 		test_button.disabled = not _has_media() or notes.is_empty()
+	_refresh_chart_difficulty_analysis()
 	_update_playhead_ui()
 	_refresh_dirty_state()
 
@@ -2587,6 +2853,7 @@ func _apply_project_snapshot(
 	recovered: bool
 ) -> bool:
 	_stop_preview()
+	_reset_tap_bpm_assistant()
 	suppress_dirty_tracking = true
 	current_project_path = effective_project_path.simplify_path()
 	var metadata: Dictionary = parsed.get("metadata", {})
@@ -2656,6 +2923,7 @@ func _restore_recovery_if_available() -> bool:
 func _new_project() -> void:
 	_discard_recovery_snapshot()
 	_stop_preview()
+	_reset_tap_bpm_assistant()
 	suppress_dirty_tracking = true
 	notes.clear()
 	active_recording_holds.clear()
