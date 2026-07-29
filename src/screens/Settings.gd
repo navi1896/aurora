@@ -2,6 +2,9 @@ extends Control
 
 class_name Settings
 
+const CACHE_MAINTENANCE_SERVICE := preload(
+	"res://src/maintenance/CacheMaintenanceService.gd"
+)
 const CATEGORIES := [
 	{"id": "general", "label": "GENERAL", "icon": "◆"},
 	{"id": "audio", "label": "SONIDO", "icon": "♫"},
@@ -31,6 +34,12 @@ var reset_button: Button
 var reset_confirmation_active := false
 var reset_confirmation_token := 0
 var controller_status_label: Label
+var cache_maintenance
+var cache_cleanup_plan: Dictionary = {}
+var cache_button: Button
+var cache_summary_label: Label
+var cache_confirmation_active := false
+var cache_confirmation_token := 0
 
 
 func _ready() -> void:
@@ -39,6 +48,7 @@ func _ready() -> void:
 	scene_manager = managers.get_node("SceneManager") as SceneManager
 	settings_manager = managers.get_node("SettingsManager") as SettingsManager
 	input_manager = managers.get_node("InputManager") as InputManager
+	cache_maintenance = CACHE_MAINTENANCE_SERVICE.new()
 	input_manager.controller_connection_changed.connect(_on_controller_connection_changed)
 	setup_ui()
 
@@ -311,6 +321,8 @@ func _show_category(category: String) -> void:
 	_clear_binding_capture()
 	reset_confirmation_active = false
 	reset_confirmation_token += 1
+	cache_confirmation_active = false
+	cache_confirmation_token += 1
 	for id in category_buttons:
 		var button := category_buttons[id] as Button
 		button.button_pressed = str(id) == category
@@ -473,6 +485,46 @@ func _build_general_settings() -> void:
 	_apply_danger_button_style(reset_button, false)
 	reset_button.pressed.connect(_on_reset_settings)
 	reset_row.add_child(reset_button)
+
+	var cache_separator := HSeparator.new()
+	cache_separator.modulate = Color(0.2, 0.85, 1.0, 0.24)
+	data.add_child(cache_separator)
+	var cache_row := HBoxContainer.new()
+	cache_row.add_theme_constant_override("separation", 16)
+	data.add_child(cache_row)
+	var cache_text := VBoxContainer.new()
+	cache_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cache_row.add_child(cache_text)
+	cache_text.add_child(
+		AuroraUi.make_label(
+			AuroraLocale.text("Limpiar caché regenerable"),
+			16,
+			AuroraUi.TEXT
+		)
+	)
+	cache_text.add_child(
+		AuroraUi.make_label(
+			AuroraLocale.text(
+				"Elimina solo conversiones y formas de onda sin uso. "
+				+ "No toca canciones, proyectos ni archivos originales."
+			),
+			12,
+			AuroraUi.MUTED
+		)
+	)
+	cache_summary_label = AuroraUi.make_pixel_label(
+		AuroraLocale.text("CALCULANDO CACHÉ..."),
+		7,
+		AuroraUi.TEAL
+	)
+	cache_text.add_child(cache_summary_label)
+	cache_button = AuroraUi.make_button(AuroraLocale.text("LIMPIAR CACHÉ"))
+	cache_button.custom_minimum_size = Vector2(190, 46)
+	AuroraUi.apply_pixel_font(cache_button, 8)
+	_apply_danger_button_style(cache_button, false)
+	cache_button.pressed.connect(_on_clean_cache)
+	cache_row.add_child(cache_button)
+	_refresh_cache_maintenance_summary()
 
 
 func _build_audio_settings() -> void:
@@ -1254,6 +1306,97 @@ func _expire_reset_confirmation(token: int) -> void:
 	if reset_button != null and is_instance_valid(reset_button):
 		reset_button.text = AuroraLocale.text("RESTABLECER TODO")
 		_apply_danger_button_style(reset_button, false)
+
+
+func _refresh_cache_maintenance_summary() -> void:
+	if cache_maintenance == null:
+		cache_cleanup_plan = {}
+	else:
+		cache_cleanup_plan = cache_maintenance.build_cleanup_plan()
+	if cache_summary_label == null or not is_instance_valid(cache_summary_label):
+		return
+	if not bool(cache_cleanup_plan.get("ok", false)):
+		cache_summary_label.text = AuroraLocale.text("NO SE PUDO REVISAR LA CACHÉ")
+		cache_summary_label.add_theme_color_override("font_color", AuroraUi.CORAL)
+		if cache_button != null:
+			cache_button.disabled = true
+		return
+	var file_count := int(cache_cleanup_plan.get("file_count", 0))
+	var total_bytes := int(cache_cleanup_plan.get("total_bytes", 0))
+	cache_summary_label.add_theme_color_override("font_color", AuroraUi.TEAL)
+	cache_summary_label.text = (
+		AuroraLocale.text("CACHÉ LIMPIA // NADA QUE ELIMINAR")
+		if file_count == 0
+		else AuroraLocale.text("%d ARCHIVOS // %s RECUPERABLES")
+			% [file_count, _format_storage_size(total_bytes)]
+	)
+	if cache_button != null:
+		cache_button.disabled = file_count == 0
+		cache_button.text = AuroraLocale.text("LIMPIAR CACHÉ")
+		_apply_danger_button_style(cache_button, false)
+
+
+func _on_clean_cache() -> void:
+	if not bool(cache_cleanup_plan.get("ok", false)):
+		_refresh_cache_maintenance_summary()
+		return
+	if int(cache_cleanup_plan.get("file_count", 0)) <= 0:
+		_refresh_cache_maintenance_summary()
+		return
+	if not cache_confirmation_active:
+		cache_confirmation_active = true
+		cache_confirmation_token += 1
+		var token := cache_confirmation_token
+		cache_button.text = AuroraLocale.text("CONFIRMAR LIMPIEZA")
+		_apply_danger_button_style(cache_button, true)
+		_expire_cache_confirmation(token)
+		return
+
+	cache_confirmation_active = false
+	cache_confirmation_token += 1
+	var fresh_plan: Dictionary = cache_maintenance.build_cleanup_plan()
+	var cleanup: Dictionary = cache_maintenance.execute_cleanup_plan(
+		fresh_plan
+	)
+	var deleted_count := int(cleanup.get("deleted_count", 0))
+	var deleted_bytes := int(cleanup.get("deleted_bytes", 0))
+	_refresh_cache_maintenance_summary()
+	if cache_summary_label == null or not is_instance_valid(cache_summary_label):
+		return
+	if bool(cleanup.get("ok", false)):
+		cache_summary_label.text = AuroraLocale.text(
+			"LIMPIEZA COMPLETA // %d ARCHIVOS // %s LIBERADOS"
+		) % [deleted_count, _format_storage_size(deleted_bytes)]
+		cache_summary_label.add_theme_color_override("font_color", AuroraUi.TEAL)
+	else:
+		cache_summary_label.text = AuroraLocale.text(
+			"LIMPIEZA PARCIAL // REVISA LOS ARCHIVOS EN USO"
+		)
+		cache_summary_label.add_theme_color_override("font_color", AuroraUi.CORAL)
+
+
+func _expire_cache_confirmation(token: int) -> void:
+	await get_tree().create_timer(5.0).timeout
+	if (
+		token != cache_confirmation_token
+		or not cache_confirmation_active
+	):
+		return
+	cache_confirmation_active = false
+	if cache_button != null and is_instance_valid(cache_button):
+		cache_button.text = AuroraLocale.text("LIMPIAR CACHÉ")
+		_apply_danger_button_style(cache_button, false)
+
+
+func _format_storage_size(byte_count: int) -> String:
+	var size := maxf(float(byte_count), 0.0)
+	if size >= 1024.0 * 1024.0 * 1024.0:
+		return "%.2f GiB" % (size / (1024.0 * 1024.0 * 1024.0))
+	if size >= 1024.0 * 1024.0:
+		return "%.1f MiB" % (size / (1024.0 * 1024.0))
+	if size >= 1024.0:
+		return "%.1f KiB" % (size / 1024.0)
+	return "%d B" % byte_count
 
 
 func _input(event: InputEvent) -> void:
