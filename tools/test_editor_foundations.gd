@@ -23,6 +23,7 @@ func _run() -> void:
 	_test_timeline_conversions_zoom_and_scroll()
 	_test_timeline_lanes_and_snapping()
 	_test_timeline_visibility_and_stable_ids()
+	_test_timeline_large_chart_culling()
 	_finish()
 
 
@@ -223,6 +224,30 @@ func _test_timeline_visibility_and_stable_ids() -> void:
 	_expect(
 		reordered_ids == visible_ids,
 		"Reordenar el array no cambia los IDs de las notas visibles"
+	)
+
+
+func _test_timeline_large_chart_culling() -> void:
+	var large_chart: Array[Dictionary] = []
+	for index in range(50000):
+		large_chart.append({
+			"time": float(index) * 0.01,
+			"lane": index % 4,
+			"duration": 0.0,
+			EditorChartStateType.EDITOR_ID_KEY: index + 1,
+		})
+	var viewport = TimelineViewportType.new(600.0, 1000.0, 300.0, 4, 100.0)
+	viewport.set_scroll_time(400.0)
+	var started_usec := Time.get_ticks_usec()
+	var visible := viewport.get_visible_notes(large_chart, 0.0, true)
+	var elapsed_usec := Time.get_ticks_usec() - started_usec
+	_expect(
+		visible.size() >= 1000 and visible.size() <= 1002,
+		"El viewport limita un chart de 50 000 notas al intervalo visible"
+	)
+	_expect(
+		elapsed_usec < 250000,
+		"El culling ordenado evita recorrer 50 000 notas en cada redibujado"
 	)
 
 

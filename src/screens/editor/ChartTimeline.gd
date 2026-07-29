@@ -37,6 +37,7 @@ var bpm := 120.0
 var key_count := 4
 var snap_steps_per_beat := 4
 var viewport_model = VIEWPORT_MODEL.new()
+var maximum_hold_duration := 0.0
 
 var drag_mode := ""
 var drag_start_position := Vector2.ZERO
@@ -75,8 +76,13 @@ func set_chart(
 	next_selected_note_ids: Array[int] = []
 ) -> void:
 	notes.clear()
+	maximum_hold_duration = 0.0
 	for note in next_notes:
 		notes.append(note.duplicate(true))
+		maximum_hold_duration = maxf(
+			maximum_hold_duration,
+			maxf(float(note.get("duration", 0.0)), 0.0)
+		)
 	selected_note_ids.clear()
 	for note_id in next_selected_note_ids:
 		if note_id > 0 and note_id not in selected_note_ids:
@@ -290,7 +296,11 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 func _find_note_at(position: Vector2) -> Dictionary:
 	if position.y < HEADER_HEIGHT:
 		return {}
-	var visible_notes := viewport_model.get_visible_notes(notes)
+	var visible_notes := viewport_model.get_visible_notes(
+		notes,
+		maximum_hold_duration,
+		true
+	)
 	for index in range(visible_notes.size() - 1, -1, -1):
 		var note: Dictionary = visible_notes[index]
 		if viewport_model.get_note_rect(note).grow(2.0).has_point(position):
@@ -300,7 +310,11 @@ func _find_note_at(position: Vector2) -> Dictionary:
 
 func _get_note_ids_in_rect(rect: Rect2) -> Array[int]:
 	var ids: Array[int] = []
-	for note in viewport_model.get_visible_notes(notes):
+	for note in viewport_model.get_visible_notes(
+		notes,
+		maximum_hold_duration,
+		true
+	):
 		if not viewport_model.get_note_rect(note).intersects(rect):
 			continue
 		var note_id := int(note.get(EDITOR_ID_KEY, 0))
@@ -421,7 +435,11 @@ func _draw_grid_line(step: int, step_seconds: float) -> void:
 
 
 func _draw_notes() -> void:
-	for source_note in viewport_model.get_visible_notes(notes):
+	for source_note in viewport_model.get_visible_notes(
+		notes,
+		maximum_hold_duration,
+		true
+	):
 		var note := source_note.duplicate(true)
 		var note_id := int(note.get(EDITOR_ID_KEY, 0))
 		if drag_mode == "move" and note_id in selected_note_ids:

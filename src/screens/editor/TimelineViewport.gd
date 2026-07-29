@@ -140,23 +140,86 @@ func is_note_visible(note: Dictionary) -> bool:
 	return note_end >= get_visible_start() and note_start <= get_visible_end()
 
 
-func get_visible_notes(source_notes: Array[Dictionary]) -> Array[Dictionary]:
+func get_visible_notes(
+	source_notes: Array[Dictionary],
+	maximum_hold_duration: float = -1.0,
+	assume_sorted: bool = false
+) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
-	for note in source_notes:
+	if not assume_sorted:
+		for note in source_notes:
+			if is_note_visible(note):
+				result.append(note.duplicate(true))
+		return result
+	var candidate_start := _first_visible_candidate_index(
+		source_notes,
+		maximum_hold_duration
+	)
+	var visible_end := get_visible_end()
+	for index in range(candidate_start, source_notes.size()):
+		var note: Dictionary = source_notes[index]
+		if float(note.get("time", 0.0)) > visible_end:
+			break
 		if is_note_visible(note):
 			result.append(note.duplicate(true))
 	return result
 
 
-func get_visible_note_ids(source_notes: Array[Dictionary]) -> Array[int]:
+func get_visible_note_ids(
+	source_notes: Array[Dictionary],
+	maximum_hold_duration: float = -1.0,
+	assume_sorted: bool = false
+) -> Array[int]:
 	var result: Array[int] = []
-	for note in source_notes:
+	if not assume_sorted:
+		for note in source_notes:
+			if not is_note_visible(note):
+				continue
+			var note_id := int(note.get(EditorChartState.EDITOR_ID_KEY, 0))
+			if note_id > 0:
+				result.append(note_id)
+		return result
+	var candidate_start := _first_visible_candidate_index(
+		source_notes,
+		maximum_hold_duration
+	)
+	var visible_end := get_visible_end()
+	for index in range(candidate_start, source_notes.size()):
+		var note: Dictionary = source_notes[index]
+		if float(note.get("time", 0.0)) > visible_end:
+			break
 		if not is_note_visible(note):
 			continue
 		var note_id := int(note.get(EditorChartState.EDITOR_ID_KEY, 0))
 		if note_id > 0:
 			result.append(note_id)
 	return result
+
+
+func _first_visible_candidate_index(
+	source_notes: Array[Dictionary],
+	maximum_hold_duration: float
+) -> int:
+	if source_notes.is_empty():
+		return 0
+	var safe_maximum_hold := maximum_hold_duration
+	if safe_maximum_hold < 0.0:
+		safe_maximum_hold = 0.0
+		for note in source_notes:
+			safe_maximum_hold = maxf(
+				safe_maximum_hold,
+				maxf(float(note.get("duration", 0.0)), 0.0)
+			)
+	var earliest_time := get_visible_start() - safe_maximum_hold
+	var low := 0
+	var high := source_notes.size()
+	while low < high:
+		var middle := (low + high) >> 1
+		if float(source_notes[middle].get("time", 0.0)) < earliest_time:
+			low = middle + 1
+		else:
+			high = middle
+	return low
 
 
 func get_note_rect(
