@@ -233,6 +233,26 @@ theme_override_fonts/font = ExtResource("6_font")
 theme_override_font_sizes/font_size = 15
 text = "LISTA DE PISTAS"
 
+[node name="FilterRow" type="HBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="SearchField" type="LineEdit" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/FilterRow"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 11
+placeholder_text = "BUSCAR TITULO O ARTISTA"
+clear_button_enabled = true
+
+[node name="FilterOption" type="OptionButton" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/FilterRow"]
+custom_minimum_size = Vector2(190, 44)
+layout_mode = 2
+focus_mode = 2
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 10
+
 [node name="SongScroll" type="ScrollContainer" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout"]
 layout_mode = 2
 size_flags_vertical = 3
@@ -394,6 +414,26 @@ theme = SubResource("Theme_mode_buttons")
 theme_override_font_sizes/font_size = 11
 text = "VISTA PREVIA"
 
+[node name="FavoriteButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_mode_buttons")
+theme_override_font_sizes/font_size = 9
+text = "FAVORITA"
+
+[node name="EditButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions"]
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_mode_buttons")
+theme_override_font_sizes/font_size = 9
+text = "EDITAR"
+
 [node name="DeleteButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions"]
 custom_minimum_size = Vector2(0, 48)
 layout_mode = 2
@@ -405,7 +445,7 @@ theme_override_colors/font_color = Color(1, 0.42, 0.56, 1)
 theme_override_colors/font_focus_color = Color(1, 0.7, 0.78, 1)
 theme_override_colors/font_hover_color = Color(1, 0.7, 0.78, 1)
 theme_override_colors/font_pressed_color = Color(1, 0.84, 0.88, 1)
-theme_override_font_sizes/font_size = 11
+theme_override_font_sizes/font_size = 9
 text = "BORRAR CANCION"
 
 [node name="PreviewSpacer" type="Control" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]

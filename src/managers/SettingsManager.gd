@@ -31,6 +31,8 @@ const DEFAULT_SETTINGS := {
 	"vsync_enabled": true,
 	"fps_limit": 120,
 	"graphics_quality": "high",
+	"favorite_song_ids": [],
+	"recent_song_ids": [],
 	"lane_bindings": {
 		"4": [KEY_D, KEY_F, KEY_J, KEY_K],
 		"6": [KEY_S, KEY_D, KEY_F, KEY_J, KEY_K, KEY_L],
@@ -253,6 +255,16 @@ func _validate_setting(key: String) -> void:
 		"graphics_quality":
 			if str(settings[key]) not in ["low", "medium", "high"]:
 				settings[key] = "high"
+		"favorite_song_ids", "recent_song_ids":
+			if not (settings[key] is Array):
+				settings[key] = []
+			else:
+				var normalized_ids: Array[String] = []
+				for raw_id in settings[key]:
+					var song_id := str(raw_id).strip_edges()
+					if not song_id.is_empty() and song_id not in normalized_ids:
+						normalized_ids.append(song_id)
+				settings[key] = normalized_ids
 		"lane_bindings":
 			if not (settings[key] is Dictionary):
 				settings[key] = DEFAULT_SETTINGS["lane_bindings"].duplicate(true)

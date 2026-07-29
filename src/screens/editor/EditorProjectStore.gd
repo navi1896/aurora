@@ -236,7 +236,10 @@ static func _is_well_formed_chart_document(document_value: Variant) -> bool:
 	if key_count < 1 or key_count > 16:
 		return false
 	var normalized := ChartData.normalize_notes(document["notes"], key_count)
-	return normalized.size() == (document["notes"] as Array).size()
+	return (
+		normalized.size() == (document["notes"] as Array).size()
+		and ChartData.is_valid_chart_document(document, key_count)
+	)
 
 
 static func _resolve_chart_path(project_path: String, stored_chart_path: String) -> String:

@@ -27,7 +27,7 @@ func load_notes(bpm: float, duration_seconds: float) -> Array[Dictionary]:
 
 
 func has_valid_file_chart() -> bool:
-	return _is_valid_chart_document(_read_chart_document(), key_count)
+	return is_valid_chart_document(_read_chart_document(), key_count)
 
 
 func get_chart_end_time(bpm: float, duration_seconds: float) -> float:
@@ -81,7 +81,7 @@ static func make_chart_document(
 func _load_notes_from_file(bpm: float) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var parsed = _read_chart_document()
-	if not _is_valid_chart_document(parsed, key_count):
+	if not is_valid_chart_document(parsed, key_count):
 		return result
 	var document: Dictionary = parsed
 
@@ -125,6 +125,10 @@ func _read_chart_document() -> Variant:
 
 
 static func _is_valid_chart_document(document_value: Variant, note_key_count: int) -> bool:
+	return is_valid_chart_document(document_value, note_key_count)
+
+
+static func is_valid_chart_document(document_value: Variant, note_key_count: int) -> bool:
 	if not (document_value is Dictionary):
 		return false
 	var document: Dictionary = document_value
@@ -152,7 +156,7 @@ static func _is_valid_chart_document(document_value: Variant, note_key_count: in
 	for raw_note in raw_notes:
 		if not _is_valid_raw_note(raw_note, safe_key_count):
 			return false
-	return true
+	return not _has_note_conflicts(raw_notes)
 
 
 static func _is_valid_raw_note(raw_note_value: Variant, note_key_count: int) -> bool:
@@ -167,7 +171,7 @@ static func _is_valid_raw_note(raw_note_value: Variant, note_key_count: int) -> 
 
 	var has_time := raw_note.has("time")
 	var has_beat := raw_note.has("beat")
-	if not has_time and not has_beat:
+	if has_time == has_beat:
 		return false
 	if has_time and (not _is_number(raw_note["time"]) or float(raw_note["time"]) < 0.0):
 		return false
@@ -189,7 +193,67 @@ static func _is_valid_raw_note(raw_note_value: Variant, note_key_count: int) -> 
 		)
 	):
 		return false
+	if raw_note.has("duration") and raw_note.has("length_beats"):
+		return false
+	if has_time and raw_note.has("length_beats"):
+		return false
+	if has_beat and raw_note.has("duration"):
+		return false
 	return true
+
+
+static func _has_note_conflicts(raw_notes: Array) -> bool:
+	var notes_by_lane: Dictionary = {}
+	for raw_note_value in raw_notes:
+		var raw_note: Dictionary = raw_note_value
+		var lane := int(raw_note["lane"])
+		var uses_seconds := raw_note.has("time")
+		var start := snappedf(
+			float(raw_note["time"] if uses_seconds else raw_note["beat"]),
+			0.001
+		)
+		var duration := snappedf(
+			maxf(
+				float(
+					raw_note.get(
+						"duration" if uses_seconds else "length_beats",
+						0.0
+					)
+				),
+				0.0
+			),
+			0.001
+		)
+		if not notes_by_lane.has(lane):
+			notes_by_lane[lane] = []
+		var lane_notes: Array = notes_by_lane[lane]
+		lane_notes.append({
+			"start": start,
+			"end": start + duration,
+			"unit": "seconds" if uses_seconds else "beats",
+		})
+
+	for lane_value in notes_by_lane.values():
+		var lane_notes: Array = lane_value
+		lane_notes.sort_custom(
+			func(a: Dictionary, b: Dictionary) -> bool:
+				return float(a["start"]) < float(b["start"])
+		)
+		var previous: Dictionary = {}
+		for note_value in lane_notes:
+			var note: Dictionary = note_value
+			if not previous.is_empty():
+				if str(previous["unit"]) != str(note["unit"]):
+					return true
+				var previous_start := float(previous["start"])
+				var previous_end := float(previous["end"])
+				var note_start := float(note["start"])
+				if is_equal_approx(previous_start, note_start):
+					return true
+				if previous_end > note_start + 0.0005:
+					return true
+			previous = note
+	return false
 
 
 static func _is_number(value: Variant) -> bool:

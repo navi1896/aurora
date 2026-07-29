@@ -24,6 +24,9 @@ const REQUIRED_FFMPEG_FILTERS: Array[String] = ["fps", "scale", "format"]
 const REQUIRED_FFMPEG_DEMUXERS: Array[String] = ["mov", "avi", "matroska", "m4v"]
 const REQUIRED_FFMPEG_MUXERS: Array[String] = ["ogg"]
 const MEDIA_CACHE_SAMPLE_BYTES := 64 * 1024
+const DIFFICULTY_IDS: Array[String] = ["NORMAL", "DIFICIL", "MAXIMA"]
+const PROPERTIES_EXPANDED_WIDTH := 370.0
+const PROPERTIES_COLLAPSED_WIDTH := 56.0
 
 var scene_manager: SceneManager
 var game_manager: GameManager
@@ -39,7 +42,7 @@ var current_project_path := ""
 var preview_time := 0.0
 var duration_seconds := 120.0
 var key_count := 4
-var creation_mode := "manual"
+var creation_mode := "automatic"
 var recording := false
 var preview_running := false
 var automatic_density := 1
@@ -62,6 +65,9 @@ var play_button: Button
 var creation_mode_switch: CheckButton
 var manual_mode_label: Label
 var automatic_mode_label: Label
+var manual_tools_container: HBoxContainer
+var automatic_tools_container: HBoxContainer
+var shared_tools_container: HBoxContainer
 var generate_button: Button
 var test_button: Button
 var undo_button: Button
@@ -73,11 +79,20 @@ var title_edit: LineEdit
 var artist_edit: LineEdit
 var bpm_spin: SpinBox
 var duration_spin: SpinBox
+var duration_value_label: Label
 var key_count_option: OptionButton
-var difficulty_edit: LineEdit
+var difficulty_option: OptionButton
 var difficulty_level_spin: SpinBox
 var density_option: OptionButton
 var key_legend: HBoxContainer
+var properties_panel: PanelContainer
+var properties_scroll: ScrollContainer
+var properties_title_label: Label
+var properties_toggle_button: Button
+var general_properties_container: VBoxContainer
+var automatic_properties_container: VBoxContainer
+var manual_properties_container: VBoxContainer
+var properties_collapsed := false
 var video_dialog: FileDialog
 var audio_dialog: FileDialog
 var project_dialog: FileDialog
@@ -108,9 +123,13 @@ func _ready() -> void:
 	chart_history = CHART_HISTORY_MODEL.new()
 	_setup_ui()
 	_setup_file_dialogs()
+	_set_creation_mode(creation_mode)
 	_reset_editor_history()
 	suppress_dirty_tracking = false
-	if not _restore_editor_test_if_needed():
+	if (
+		not _restore_editor_test_if_needed()
+		and not _open_requested_editor_project_if_needed()
+	):
 		_refresh_editor_state()
 
 
@@ -371,34 +390,60 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	note_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	mode_row.add_child(note_count_label)
 
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 10)
-	content.add_child(row)
-
+	manual_tools_container = HBoxContainer.new()
+	manual_tools_container.name = "ManualTools"
+	manual_tools_container.add_theme_constant_override("separation", 10)
+	content.add_child(manual_tools_container)
 	record_button = _make_tool_button(AuroraLocale.text("● GRABAR NOTAS"), 174.0)
 	record_button.toggle_mode = true
 	record_button.pressed.connect(_toggle_recording)
-	row.add_child(record_button)
+	manual_tools_container.add_child(record_button)
+	var manual_tools_help := AuroraUi.make_pixel_label(
+		AuroraLocale.text("REPRODUCE Y USA LAS TECLAS DE CARRIL"),
+		7,
+		AuroraUi.MUTED
+	)
+	manual_tools_help.autowrap_mode = TextServer.AUTOWRAP_OFF
+	manual_tools_help.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	manual_tools_help.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	manual_tools_container.add_child(manual_tools_help)
 
+	automatic_tools_container = HBoxContainer.new()
+	automatic_tools_container.name = "AutomaticTools"
+	automatic_tools_container.add_theme_constant_override("separation", 10)
+	content.add_child(automatic_tools_container)
 	generate_button = _make_tool_button(AuroraLocale.text("GENERAR POR BPM"), 190.0)
 	generate_button.disabled = true
 	generate_button.pressed.connect(_generate_automatic_chart)
-	row.add_child(generate_button)
+	automatic_tools_container.add_child(generate_button)
+	var automatic_tools_help := AuroraUi.make_pixel_label(
+		AuroraLocale.text("CREA UNA BASE SEGUN BPM Y FRECUENCIA"),
+		7,
+		AuroraUi.MUTED
+	)
+	automatic_tools_help.autowrap_mode = TextServer.AUTOWRAP_OFF
+	automatic_tools_help.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	automatic_tools_help.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	automatic_tools_container.add_child(automatic_tools_help)
 
+	shared_tools_container = HBoxContainer.new()
+	shared_tools_container.name = "SharedTools"
+	shared_tools_container.add_theme_constant_override("separation", 10)
+	content.add_child(shared_tools_container)
 	test_button = _make_tool_button(AuroraLocale.text("▶ PROBAR CHART"), 166.0, true)
 	test_button.pressed.connect(_test_chart)
-	row.add_child(test_button)
+	shared_tools_container.add_child(test_button)
 
 	undo_button = _make_tool_button(AuroraLocale.text("DESHACER"), 122.0)
 	undo_button.pressed.connect(_undo_chart_action)
-	row.add_child(undo_button)
+	shared_tools_container.add_child(undo_button)
 	redo_button = _make_tool_button(AuroraLocale.text("REHACER"), 112.0)
 	redo_button.pressed.connect(_redo_chart_action)
-	row.add_child(redo_button)
+	shared_tools_container.add_child(redo_button)
 	var clear_button := _make_tool_button(AuroraLocale.text("LIMPIAR"), 112.0)
 	clear_button.pressed.connect(_request_clear_notes)
-	row.add_child(clear_button)
-	row.add_child(AuroraUi.spacer(1))
+	shared_tools_container.add_child(clear_button)
+	shared_tools_container.add_child(AuroraUi.spacer(1))
 
 
 func _build_timeline(workspace: VBoxContainer) -> void:
@@ -434,57 +479,124 @@ func _build_timeline(workspace: VBoxContainer) -> void:
 
 
 func _build_properties(body: HBoxContainer) -> void:
-	var side := AuroraUi.make_panel(Color(0.025, 0.030, 0.065, 0.98))
-	side.custom_minimum_size.x = 370.0
-	side.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	body.add_child(side)
+	properties_panel = AuroraUi.make_panel(Color(0.025, 0.030, 0.065, 0.98))
+	properties_panel.name = "PropertiesPanel"
+	properties_panel.custom_minimum_size.x = PROPERTIES_EXPANDED_WIDTH
+	properties_panel.size_flags_horizontal = Control.SIZE_SHRINK_END
+	properties_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(properties_panel)
 
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	side.add_child(scroll)
+	var panel_root := VBoxContainer.new()
+	panel_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel_root.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel_root.add_theme_constant_override("separation", 8)
+	properties_panel.add_child(panel_root)
+
+	var panel_header := HBoxContainer.new()
+	panel_header.name = "PropertiesHeader"
+	panel_header.add_theme_constant_override("separation", 8)
+	panel_root.add_child(panel_header)
+	properties_title_label = AuroraUi.make_pixel_label(
+		AuroraLocale.text("PROPIEDADES"),
+		12,
+		AuroraUi.TEXT
+	)
+	properties_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	properties_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	panel_header.add_child(properties_title_label)
+	properties_toggle_button = _make_tool_button(AuroraLocale.text("◀"), 44.0)
+	properties_toggle_button.name = "PropertiesToggle"
+	properties_toggle_button.tooltip_text = AuroraLocale.text(
+		"OCULTAR O MOSTRAR EL PANEL DE PROPIEDADES"
+	)
+	properties_toggle_button.pressed.connect(_toggle_properties_panel)
+	panel_header.add_child(properties_toggle_button)
+
+	properties_scroll = ScrollContainer.new()
+	properties_scroll.name = "PropertiesScroll"
+	properties_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	properties_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	properties_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	panel_root.add_child(properties_scroll)
 	var controls := VBoxContainer.new()
 	controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	controls.add_theme_constant_override("separation", 10)
-	scroll.add_child(controls)
-	controls.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("PROPIEDADES"), 12, AuroraUi.TEXT))
-	controls.add_child(
+	properties_scroll.add_child(controls)
+
+	general_properties_container = _make_property_section(
+		controls,
+		AuroraLocale.text("DATOS GENERALES")
+	)
+	general_properties_container.add_child(
 		AuroraUi.make_label(
 			AuroraLocale.text("Usa un video con audio o crea un nivel solo con MP3, OGG o WAV."),
 			11,
 			AuroraUi.MUTED
 		)
 	)
-
 	video_select_button = _make_tool_button(AuroraLocale.text("ELEGIR VIDEO"), 0.0, true)
 	video_select_button.pressed.connect(_open_video_dialog)
-	controls.add_child(video_select_button)
+	general_properties_container.add_child(video_select_button)
 	audio_select_button = _make_tool_button(AuroraLocale.text("AUDIO SEPARADO (OPCIONAL)"), 0.0)
 	audio_select_button.pressed.connect(_open_audio_dialog)
-	controls.add_child(audio_select_button)
+	general_properties_container.add_child(audio_select_button)
 
-	controls.add_child(HSeparator.new())
-	title_edit = _add_line_edit(controls, AuroraLocale.text("TITULO"), "Nuevo nivel")
-	artist_edit = _add_line_edit(controls, AuroraLocale.text("ARTISTA"), "Aurora Creator")
-	difficulty_edit = _add_line_edit(controls, AuroraLocale.text("DIFICULTAD"), "NORMAL")
+	general_properties_container.add_child(HSeparator.new())
+	title_edit = _add_line_edit(
+		general_properties_container,
+		AuroraLocale.text("TITULO"),
+		"Nuevo nivel"
+	)
+	artist_edit = _add_line_edit(
+		general_properties_container,
+		AuroraLocale.text("ARTISTA"),
+		"Aurora Creator"
+	)
 	title_edit.text_changed.connect(_on_metadata_text_changed)
 	artist_edit.text_changed.connect(_on_metadata_text_changed)
-	difficulty_edit.text_changed.connect(_on_metadata_text_changed)
 
-	bpm_spin = _add_spin_box(controls, "BPM", 40.0, 300.0, 1.0, 128.0)
-	bpm_spin.value_changed.connect(_on_chart_property_changed)
-	duration_spin = _add_spin_box(
-		controls,
-		AuroraLocale.text("DURACION (SEGUNDOS)"),
-		1.0,
-		3600.0,
-		0.1,
-		duration_seconds
+	general_properties_container.add_child(
+		AuroraUi.make_pixel_label(AuroraLocale.text("DIFICULTAD"), 7, AuroraUi.MUTED)
 	)
-	duration_spin.value_changed.connect(_on_duration_changed)
+	difficulty_option = OptionButton.new()
+	difficulty_option.name = "DifficultyOption"
+	difficulty_option.add_item(AuroraLocale.text("NORMAL"))
+	difficulty_option.add_item(AuroraLocale.text("DIFÍCIL"))
+	difficulty_option.add_item(AuroraLocale.text("MÁXIMA"))
+	difficulty_option.custom_minimum_size.y = 44.0
+	AuroraUi.apply_pixel_font(difficulty_option, 8)
+	difficulty_option.item_selected.connect(_on_difficulty_selected)
+	general_properties_container.add_child(difficulty_option)
+
+	general_properties_container.add_child(
+		AuroraUi.make_pixel_label(
+			AuroraLocale.text("DURACION DETECTADA"),
+			7,
+			AuroraUi.MUTED
+		)
+	)
+	duration_value_label = AuroraUi.make_pixel_label(
+		_format_time(duration_seconds),
+		9,
+		AuroraUi.GOLD
+	)
+	duration_value_label.name = "DetectedDurationValue"
+	duration_value_label.tooltip_text = AuroraLocale.text(
+		"LA DURACION SE OBTIENE AUTOMATICAMENTE DEL VIDEO O AUDIO"
+	)
+	general_properties_container.add_child(duration_value_label)
+	duration_spin = SpinBox.new()
+	duration_spin.name = "DurationInternal"
+	duration_spin.min_value = 1.0
+	duration_spin.max_value = 3600.0
+	duration_spin.step = 0.1
+	duration_spin.value = duration_seconds
+	duration_spin.visible = false
+	general_properties_container.add_child(duration_spin)
+
 	difficulty_level_spin = _add_spin_box(
-		controls,
-		AuroraLocale.text("NIVEL"),
+		general_properties_container,
+		AuroraLocale.text("VALOR DE DIFICULTAD (1–20)"),
 		1.0,
 		20.0,
 		1.0,
@@ -492,7 +604,13 @@ func _build_properties(body: HBoxContainer) -> void:
 	)
 	difficulty_level_spin.value_changed.connect(_on_chart_property_changed)
 
-	controls.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("CANTIDAD DE TECLAS"), 7, AuroraUi.MUTED))
+	general_properties_container.add_child(
+		AuroraUi.make_pixel_label(
+			AuroraLocale.text("CANTIDAD DE TECLAS"),
+			7,
+			AuroraUi.MUTED
+		)
+	)
 	key_count_option = OptionButton.new()
 	for mode in SUPPORTED_KEY_COUNTS:
 		key_count_option.add_item("%dK" % mode, mode)
@@ -500,9 +618,37 @@ func _build_properties(body: HBoxContainer) -> void:
 	key_count_option.item_selected.connect(_on_key_count_selected)
 	key_count_option.custom_minimum_size.y = 44.0
 	AuroraUi.apply_pixel_font(key_count_option, 9)
-	controls.add_child(key_count_option)
+	general_properties_container.add_child(key_count_option)
 
-	controls.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("DENSIDAD AUTOMATICA"), 7, AuroraUi.MUTED))
+	automatic_properties_container = _make_property_section(
+		controls,
+		AuroraLocale.text("OPCIONES AUTOMATICAS")
+	)
+	bpm_spin = _add_spin_box(
+		automatic_properties_container,
+		"BPM",
+		40.0,
+		300.0,
+		1.0,
+		128.0
+	)
+	bpm_spin.value_changed.connect(_on_chart_property_changed)
+	automatic_properties_container.add_child(
+		AuroraUi.make_label(
+			AuroraLocale.text(
+				"El BPM define la cuadrícula y el espacio de la plantilla automática."
+			),
+			10,
+			AuroraUi.MUTED
+		)
+	)
+	automatic_properties_container.add_child(
+		AuroraUi.make_pixel_label(
+			AuroraLocale.text("FRECUENCIA DE NOTAS"),
+			7,
+			AuroraUi.MUTED
+		)
+	)
 	density_option = OptionButton.new()
 	density_option.add_item(AuroraLocale.text("SUAVE"))
 	density_option.add_item(AuroraLocale.text("NORMAL"))
@@ -511,10 +657,13 @@ func _build_properties(body: HBoxContainer) -> void:
 	density_option.item_selected.connect(_on_density_selected)
 	density_option.custom_minimum_size.y = 44.0
 	AuroraUi.apply_pixel_font(density_option, 8)
-	controls.add_child(density_option)
+	automatic_properties_container.add_child(density_option)
 
-	controls.add_child(HSeparator.new())
-	controls.add_child(
+	manual_properties_container = _make_property_section(
+		controls,
+		AuroraLocale.text("HERRAMIENTAS MANUALES")
+	)
+	manual_properties_container.add_child(
 		AuroraUi.make_pixel_label(
 			AuroraLocale.text("TECLAS DE GRABACION"),
 			8,
@@ -523,10 +672,10 @@ func _build_properties(body: HBoxContainer) -> void:
 	)
 	key_legend = HBoxContainer.new()
 	key_legend.add_theme_constant_override("separation", 6)
-	controls.add_child(key_legend)
+	manual_properties_container.add_child(key_legend)
 
-	controls.add_child(AuroraUi.spacer(4))
-	controls.add_child(
+	manual_properties_container.add_child(AuroraUi.spacer(4))
+	manual_properties_container.add_child(
 		AuroraUi.make_label(
 			AuroraLocale.text(
 				"Manual: reproduce el video y pulsa las teclas. Mantén una tecla para crear una nota larga."
@@ -535,6 +684,56 @@ func _build_properties(body: HBoxContainer) -> void:
 			AuroraUi.MUTED
 		)
 	)
+	_refresh_mode_visibility()
+	_set_properties_collapsed(false)
+
+
+func _make_property_section(parent: VBoxContainer, title: String) -> VBoxContainer:
+	var section := VBoxContainer.new()
+	section.add_theme_constant_override("separation", 8)
+	parent.add_child(section)
+	section.add_child(HSeparator.new())
+	section.add_child(AuroraUi.make_pixel_label(title, 8, AuroraUi.TEAL))
+	return section
+
+
+func _toggle_properties_panel() -> void:
+	_set_properties_collapsed(not properties_collapsed)
+
+
+func _set_properties_collapsed(collapsed: bool) -> void:
+	properties_collapsed = collapsed
+	if properties_panel != null:
+		properties_panel.custom_minimum_size.x = (
+			PROPERTIES_COLLAPSED_WIDTH if collapsed else PROPERTIES_EXPANDED_WIDTH
+		)
+	if properties_scroll != null:
+		properties_scroll.visible = not collapsed
+	if properties_title_label != null:
+		properties_title_label.visible = not collapsed
+	if properties_toggle_button != null:
+		properties_toggle_button.text = AuroraLocale.text("▶" if collapsed else "◀")
+		properties_toggle_button.tooltip_text = AuroraLocale.text(
+			"MOSTRAR PANEL DE PROPIEDADES"
+			if collapsed
+			else "OCULTAR PANEL DE PROPIEDADES"
+		)
+	if properties_panel != null:
+		properties_panel.update_minimum_size()
+
+
+func _refresh_mode_visibility() -> void:
+	var automatic_mode := creation_mode == "automatic"
+	if manual_tools_container != null:
+		manual_tools_container.visible = not automatic_mode
+	if automatic_tools_container != null:
+		automatic_tools_container.visible = automatic_mode
+	if shared_tools_container != null:
+		shared_tools_container.visible = true
+	if manual_properties_container != null:
+		manual_properties_container.visible = not automatic_mode
+	if automatic_properties_container != null:
+		automatic_properties_container.visible = automatic_mode
 
 
 func _setup_file_dialogs() -> void:
@@ -1285,7 +1484,7 @@ func _update_playhead_ui() -> void:
 
 
 func _set_creation_mode(mode: String) -> void:
-	creation_mode = mode
+	creation_mode = mode if mode in ["manual", "automatic"] else "automatic"
 	if recording_countdown_active:
 		_cancel_recording_countdown()
 	if creation_mode != "manual" and recording:
@@ -1302,8 +1501,11 @@ func _set_creation_mode(mode: String) -> void:
 			"font_color",
 			AuroraUi.TEAL if creation_mode == "automatic" else AuroraUi.MUTED
 		)
-	record_button.disabled = creation_mode != "manual" or not _has_media()
-	generate_button.disabled = creation_mode != "automatic" or not _has_media()
+	_refresh_mode_visibility()
+	if record_button != null:
+		record_button.disabled = creation_mode != "manual" or not _has_media()
+	if generate_button != null:
+		generate_button.disabled = creation_mode != "automatic" or not _has_media()
 	_set_status(
 		AuroraLocale.text("MODO MANUAL: PULSA Y MANTEN LAS TECLAS")
 		if creation_mode == "manual"
@@ -1314,6 +1516,41 @@ func _set_creation_mode(mode: String) -> void:
 
 func _on_creation_mode_switched(automatic_enabled: bool) -> void:
 	_set_creation_mode("automatic" if automatic_enabled else "manual")
+
+
+func _on_difficulty_selected(_index: int) -> void:
+	_refresh_dirty_state()
+
+
+func _get_difficulty_id() -> String:
+	if difficulty_option == null:
+		return DIFFICULTY_IDS[0]
+	var selected_index := clampi(difficulty_option.selected, 0, DIFFICULTY_IDS.size() - 1)
+	return DIFFICULTY_IDS[selected_index]
+
+
+func _select_difficulty(value: String) -> void:
+	if difficulty_option == null:
+		return
+	var normalized := _normalize_difficulty_id(value)
+	var selected_index := DIFFICULTY_IDS.find(normalized)
+	difficulty_option.select(maxi(selected_index, 0))
+
+
+func _normalize_difficulty_id(value: String) -> String:
+	var normalized := value.strip_edges().to_upper()
+	normalized = normalized.replace("Á", "A")
+	normalized = normalized.replace("É", "E")
+	normalized = normalized.replace("Í", "I")
+	normalized = normalized.replace("Ó", "O")
+	normalized = normalized.replace("Ú", "U")
+	match normalized:
+		"DIFICIL", "HARD":
+			return "DIFICIL"
+		"MAXIMA", "MAXIMUM", "MAX", "MASTER", "MAESTRO", "EXPERT", "EXPERTO":
+			return "MAXIMA"
+		_:
+			return "NORMAL"
 
 
 func _toggle_recording() -> void:
@@ -1698,6 +1935,7 @@ func _request_open_project_dialog() -> void:
 
 
 func _refresh_editor_state() -> void:
+	_refresh_duration_display()
 	if timeline != null:
 		timeline.set_chart(notes, duration_seconds, float(bpm_spin.value), key_count)
 		timeline.set_playhead(preview_time)
@@ -1725,6 +1963,13 @@ func _refresh_editor_state() -> void:
 		test_button.disabled = not _has_media() or notes.is_empty()
 	_update_playhead_ui()
 	_refresh_dirty_state()
+
+
+func _refresh_duration_display() -> void:
+	if duration_spin != null:
+		duration_spin.set_value_no_signal(duration_seconds)
+	if duration_value_label != null:
+		duration_value_label.text = _format_time(duration_seconds)
 
 
 func _save_project() -> bool:
@@ -1777,7 +2022,7 @@ func _make_project_document(chart_path: String = "") -> Dictionary:
 		"metadata": {
 			"title": title_edit.text.strip_edges(),
 			"artist": artist_edit.text.strip_edges(),
-			"difficulty": difficulty_edit.text.strip_edges().to_upper(),
+			"difficulty": _get_difficulty_id(),
 			"difficulty_level": int(difficulty_level_spin.value),
 			"bpm": float(bpm_spin.value),
 			"duration_seconds": duration_seconds,
@@ -1807,7 +2052,7 @@ func _load_project(path: String) -> void:
 	var metadata: Dictionary = parsed.get("metadata", {})
 	title_edit.text = str(metadata.get("title", "Nuevo nivel"))
 	artist_edit.text = str(metadata.get("artist", "Aurora Creator"))
-	difficulty_edit.text = str(metadata.get("difficulty", "NORMAL"))
+	_select_difficulty(str(metadata.get("difficulty", "NORMAL")))
 	bpm_spin.value = clampf(float(metadata.get("bpm", 128.0)), 40.0, 300.0)
 	duration_seconds = maxf(float(metadata.get("duration_seconds", 120.0)), 1.0)
 	duration_spin.set_value_no_signal(duration_seconds)
@@ -1829,7 +2074,7 @@ func _load_project(path: String) -> void:
 		_load_video(video_path)
 	if not audio_path.is_empty():
 		_load_audio(audio_path)
-	_set_creation_mode(str(metadata.get("creation_mode", "manual")))
+	_set_creation_mode(str(metadata.get("creation_mode", "automatic")))
 	seek_slider.max_value = duration_seconds
 	_reset_editor_history()
 	suppress_dirty_tracking = false
@@ -1854,7 +2099,7 @@ func _new_project() -> void:
 	video_player.volume_db = 0.0
 	title_edit.text = "Nuevo nivel"
 	artist_edit.text = "Aurora Creator"
-	difficulty_edit.text = "NORMAL"
+	_select_difficulty("NORMAL")
 	bpm_spin.value = 128.0
 	duration_seconds = 120.0
 	duration_spin.set_value_no_signal(duration_seconds)
@@ -1887,6 +2132,18 @@ func _restore_editor_test_if_needed() -> bool:
 	return true
 
 
+func _open_requested_editor_project_if_needed() -> bool:
+	var requested_project_path := game_manager.take_requested_editor_project_path()
+	if requested_project_path.is_empty():
+		return false
+	if not FileAccess.file_exists(requested_project_path):
+		_refresh_editor_state()
+		_set_status(AuroraLocale.text("EL PROYECTO SELECCIONADO YA NO EXISTE"), true)
+		return true
+	_load_project(requested_project_path)
+	return true
+
+
 func _test_chart() -> void:
 	if not _has_media():
 		_set_status(AuroraLocale.text("SELECCIONA VIDEO O AUDIO PARA PROBAR"), true)
@@ -1905,7 +2162,7 @@ func _test_chart() -> void:
 
 	var chart := ChartData.new()
 	chart.key_count = key_count
-	chart.difficulty_name = difficulty_edit.text.strip_edges().to_upper()
+	chart.difficulty_name = _get_difficulty_id()
 	chart.difficulty_level = int(difficulty_level_spin.value)
 	chart.chart_path = chart_path
 

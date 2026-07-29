@@ -737,10 +737,12 @@ func _run() -> void:
 		)
 		var audio_only_probe := AudioStreamGenerator.new()
 		editor.audio_player.stream = audio_only_probe
+		editor._set_creation_mode("manual")
 		editor._refresh_editor_state()
 		_expect(editor._has_media(), "El editor acepta proyectos que solo usan audio")
 		_expect(not editor.record_button.disabled, "Un MP3 permite grabar notas sin video")
 		editor.audio_player.stream = null
+		editor._set_creation_mode("automatic")
 		editor._refresh_editor_state()
 		_expect(editor.timeline != null, "El editor incluye una línea de tiempo interactiva")
 		_expect(editor.record_button != null, "El editor ofrece grabación manual de notas")
@@ -751,9 +753,89 @@ func _run() -> void:
 			"Manual y Automática se distinguen con un interruptor"
 		)
 		_expect(
-			editor.test_button.get_parent() == editor.record_button.get_parent(),
-			"Probar chart permanece visible junto a las herramientas principales"
+			editor.manual_tools_container != null
+			and editor.automatic_tools_container != null
+			and editor.shared_tools_container != null
+			and editor.record_button.get_parent() == editor.manual_tools_container
+			and editor.generate_button.get_parent() == editor.automatic_tools_container
+			and editor.test_button.get_parent() == editor.shared_tools_container,
+			"El editor separa herramientas manuales, automáticas y compartidas"
 		)
+		_expect(
+			editor.automatic_tools_container.visible
+			and editor.automatic_properties_container.visible
+			and not editor.manual_tools_container.visible
+			and not editor.manual_properties_container.visible,
+			"El modo Automático solo muestra sus controles relevantes"
+		)
+		editor._set_creation_mode("manual")
+		_expect(
+			editor.manual_tools_container.visible
+			and editor.manual_properties_container.visible
+			and not editor.automatic_tools_container.visible
+			and not editor.automatic_properties_container.visible,
+			"El modo Manual solo muestra grabación y ayuda manual"
+		)
+		editor._set_creation_mode("automatic")
+		editor._select_difficulty("hard")
+		_expect(
+			editor._get_difficulty_id() == "DIFICIL",
+			"Las dificultades antiguas se migran a un identificador estable"
+		)
+		editor._select_difficulty("maximum")
+		_expect(
+			editor._get_difficulty_id() == "MAXIMA",
+			"Máxima conserva un identificador estable independiente del idioma"
+		)
+		editor._select_difficulty("normal")
+		_expect(
+			editor.duration_value_label != null
+			and editor.duration_value_label.visible
+			and editor.duration_spin != null
+			and not editor.duration_spin.visible,
+			"La duración detectada se muestra sin permitir edición manual"
+		)
+		editor._set_properties_collapsed(false)
+		await process_frame
+		await process_frame
+		var expanded_timeline_width: float = editor.timeline.size.x
+		editor._set_properties_collapsed(true)
+		await process_frame
+		await process_frame
+		var collapsed_timeline_width: float = editor.timeline.size.x
+		_expect(
+			editor.properties_collapsed
+			and not editor.properties_scroll.visible
+			and editor.properties_toggle_button.visible
+			and is_equal_approx(
+				editor.properties_panel.custom_minimum_size.x,
+				editor.PROPERTIES_COLLAPSED_WIDTH
+			)
+			and collapsed_timeline_width > expanded_timeline_width,
+			"Ocultar Propiedades libera ancho real para la línea de tiempo"
+		)
+		editor._set_properties_collapsed(false)
+		await process_frame
+		await process_frame
+		for viewport_size in [Vector2i(1280, 720), Vector2i(1920, 1080)]:
+			root.size = viewport_size
+			await process_frame
+			await process_frame
+			var editor_rect: Rect2 = editor.get_global_rect()
+			var timeline_rect: Rect2 = editor.timeline.get_global_rect()
+			var toggle_rect: Rect2 = editor.properties_toggle_button.get_global_rect()
+			_expect(
+				editor_rect.size.x > 0.0
+				and editor_rect.size.y > 0.0
+				and timeline_rect.position.y >= editor_rect.position.y
+				and timeline_rect.end.y <= editor_rect.end.y + 2.0
+				and toggle_rect.end.x <= editor_rect.end.x + 2.0,
+				"El editor conserva controles utilizables en %dx%d"
+				% [viewport_size.x, viewport_size.y]
+			)
+		root.size = Vector2i(1920, 1080)
+		await process_frame
+		await process_frame
 		_expect(
 			editor.recording_countdown_label != null,
 			"La grabación manual prepara una cuenta regresiva visible"
