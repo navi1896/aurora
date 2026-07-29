@@ -837,6 +837,93 @@ func _run() -> void:
 			and not editor.duration_spin.visible,
 			"La duración detectada se muestra sin permitir edición manual"
 		)
+		_expect(
+			editor.tap_bpm_button != null
+			and editor.tap_bpm_use_button != null
+			and editor.tap_bpm_reset_button != null
+			and editor.tap_bpm_button.focus_mode == Control.FOCUS_ALL
+			and editor.tap_bpm_use_button.focus_mode == Control.FOCUS_ALL
+			and editor.tap_bpm_reset_button.focus_mode == Control.FOCUS_ALL,
+			"Tap BPM se puede recorrer y activar con teclado o mando"
+		)
+		editor._reset_tap_bpm_assistant()
+		editor.bpm_spin.set_value_no_signal(128.0)
+		for tap_time in [0.0, 0.5, 1.0, 1.5, 2.0]:
+			editor._register_bpm_tap(tap_time)
+		_expect(
+			bool(editor.latest_tap_bpm_estimate.get("valid", false))
+			and is_equal_approx(
+				float(editor.latest_tap_bpm_estimate.get("primary_bpm", 0.0)),
+				120.0
+			)
+			and is_equal_approx(float(editor.bpm_spin.value), 128.0)
+			and not editor.tap_bpm_use_button.disabled
+			and "CONFIANZA" in editor.tap_bpm_result_label.text,
+			"Tap BPM informa el cálculo sin sobrescribir el BPM actual"
+		)
+		editor._use_tap_bpm_estimate()
+		_expect(
+			is_equal_approx(float(editor.bpm_spin.value), 120.0),
+			"Tap BPM solo cambia el proyecto después de pulsar USAR"
+		)
+		editor._reset_tap_bpm_assistant()
+		_expect(
+			editor.tap_bpm_use_button.disabled
+			and editor.latest_tap_bpm_estimate.is_empty(),
+			"Tap BPM permite reiniciar la sesión de medición"
+		)
+
+		var analysis_notes: Array[Dictionary] = []
+		for event_index in range(24):
+			var event_time := float(event_index) * 0.3
+			analysis_notes.append(
+				{
+					"time": event_time,
+					"lane": event_index % 4,
+					"duration": 0.6 if event_index % 4 == 0 else 0.0,
+				}
+			)
+			analysis_notes.append(
+				{
+					"time": event_time,
+					"lane": (event_index + 2) % 4,
+					"duration": 0.0,
+				}
+			)
+		editor.notes = analysis_notes
+		editor.key_count = 4
+		editor.key_count_option.selected = 0
+		editor.duration_seconds = 8.0
+		editor.difficulty_level_spin.set_value_no_signal(3.0)
+		editor._reset_editor_history()
+		editor._refresh_editor_state()
+		var estimated_chart_level := int(
+			editor.latest_chart_difficulty_estimate.get("level", 0)
+		)
+		_expect(
+			bool(editor.latest_chart_difficulty_estimate.get("valid", false))
+			and estimated_chart_level > 3
+			and is_equal_approx(float(editor.difficulty_level_spin.value), 3.0)
+			and not editor.chart_difficulty_use_button.disabled
+			and "DENS" in editor.chart_difficulty_summary_label.text
+			and "HOLD" in editor.chart_difficulty_summary_label.text,
+			"El análisis explica la dificultad sin sobrescribir el nivel actual"
+		)
+		var difficulty_category_before_analysis: String = editor._get_difficulty_id()
+		editor._use_chart_difficulty_estimate()
+		_expect(
+			int(editor.difficulty_level_spin.value) == estimated_chart_level
+			and editor._get_difficulty_id() == difficulty_category_before_analysis,
+			"USAR aplica solo el nivel estimado y conserva la categoría"
+		)
+		editor.notes.clear()
+		editor.duration_seconds = 120.0
+		editor.key_count = 4
+		editor.key_count_option.selected = 0
+		editor.bpm_spin.set_value_no_signal(128.0)
+		editor.difficulty_level_spin.set_value_no_signal(4.0)
+		editor._reset_editor_history()
+		editor._refresh_editor_state()
 		editor._set_properties_collapsed(false)
 		await process_frame
 		await process_frame
