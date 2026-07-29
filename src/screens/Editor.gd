@@ -3,6 +3,7 @@ extends Control
 class_name Editor
 
 const PROJECT_STORE = preload("res://src/screens/editor/EditorProjectStore.gd")
+const RECOVERY_STORE = preload("res://src/screens/editor/EditorRecoveryStore.gd")
 const CHART_STATE_MODEL = preload("res://src/screens/editor/EditorChartState.gd")
 const CHART_HISTORY_MODEL = preload("res://src/screens/editor/ChartEditHistory.gd")
 const TIMELINE_EDIT_OPERATIONS = preload(
@@ -12,6 +13,8 @@ const EDITOR_DIRECTORY := "user://aurora_editor"
 const EDITOR_MEDIA_DIRECTORY := "user://aurora_editor/media"
 const EDITOR_LOG_DIRECTORY := "user://aurora_editor/logs"
 const MEDIA_IMPORT_LOG_PATH := "user://aurora_editor/logs/media_import.log"
+const RECOVERY_PATH := "user://aurora_editor/.recovery/recovery.json"
+const RECOVERY_INTERVAL_SECONDS := 8.0
 const VIDEO_CONVERSION_PROFILE := "theora_v4_720p30_validated"
 const MIN_HOLD_DURATION := 0.18
 const SUPPORTED_KEY_COUNTS: Array[int] = [4, 6, 8]
@@ -58,6 +61,7 @@ var timeline_operations
 var saved_metadata_signature := ""
 var suppress_dirty_tracking := true
 var pending_confirmation_action := Callable()
+var recovery_timer: Timer
 
 var video_player: VideoStreamPlayer
 var audio_player: AudioStreamPlayer
@@ -138,14 +142,17 @@ func _ready() -> void:
 	timeline_operations = TIMELINE_EDIT_OPERATIONS.new()
 	_setup_ui()
 	_setup_file_dialogs()
+	_setup_recovery_timer()
 	_set_creation_mode(creation_mode)
 	_reset_editor_history()
 	suppress_dirty_tracking = false
-	if (
-		not _restore_editor_test_if_needed()
-		and not _open_requested_editor_project_if_needed()
-	):
+	var opened_explicit_context := (
+		_restore_editor_test_if_needed()
+		or _open_requested_editor_project_if_needed()
+	)
+	if not opened_explicit_context and not _restore_recovery_if_available():
 		_refresh_editor_state()
+	recovery_timer.start()
 
 
 func _process(_delta: float) -> void:
@@ -160,6 +167,15 @@ func _process(_delta: float) -> void:
 		_pause_preview()
 		preview_time = duration_seconds
 	_update_playhead_ui()
+
+
+func _setup_recovery_timer() -> void:
+	recovery_timer = Timer.new()
+	recovery_timer.one_shot = false
+	recovery_timer.wait_time = RECOVERY_INTERVAL_SECONDS
+	recovery_timer.process_mode = Node.PROCESS_MODE_ALWAYS
+	recovery_timer.timeout.connect(_autosave_recovery_if_needed)
+	add_child(recovery_timer)
 
 
 func _setup_ui() -> void:
@@ -2318,7 +2334,31 @@ func _mark_editor_saved() -> void:
 	if chart_history != null:
 		chart_history.mark_saved()
 	saved_metadata_signature = _metadata_signature()
+	_discard_recovery_snapshot()
 	_refresh_dirty_state()
+
+
+func _autosave_recovery_if_needed() -> void:
+	if suppress_dirty_tracking or not _is_editor_dirty():
+		return
+	var recovery_result := RECOVERY_STORE.save_snapshot(
+		RECOVERY_PATH,
+		_make_project_document("chart.json"),
+		notes,
+		current_project_path
+	)
+	if not bool(recovery_result.get("ok", false)):
+		_append_media_import_log(
+			"recovery_save_failed: %s"
+			% str(recovery_result.get("message", ""))
+		)
+		return
+	if dirty_label != null:
+		dirty_label.text = AuroraLocale.text("● CAMBIOS SIN GUARDAR // RECUPERACIÓN ACTIVA")
+
+
+func _discard_recovery_snapshot() -> void:
+	RECOVERY_STORE.discard_snapshot(RECOVERY_PATH)
 
 
 func _metadata_signature() -> String:
@@ -2520,11 +2560,35 @@ func _load_project(path: String) -> void:
 	if not bool(load_result.get("ok", false)):
 		_set_status(AuroraLocale.text(str(load_result.get("message", ""))), true)
 		return
+	var legacy_video_needs_source := _apply_project_snapshot(
+		load_result.get("project", {}),
+		load_result.get("notes", []),
+		str(load_result.get("project_path", path)),
+		false
+	)
+	_discard_recovery_snapshot()
+	if bool(load_result.get("needs_migration", false)):
+		_set_status(AuroraLocale.text("PROYECTO ANTIGUO ABIERTO // SE MIGRARA AL GUARDAR"))
+	elif legacy_video_needs_source:
+		_set_status(
+			AuroraLocale.text(
+				"EL VIDEO ANTIGUO NO ES CONFIABLE. VUELVE A ELEGIR EL ARCHIVO ORIGINAL."
+			),
+			true
+		)
+	else:
+		_set_status(AuroraLocale.text("PROYECTO ABIERTO"))
 
+
+func _apply_project_snapshot(
+	parsed: Dictionary,
+	loaded_notes: Array,
+	effective_project_path: String,
+	recovered: bool
+) -> bool:
 	_stop_preview()
 	suppress_dirty_tracking = true
-	current_project_path = str(load_result.get("project_path", path))
-	var parsed: Dictionary = load_result.get("project", {})
+	current_project_path = effective_project_path.simplify_path()
 	var metadata: Dictionary = parsed.get("metadata", {})
 	title_edit.text = str(metadata.get("title", "Nuevo nivel"))
 	artist_edit.text = str(metadata.get("artist", "Aurora Creator"))
@@ -2539,7 +2603,7 @@ func _load_project(path: String) -> void:
 	key_count_option.selected = SUPPORTED_KEY_COUNTS.find(key_count)
 	automatic_density = clampi(int(metadata.get("automatic_density", 1)), 0, 2)
 	density_option.selected = automatic_density
-	notes = ChartData.normalize_notes(load_result.get("notes", []), key_count)
+	notes = ChartData.normalize_notes(loaded_notes, key_count)
 	var media: Dictionary = parsed.get("media", {})
 	video_path = str(media.get("video_path", ""))
 	video_source_path = str(media.get("video_source_path", ""))
@@ -2562,21 +2626,35 @@ func _load_project(path: String) -> void:
 	seek_slider.max_value = duration_seconds
 	_reset_editor_history()
 	suppress_dirty_tracking = false
+	if recovered:
+		saved_metadata_signature = "__aurora_recovered_snapshot__"
 	_refresh_editor_state()
-	if bool(load_result.get("needs_migration", false)):
-		_set_status(AuroraLocale.text("PROYECTO ANTIGUO ABIERTO // SE MIGRARA AL GUARDAR"))
-	elif legacy_video_needs_source:
-		_set_status(
-			AuroraLocale.text(
-				"EL VIDEO ANTIGUO NO ES CONFIABLE. VUELVE A ELEGIR EL ARCHIVO ORIGINAL."
-			),
-			true
+	return legacy_video_needs_source
+
+
+func _restore_recovery_if_available() -> bool:
+	if not FileAccess.file_exists(RECOVERY_PATH):
+		return false
+	var recovery_result := RECOVERY_STORE.load_snapshot(RECOVERY_PATH)
+	if not bool(recovery_result.get("ok", false)):
+		_set_status(AuroraLocale.text("EL BORRADOR DE RECUPERACIÓN ESTÁ DAÑADO"), true)
+		return false
+	_apply_project_snapshot(
+		recovery_result.get("project", {}),
+		recovery_result.get("notes", []),
+		str(recovery_result.get("source_project_path", "")),
+		true
+	)
+	_set_status(
+		AuroraLocale.text(
+			"BORRADOR RECUPERADO // GUARDA PARA CONFIRMAR LOS CAMBIOS"
 		)
-	else:
-		_set_status(AuroraLocale.text("PROYECTO ABIERTO"))
+	)
+	return true
 
 
 func _new_project() -> void:
+	_discard_recovery_snapshot()
 	_stop_preview()
 	suppress_dirty_tracking = true
 	notes.clear()
@@ -2812,6 +2890,10 @@ func _handle_timeline_keyboard_event(event: InputEventKey) -> bool:
 
 
 func _exit_tree() -> void:
+	if recovery_timer != null:
+		recovery_timer.stop()
+	if not suppress_dirty_tracking and _is_editor_dirty():
+		_autosave_recovery_if_needed()
 	if video_conversion_pid > 0:
 		_cancel_video_conversion(false)
 	if video_player != null:

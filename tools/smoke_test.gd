@@ -681,9 +681,24 @@ func _run() -> void:
 		)
 		settings_screen._show_category("credits")
 		var complete_licenses: String = settings_screen._build_complete_license_text()
+		var navi89_credit_visible := false
+		for credit_label in settings_screen.find_children("*", "Label", true, false):
+			if "Navi89" in str(credit_label.text):
+				navi89_credit_visible = true
+				break
 		_expect(
 			settings_screen.category_buttons.has("credits"),
 			"Configuración incluye Créditos y licencias"
+		)
+		_expect(
+			navi89_credit_visible,
+			"Créditos reconoce las pruebas y retroalimentación de Navi89"
+		)
+		_expect(
+			settings_manager.settings_save_timer != null
+			and settings_manager.settings_save_timer.one_shot
+			and settings_manager.settings_save_timer.wait_time >= 0.2,
+			"Los sliders agrupan escrituras rápidas de configuración"
 		)
 		_expect(
 			"GODOT ENGINE // MIT" in complete_licenses
@@ -984,6 +999,15 @@ func _run() -> void:
 			editor._is_editor_dirty(),
 			"Modificar metadatos también activa el aviso sin guardar"
 		)
+		editor._autosave_recovery_if_needed()
+		var recovery_probe: Dictionary = editor.RECOVERY_STORE.load_snapshot(
+			editor.RECOVERY_PATH
+		)
+		_expect(
+			bool(recovery_probe.get("ok", false))
+			and (recovery_probe.get("notes", []) as Array).size() == editor.notes.size(),
+			"El editor conserva un borrador atómico de recuperación"
+		)
 		editor._request_new_project()
 		_expect(
 			editor.confirmation_dialog.visible and editor.notes.size() == 2,
@@ -993,8 +1017,9 @@ func _run() -> void:
 		editor._cancel_pending_confirmation()
 		editor._new_project()
 		_expect(
-			editor.creation_mode == "automatic",
-			"Un proyecto nuevo empieza en el modo Automático recomendado"
+			editor.creation_mode == "automatic"
+			and not FileAccess.file_exists(editor.RECOVERY_PATH),
+			"Un proyecto nuevo empieza en Automático y descarta el borrador anterior"
 		)
 		game_manager.start_editor_test(
 			demo_song,

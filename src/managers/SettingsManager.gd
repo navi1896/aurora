@@ -8,6 +8,7 @@ signal setting_changed(key: String, value)
 signal settings_reset
 
 const SETTINGS_PATH := "user://settings.json"
+const SETTINGS_SAVE_DEBOUNCE_SECONDS := 0.25
 
 const DEFAULT_SETTINGS := {
 	"language": "es",
@@ -76,9 +77,17 @@ const DEFAULT_SETTINGS := {
 }
 
 var settings: Dictionary = DEFAULT_SETTINGS.duplicate(true)
+var settings_save_timer: Timer
+var settings_save_pending := false
 
 
 func _ready() -> void:
+	settings_save_timer = Timer.new()
+	settings_save_timer.one_shot = true
+	settings_save_timer.wait_time = SETTINGS_SAVE_DEBOUNCE_SECONDS
+	settings_save_timer.process_mode = Node.PROCESS_MODE_ALWAYS
+	settings_save_timer.timeout.connect(save_settings)
+	add_child(settings_save_timer)
 	load_settings()
 	apply_language_setting()
 	call_deferred("apply_all_settings")
@@ -105,6 +114,16 @@ func save_settings() -> void:
 		return
 
 	file.store_string(JSON.stringify(settings, "\t"))
+	file.flush()
+	settings_save_pending = false
+
+
+func _queue_settings_save() -> void:
+	settings_save_pending = true
+	if settings_save_timer == null or not is_inside_tree():
+		save_settings()
+		return
+	settings_save_timer.start()
 
 
 func get_setting(key: String, default = null):
@@ -114,7 +133,7 @@ func get_setting(key: String, default = null):
 func set_setting(key: String, value, apply_immediately: bool = true) -> void:
 	settings[key] = value
 	_validate_setting(key)
-	save_settings()
+	_queue_settings_save()
 	if apply_immediately:
 		_apply_setting(key)
 	setting_changed.emit(key, settings[key])
@@ -122,9 +141,16 @@ func set_setting(key: String, value, apply_immediately: bool = true) -> void:
 
 func reset_to_defaults() -> void:
 	settings = DEFAULT_SETTINGS.duplicate(true)
+	if settings_save_timer != null:
+		settings_save_timer.stop()
 	save_settings()
 	apply_all_settings()
 	settings_reset.emit()
+
+
+func _exit_tree() -> void:
+	if settings_save_pending:
+		save_settings()
 
 
 func apply_all_settings() -> void:

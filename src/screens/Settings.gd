@@ -764,6 +764,13 @@ func _build_credits_settings() -> void:
 		"Generada localmente por el juego; no utiliza una grabación externa.",
 		AuroraUi.CORAL
 	)
+	_add_credit_entry(
+		project,
+		"PRUEBAS Y RETROALIMENTACIÓN",
+		"Navi89",
+		"Pruebas de juego, reportes visuales y comentarios durante el desarrollo de Aurora.",
+		AuroraUi.VIOLET
+	)
 
 	var technology := _add_section(
 		"TECNOLOGÍA",
