@@ -32,18 +32,42 @@ func load_scene(scene_name: String) -> void:
 		push_error("Escena no encontrada: %s" % scene_name)
 		return
 
-	if current_scene:
-		scene_container.remove_child(current_scene)
-		current_scene.queue_free()
-		current_scene = null
+	if scene_container == null or not is_instance_valid(scene_container):
+		push_error("No hay un contenedor válido para cargar la escena: %s" % scene_name)
+		return
 
-	var scene_path = SCENES[scene_name]
+	var scene_path: String = SCENES[scene_name]
 	if not ResourceLoader.exists(scene_path):
 		push_error("Archivo de escena no encontrado: %s" % scene_path)
 		return
 
-	var scene = load(scene_path).instantiate()
-	scene_container.add_child(scene)
-	current_scene = scene
+	var packed_scene := ResourceLoader.load(scene_path) as PackedScene
+	if packed_scene == null:
+		push_error("No se pudo cargar la escena: %s" % scene_path)
+		return
+
+	var next_scene := packed_scene.instantiate()
+	if next_scene == null:
+		push_error("No se pudo crear la escena: %s" % scene_path)
+		return
+
+	var previous_scene := current_scene
+	if previous_scene != null and is_instance_valid(previous_scene):
+		if previous_scene.get_parent() == scene_container:
+			scene_container.remove_child(previous_scene)
+
+	scene_container.add_child(next_scene)
+	if next_scene.get_parent() != scene_container:
+		if previous_scene != null and is_instance_valid(previous_scene):
+			scene_container.add_child(previous_scene)
+		next_scene.queue_free()
+		push_error("No se pudo insertar la escena en su contenedor: %s" % scene_path)
+		return
+
+	current_scene = next_scene
 	current_scene_name = scene_name
+
+	if previous_scene != null and is_instance_valid(previous_scene):
+		previous_scene.queue_free()
+
 	scene_loaded.emit(scene_name)

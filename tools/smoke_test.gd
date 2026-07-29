@@ -122,6 +122,17 @@ func _run() -> void:
 	settings_manager.settings["menu_music_volume"] = original_menu_volume
 	settings_manager.settings["music_volume"] = original_song_volume
 	settings_manager.apply_audio_settings()
+	_expect(
+		str(settings_manager.DEFAULT_SETTINGS["resolution"]) == "1600x900",
+		"La ventana inicial usa una resolución segura para pantallas comunes"
+	)
+	_expect(
+		settings_manager._fit_resolution_to_rect(
+			Vector2i(1920, 1080),
+			Rect2i(0, 0, 1366, 728)
+		) == Vector2i(1366, 728),
+		"La ventana se ajusta al área utilizable sin quedar fuera de pantalla"
+	)
 	for lane_index in range(4):
 		var lane_action: StringName = input_manager.get_lane_action(4, lane_index)
 		var expected_button: int = input_manager.get_mode_joy_buttons(4)[lane_index]
@@ -360,6 +371,15 @@ func _run() -> void:
 		_expect(
 			not gameplay.start_gate_active and not gameplay.start_gate_panel.visible,
 			"Una partida normal comienza sin pedir Espacio ni A/Cross"
+		)
+		var enter_event := InputEventKey.new()
+		enter_event.keycode = KEY_ENTER
+		enter_event.pressed = true
+		gameplay._input(enter_event)
+		await process_frame
+		_expect(
+			scene_manager.current_scene == gameplay,
+			"Enter no termina una partida normal ni salta a resultados"
 		)
 		_expect(gameplay.lane_panels.size() == 4, "Gameplay crea cuatro carriles")
 		_expect(gameplay.lane_labels[0].text.length() <= 4, "Las etiquetas de teclas son compactas")

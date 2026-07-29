@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS := {
 	"screen_shake_enabled": true,
 	"reduced_motion": false,
 	"window_mode": "windowed",
-	"resolution": "1920x1080",
+	"resolution": "1600x900",
 	"vsync_enabled": true,
 	"fps_limit": 120,
 	"graphics_quality": "high",
@@ -150,10 +150,15 @@ func apply_display_settings() -> void:
 		_:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			if mode == "windowed":
-				var resolution := _parse_resolution(str(get_setting("resolution", "1920x1080")))
-				DisplayServer.window_set_size(resolution)
-				var screen_size := DisplayServer.screen_get_size()
-				var centered_position := Vector2i(Vector2(screen_size - resolution) / 2.0)
+				var requested_resolution := _parse_resolution(str(get_setting("resolution", "1600x900")))
+				var screen_index := DisplayServer.window_get_current_screen()
+				var usable_rect := DisplayServer.screen_get_usable_rect(screen_index)
+				var safe_resolution := _fit_resolution_to_rect(requested_resolution, usable_rect)
+				DisplayServer.window_set_size(safe_resolution)
+				var centered_position := usable_rect.position + Vector2i(
+					int((usable_rect.size.x - safe_resolution.x) / 2.0),
+					int((usable_rect.size.y - safe_resolution.y) / 2.0)
+				)
 				DisplayServer.window_set_position(centered_position)
 
 	var vsync_mode := DisplayServer.VSYNC_ENABLED if bool(get_setting("vsync_enabled", true)) else DisplayServer.VSYNC_DISABLED
@@ -200,10 +205,17 @@ func _set_bus_volume(bus_name: String, linear_value: float) -> void:
 func _parse_resolution(value: String) -> Vector2i:
 	var parts := value.to_lower().split("x")
 	if parts.size() != 2:
-		return Vector2i(1920, 1080)
+		return Vector2i(1600, 900)
 	var width := maxi(int(parts[0]), 960)
 	var height := maxi(int(parts[1]), 540)
 	return Vector2i(width, height)
+
+
+func _fit_resolution_to_rect(requested: Vector2i, usable_rect: Rect2i) -> Vector2i:
+	return Vector2i(
+		mini(requested.x, usable_rect.size.x),
+		mini(requested.y, usable_rect.size.y)
+	)
 
 
 func _validate_settings() -> void:
@@ -237,7 +249,7 @@ func _validate_setting(key: String) -> void:
 				settings[key] = "windowed"
 		"resolution":
 			if str(settings[key]) not in ["1280x720", "1600x900", "1920x1080", "2560x1440"]:
-				settings[key] = "1920x1080"
+				settings[key] = "1600x900"
 		"graphics_quality":
 			if str(settings[key]) not in ["low", "medium", "high"]:
 				settings[key] = "high"

@@ -1393,12 +1393,6 @@ func _input(event: InputEvent) -> void:
 			KEY_ESCAPE:
 				_open_pause_menu()
 				get_viewport().set_input_as_handled()
-			KEY_ENTER, KEY_KP_ENTER:
-				if start_gate_active:
-					return
-				get_viewport().set_input_as_handled()
-				game_manager.complete_song(_build_result_data())
-				scene_manager.load_scene("results")
 
 
 func _exit_tree() -> void:
