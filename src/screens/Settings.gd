@@ -5,6 +5,10 @@ class_name Settings
 const CACHE_MAINTENANCE_SERVICE := preload(
 	"res://src/maintenance/CacheMaintenanceService.gd"
 )
+const FFMPEG_VERSION_LABEL := "n8.1.2-31-g8c9502e9b0-20260729"
+const FFMPEG_LOCAL_PREPARATION := (
+	"AuroraDevTools/btbn-ffmpeg-n8.1-win64-lgpl-20260729"
+)
 const CATEGORIES := [
 	{"id": "general", "label": "GENERAL", "icon": "◆"},
 	{"id": "audio", "label": "SONIDO", "icon": "♫"},
@@ -839,10 +843,10 @@ func _build_credits_settings() -> void:
 	_add_credit_entry(
 		technology,
 		"FFMPEG",
-		"FFmpeg 6.1.6 // GNU LGPL 2.1 o posterior",
+		"FFmpeg %s // GNU LGPL v3 o posterior" % FFMPEG_VERSION_LABEL,
 		(
 			"Conversor independiente incluido para importar video. "
-			+ "Licencia, receta y fuentes: licenses/FFmpeg/. "
+			+ "Licencia, hashes, receta y fuentes: licenses/FFmpeg/. "
 			+ "FFmpeg es una marca de Fabrice Bellard."
 		),
 		AuroraUi.GOLD
@@ -955,22 +959,19 @@ func _build_complete_license_text() -> String:
 		[
 			executable_directory.path_join("licenses/FFmpeg/LICENSE.txt"),
 			local_app_data.path_join(
-				"AuroraDevTools/ffmpeg-minimal-build/package/licenses/FFmpeg/LICENSE.txt"
-			),
-			local_app_data.path_join(
-				"AuroraDevTools/ffmpeg-minimal-build/src/"
-				+ "ffmpeg-6.1.6/COPYING.LGPLv2.1"
+				"%s/package/LICENSE.txt" % FFMPEG_LOCAL_PREPARATION
 			),
 		]
 	)
 	if not ffmpeg_license.is_empty():
 		sections.append(
-			"FFMPEG 6.1.6 // GNU LGPL 2.1 O POSTERIOR\n\n%s"
-			% ffmpeg_license
+			"FFMPEG %s // GNU LGPL V3 O POSTERIOR\n\n%s"
+			% [FFMPEG_VERSION_LABEL, ffmpeg_license]
 		)
 	else:
 		sections.append(
-			"FFMPEG 6.1.6 // GNU LGPL 2.1 O POSTERIOR\n\n"
+			"FFMPEG %s // GNU LGPL V3 O POSTERIOR\n\n"
+			% FFMPEG_VERSION_LABEL
 			+ "El texto completo se encuentra en licenses/FFmpeg/LICENSE.txt."
 		)
 
