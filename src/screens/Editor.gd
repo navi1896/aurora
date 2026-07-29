@@ -2,6 +2,7 @@ extends Control
 
 class_name Editor
 
+const PROJECT_STORE = preload("res://src/screens/editor/EditorProjectStore.gd")
 const EDITOR_DIRECTORY := "user://aurora_editor"
 const EDITOR_MEDIA_DIRECTORY := "user://aurora_editor/media"
 const VIDEO_CONVERSION_PROFILE := "theora_v3_720p30"
@@ -1497,28 +1498,37 @@ func _refresh_editor_state() -> void:
 	_update_playhead_ui()
 
 
-func _save_project() -> void:
+func _save_project() -> bool:
 	_finish_open_recorded_notes()
-	var slug := _slugify(title_edit.text)
-	var project_directory := "%s/%s" % [EDITOR_DIRECTORY, slug]
-	var absolute_directory := ProjectSettings.globalize_path(project_directory)
-	var directory_error := DirAccess.make_dir_recursive_absolute(absolute_directory)
-	if directory_error != OK:
-		_set_status(AuroraLocale.text("NO SE PUDO CREAR LA CARPETA DEL PROYECTO"), true)
-		return
+	var next_project_path := current_project_path
+	var chart_path := ""
+	if next_project_path.is_empty():
+		var new_path_result := PROJECT_STORE.make_new_project_path(
+			EDITOR_DIRECTORY,
+			_slugify(title_edit.text)
+		)
+		if not bool(new_path_result.get("ok", false)):
+			_set_status(AuroraLocale.text(str(new_path_result.get("message", ""))), true)
+			return false
+		next_project_path = str(new_path_result.get("project_path", ""))
+		chart_path = str(new_path_result.get("chart_path", ""))
+	else:
+		chart_path = "%s/%s" % [
+			next_project_path.get_base_dir(),
+			PROJECT_STORE.CHART_FILE_NAME,
+		]
 
-	current_project_path = "%s/project.json" % project_directory
-	var chart_path := "%s/chart.json" % project_directory
 	var project_data := _make_project_document(chart_path)
-	if not _write_json(current_project_path, project_data):
-		_set_status(AuroraLocale.text("NO SE PUDO GUARDAR EL PROYECTO"), true)
-		return
-	if not _write_json(
-		chart_path,
+	var save_result := PROJECT_STORE.save_bundle(
+		next_project_path,
+		project_data,
 		ChartData.make_chart_document(notes, key_count)
-	):
-		_set_status(AuroraLocale.text("NO SE PUDO GUARDAR EL CHART"), true)
-		return
+	)
+	if not bool(save_result.get("ok", false)):
+		_set_status(AuroraLocale.text(str(save_result.get("message", ""))), true)
+		return false
+
+	current_project_path = str(save_result.get("project_path", next_project_path))
 	song_manager.load_songs()
 
 	if not _has_media():
@@ -1527,11 +1537,12 @@ func _save_project() -> void:
 		_set_status(AuroraLocale.text("BORRADOR GUARDADO // FALTAN NOTAS"), true)
 	else:
 		_set_status(AuroraLocale.text("PROYECTO Y CHART GUARDADOS EN DATOS DE USUARIO"))
+	return true
 
 
 func _make_project_document(chart_path: String = "") -> Dictionary:
 	return {
-		"version": 2,
+		"version": PROJECT_STORE.PROJECT_VERSION,
 		"type": "aurora_editor_project",
 		"metadata": {
 			"title": title_edit.text.strip_edges(),
@@ -1550,33 +1561,18 @@ func _make_project_document(chart_path: String = "") -> Dictionary:
 			"audio_path": audio_path,
 		},
 		"chart_path": chart_path,
-		"notes": ChartData.normalize_notes(notes, key_count),
 	}
 
 
-func _write_json(path: String, data: Dictionary) -> bool:
-	var file := FileAccess.open(path, FileAccess.WRITE)
-	if file == null:
-		return false
-	file.store_string(JSON.stringify(data, "\t"))
-	return true
-
-
 func _load_project(path: String) -> void:
-	if not FileAccess.file_exists(path):
-		_set_status(AuroraLocale.text("NO SE ENCONTRO EL PROYECTO"), true)
-		return
-	var file := FileAccess.open(path, FileAccess.READ)
-	if file == null:
-		_set_status(AuroraLocale.text("NO SE PUDO ABRIR EL PROYECTO"), true)
-		return
-	var parsed = JSON.parse_string(file.get_as_text())
-	if not (parsed is Dictionary):
-		_set_status(AuroraLocale.text("EL PROYECTO JSON NO ES VALIDO"), true)
+	var load_result := PROJECT_STORE.load_bundle(path)
+	if not bool(load_result.get("ok", false)):
+		_set_status(AuroraLocale.text(str(load_result.get("message", ""))), true)
 		return
 
 	_stop_preview()
-	current_project_path = path
+	current_project_path = str(load_result.get("project_path", path))
+	var parsed: Dictionary = load_result.get("project", {})
 	var metadata: Dictionary = parsed.get("metadata", {})
 	title_edit.text = str(metadata.get("title", "Nuevo nivel"))
 	artist_edit.text = str(metadata.get("artist", "Aurora Creator"))
@@ -1591,7 +1587,7 @@ func _load_project(path: String) -> void:
 	key_count_option.selected = SUPPORTED_KEY_COUNTS.find(key_count)
 	automatic_density = clampi(int(metadata.get("automatic_density", 1)), 0, 2)
 	density_option.selected = automatic_density
-	notes = ChartData.normalize_notes(parsed.get("notes", []), key_count)
+	notes = ChartData.normalize_notes(load_result.get("notes", []), key_count)
 	var media: Dictionary = parsed.get("media", {})
 	video_path = str(media.get("video_path", ""))
 	video_source_path = str(media.get("video_source_path", ""))
@@ -1605,7 +1601,10 @@ func _load_project(path: String) -> void:
 	_set_creation_mode(str(metadata.get("creation_mode", "manual")))
 	seek_slider.max_value = duration_seconds
 	_refresh_editor_state()
-	_set_status(AuroraLocale.text("PROYECTO IMPORTADO"))
+	if bool(load_result.get("needs_migration", false)):
+		_set_status(AuroraLocale.text("PROYECTO ANTIGUO ABIERTO // SE MIGRARA AL GUARDAR"))
+	else:
+		_set_status(AuroraLocale.text("PROYECTO ABIERTO"))
 
 
 func _new_project() -> void:
@@ -1659,12 +1658,14 @@ func _test_chart() -> void:
 	if notes.is_empty():
 		_set_status(AuroraLocale.text("AGREGA O GENERA NOTAS ANTES DE PROBAR"), true)
 		return
-	_save_project()
-	var slug := _slugify(title_edit.text)
-	var chart_path := "%s/%s/chart.json" % [EDITOR_DIRECTORY, slug]
-	if not FileAccess.file_exists(chart_path):
+	if not _save_project():
+		_set_status(AuroraLocale.text("NO SE PUDO GUARDAR; LA PRUEBA FUE CANCELADA"), true)
+		return
+	var saved_bundle := PROJECT_STORE.load_bundle(current_project_path)
+	if not bool(saved_bundle.get("ok", false)):
 		_set_status(AuroraLocale.text("NO SE PUDO PREPARAR EL CHART DE PRUEBA"), true)
 		return
+	var chart_path := str(saved_bundle.get("chart_path", ""))
 
 	var chart := ChartData.new()
 	chart.key_count = key_count
@@ -1673,7 +1674,8 @@ func _test_chart() -> void:
 	chart.chart_path = chart_path
 
 	var song := SongData.new()
-	song.song_id = StringName("editor_%s" % slug)
+	var project_id := current_project_path.get_base_dir().get_file()
+	song.song_id = StringName("editor_%s" % project_id)
 	song.title = title_edit.text.strip_edges()
 	song.artist = artist_edit.text.strip_edges()
 	song.bpm = float(bpm_spin.value)

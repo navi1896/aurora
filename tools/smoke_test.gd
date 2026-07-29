@@ -1,5 +1,7 @@
 extends SceneTree
 
+const PROJECT_STORE = preload("res://src/screens/editor/EditorProjectStore.gd")
+
 var failures: PackedStringArray = []
 
 
@@ -767,6 +769,15 @@ func _run() -> void:
 		_expect(
 			editor.size.y <= 1080.0 and editor.timeline.global_position.y < 1080.0,
 			"El editor mantiene sus controles principales dentro de 1920x1080"
+		)
+		var editor_project_document: Dictionary = editor._make_project_document(
+			"user://aurora_editor/smoke/chart.json"
+		)
+		_expect(
+			int(editor_project_document.get("version", 0))
+			== PROJECT_STORE.PROJECT_VERSION
+			and not editor_project_document.has("notes"),
+			"El editor usa chart.json como única fuente de notas"
 		)
 		game_manager.start_editor_test(
 			demo_song,
