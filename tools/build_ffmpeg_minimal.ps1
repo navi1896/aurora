@@ -1,5 +1,9 @@
 #requires -Version 7.0
 
+# HISTÓRICO, NO OFICIAL: esta receta mínima fue investigada para Aurora pero
+# sus binarios no superaron la validación visual con video real. La release
+# oficial usa tools/prepare_ffmpeg_btbn.ps1 y no debe empaquetar este resultado.
+
 [CmdletBinding()]
 param(
     [string]$RootPath = (Join-Path $env:LOCALAPPDATA "AuroraDevTools\ffmpeg-minimal-repro"),

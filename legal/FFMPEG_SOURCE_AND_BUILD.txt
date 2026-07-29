@@ -1,5 +1,5 @@
-FFMPEG 6.1.6 — SOURCE AND BUILD INFORMATION
-=============================================
+BTBN FFMPEG N8.1 — SOURCE AND DISTRIBUTION INFORMATION
+======================================================
 
 Bundled programs
 ----------------
@@ -8,149 +8,121 @@ programs:
 
   tools/ffmpeg/bin/ffmpeg.exe
   SHA-256:
-  a395c847b0f070012c0c0f7076f098ad11dd85754a8eecc9c59b0c10004bdd99
+  3f6613d4f28335e76b7c2bd6c27d2c28656e32c551f7236ff484ac7cf2ebd1c0
 
   tools/ffmpeg/bin/ffprobe.exe
   SHA-256:
-  fe7f73bbe528291779020e4272de2a5ef6bfb85a7ce475358c14cea2ca0c50eb
+  e7bc681341cc545674e0644d864f52dad2a828ab99d4534f572cb95876b87740
 
-Version: FFmpeg 6.1.6
-Compiler: GCC 16.1.0 from w64devkit 2.8.0
-Build date: 2026-07-28
-License reported by the executables: GNU LGPL version 2.1 or later
-Source modifications by Aurora Project: none
+Version:
+  n8.1.2-31-g8c9502e9b0-20260729
 
-The programs are statically linked internally and do not require FFmpeg DLL
-files. Their import tables contain only Windows system libraries:
-bcrypt.dll, KERNEL32.dll, msvcrt.dll and SHELL32.dll.
+Upstream distribution:
+  BtbN FFmpeg-Builds, Windows 64-bit LGPL, snapshot 2026-07-29
 
-Aurora launches FFmpeg as a separate process. FFmpeg is not linked into
-Aurora.exe, is not renamed, and can be replaced by the recipient with another
-compatible build that supplies the capabilities required by the editor.
+Asset:
+  ffmpeg-n8.1-latest-win64-lgpl-8.1.zip
 
+Asset URL:
+  https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-8.1.zip
 
-FFmpeg corresponding source
----------------------------
-The exact unmodified source archive is included offline in:
+Asset SHA-256:
+  fce9c9c569425ec509bc90b361119ece81ee11fb7b557552c52187b497dba982
 
-  source/ffmpeg-6.1.6.tar.xz
-  SHA-256:
-  d4fcb164028dd3beee5d92c0ac72e46aac6973c75ea12dc14de07bf8f407370a
+License reported by the executables:
+  GNU Lesser General Public License, version 3 or later
 
-The detached upstream signature and the public release key snapshot are also
-included:
+Source modifications by Aurora Project:
+  none
 
-  source/ffmpeg-6.1.6.tar.xz.asc
-  SHA-256:
-  d723aad27d00de29dc98a8718002c05cb4293eb2f6240baac70cf066a5607b88
-
-  source/ffmpeg-devel.asc
-  SHA-256:
-  397b3becedcd5a98769967ff1ff8501ddc89f8368b8f766e4701377d7dbaabe5
-
-The source signature was verified with this signing-key fingerprint:
-
-  FCF9 86EA 15E6 E293 A564 4F10 B432 2F04 D676 58D8
-
-Official source:
-https://ffmpeg.org/releases/ffmpeg-6.1.6.tar.xz
+Aurora starts the programs as separate operating-system processes. FFmpeg is
+not linked into Aurora.exe, is not renamed, and can be replaced by the
+recipient with another compatible build that provides the capabilities used
+by the editor.
 
 
-External-library corresponding source
--------------------------------------
-The build contains only the three external Xiph libraries listed below. Their
-exact unmodified source archives accompany the FFmpeg source:
+Pinned source and build scripts
+-------------------------------
+The asset name contains "latest", but Aurora never trusts mutable content by
+name alone. The download and executables are accepted only when all pinned
+SHA-256 values match.
 
-  source/libogg-1.3.6.tar.xz
-  SHA-256:
-  5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061
+Exact BtbN build-script commit:
+  8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665
+  https://github.com/BtbN/FFmpeg-Builds/tree/8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665
 
-  source/libvorbis-1.3.7.tar.xz
-  SHA-256:
-  b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b
+Exact FFmpeg commit reported by the executable:
+  8c9502e9b048e21e1cae96477e338ac0635645ba
+  https://github.com/FFmpeg/FFmpeg/commit/8c9502e9b048e21e1cae96477e338ac0635645ba
 
-  source/libtheora-1.2.0.tar.gz
-  SHA-256:
-  279327339903b544c28a92aeada7d0dcfd0397b59c2f368cc698ac56f515906e
+Browse or download the corresponding FFmpeg source from:
+  https://github.com/FFmpeg/FFmpeg/tree/8c9502e9b048e21e1cae96477e338ac0635645ba
+  https://github.com/FFmpeg/FFmpeg/archive/8c9502e9b048e21e1cae96477e338ac0635645ba.tar.gz
 
-Their complete notices and the Theora patent statement are reproduced in
-EXTERNAL_LIBRARIES.txt and as individual COPYING files in licenses/FFmpeg/Xiph.
+FFmpeg's source-license guide at the same revision:
+  https://github.com/FFmpeg/FFmpeg/blob/8c9502e9b048e21e1cae96477e338ac0635645ba/LICENSE.md
 
+Aurora includes the fixed preparation and verification recipe in:
+  source/prepare_ffmpeg_btbn.ps1
 
-Build recipe and configuration
-------------------------------
-The complete PowerShell build recipe is included in:
-
-  source/build_ffmpeg_minimal.ps1
-  SHA-256:
-  2b0de8c20fdfc38cf48e20a9c3d5d91bd2323dc676c298cb00805fca0d4c3cce
-
-Its exact Bash build stage is included in:
-
-  source/build-all.sh
-  SHA-256:
-  52929717a79175f6909d463c50da8c65b3622f79020e956273fd6c2992cc4b88
-
-It downloads sources by fixed HTTPS URLs, verifies every SHA-256, verifies the
-FFmpeg detached signature, prepares an isolated portable toolchain, builds the
-three Xiph libraries statically and compiles FFmpeg without modifying source.
+The recipe downloads the BtbN asset, verifies the archive hash, extracts it
+into a constrained local directory, verifies both executable hashes and the
+license hash, then checks version, license, configuration and capabilities.
 It does not install software or change the user or machine PATH.
 
-The exact configuration reported by the distributed executable, together
-with its version and license report, is included in:
+
+Configuration and license
+-------------------------
+The exact version, build configuration and license output from the distributed
+executable is included in:
 
   BUILD_CONFIGURATION.txt
 
-Important configuration properties:
+Important properties observed in the validated executable:
 
-  --enable-static
-  --disable-shared
-  --disable-autodetect
-  --disable-everything
-  --disable-network
+  --enable-version3
   --enable-libtheora
   --enable-libvorbis
+  --disable-libx264
+  --disable-libx265
+  --disable-libfdk-aac
 
-The configuration does not use --enable-gpl, --enable-nonfree or
---enable-version3. It enables only the demuxers, decoders, filters, protocols
-and Ogg encoders required for Aurora's documented import and validation flow.
+The configuration does not contain --enable-gpl or --enable-nonfree. The
+complete GNU LGPL version 3 text supplied by the BtbN asset is included in:
 
-These are the exact recipe files preserved by the validated build that
-produced the distributed executables. They recreate the same source selection,
-compiler version and sanitized configure options. A byte-for-byte identical
-executable is not promised on a different host; functional equivalence and
-source correspondence are the goals.
+  LICENSE.txt
+
+FFmpeg and the selected build enable compatible third-party components beyond
+Theora and Vorbis. The full reported configuration and a technical inventory
+are included in BUILD_CONFIGURATION.txt and EXTERNAL_LIBRARIES.txt. That
+inventory records what the executable reports; it is not a legal opinion or a
+substitute for reviewing the corresponding upstream notices before publishing
+in another jurisdiction.
 
 
-Toolchain
----------
-Portable toolchain:
+Runtime files and dependencies
+------------------------------
+Only ffmpeg.exe and ffprobe.exe are copied into tools/ffmpeg/bin/. No FFmpeg
+DLL, ffplay.exe, documentation bundle, presets or mutable upstream ZIP are
+included in Aurora's runtime directory.
 
-  w64devkit 2.8.0 for Windows x86_64
-  https://github.com/skeeto/w64devkit/releases/tag/v2.8.0
+The audited Windows import-table inventory is included in:
+  RUNTIME_DEPENDENCIES.txt
 
-Archive used:
-
-  w64devkit-x64-2.8.0.7z.exe
-  SHA-256:
-  6252bf34fe2231a55ac7f03d482b36d2c7c58697990551bba508102cfb3f342e
-
-The toolchain itself is not required to run Aurora and is not distributed in
-the game ZIP. Notices applicable to runtime code statically present in the
-executables are included in:
-
-  MINGW_RUNTIME_LICENSES.txt
-  GCC_RUNTIME_EXCEPTION.txt
+Those imports are Windows system libraries and API-set contracts. Aurora does
+not redistribute them.
 
 
 Recipient rights
 ----------------
-The complete GNU LGPL 2.1 text is in LICENSE.txt. Recipients may copy, study,
-modify and redistribute FFmpeg under that license, and may rebuild or replace
-the two executables independently from Aurora. Keep the corresponding source,
-build information and notices available whenever distributing these binaries.
+Recipients may copy, study, modify and redistribute FFmpeg under the terms in
+LICENSE.txt. The executables remain separate and replaceable. When
+redistributing this exact binary snapshot, retain its license, corresponding
+source and build links, configuration, hashes and notices.
+
+These notes describe Aurora's technical packaging and are not legal advice.
 
 Primary references:
 https://ffmpeg.org/download.html
-https://ffmpeg.org/legal.html
-https://xiph.org/downloads/
+https://github.com/BtbN/FFmpeg-Builds
+https://github.com/FFmpeg/FFmpeg/blob/8c9502e9b048e21e1cae96477e338ac0635645ba/LICENSE.md

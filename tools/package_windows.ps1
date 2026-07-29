@@ -4,7 +4,9 @@
 param(
     [string]$BuildDirectory = "",
     [string]$FfmpegBuildRoot = (
-        Join-Path $env:LOCALAPPDATA "AuroraDevTools\ffmpeg-minimal-build"
+        Join-Path $env:LOCALAPPDATA (
+            "AuroraDevTools\btbn-ffmpeg-n8.1-win64-lgpl-20260729"
+        )
     ),
     [switch]$CreateZip
 )
@@ -35,7 +37,7 @@ function Reset-GeneratedDirectory {
             $allowedPrefix,
             [System.StringComparison]::OrdinalIgnoreCase
         ) -or
-        [System.IO.Path]::GetDirectoryName($targetFull) -eq $allowedFull
+        $targetFull -eq $allowedFull
     ) {
         throw "La limpieza de empaquetado salió de su carpeta generada: $targetFull"
     }
@@ -118,7 +120,7 @@ function Get-FfmpegCapabilityNames {
     $pattern = switch ($Option) {
         "-encoders" { "^\s*\S{6}\s+(?<Names>\S+)" }
         "-decoders" { "^\s*\S{6}\s+(?<Names>\S+)" }
-        "-filters" { "^\s*[TSC\.]{3}\s+(?<Names>\S+)" }
+        "-filters" { "^\s*[TSC\.]{2,3}\s+(?<Names>\S+)" }
         "-demuxers" { "^\s*D\s+(?<Names>\S+)" }
         "-muxers" { "^\s*E\s+(?<Names>\S+)" }
     }
@@ -232,112 +234,36 @@ if (
         [System.StringComparison]::OrdinalIgnoreCase
     ) -or
     $ffmpegBuildLeaf -notmatch (
-        "^(ffmpeg-minimal-build|ffmpeg-minimal-repro(?:-[A-Za-z0-9._-]+)?)$"
+        "^btbn-ffmpeg-n8\.1-win64-lgpl(?:-[A-Za-z0-9._-]+)?$"
     )
 ) {
-    throw "La compilación oficial de FFmpeg no está en la ruta esperada."
+    throw "La distribución BtbN LGPL fijada no está en la ruta esperada."
 }
 
 $ffmpegSourceExe = Join-Path $ffmpegBuildRoot "package\bin\ffmpeg.exe"
 $ffprobeSourceExe = Join-Path $ffmpegBuildRoot "package\bin\ffprobe.exe"
-$ffmpegSourceArchive = Join-Path $ffmpegBuildRoot "downloads\ffmpeg-6.1.6.tar.xz"
-$ffmpegSignature = Join-Path $ffmpegBuildRoot "downloads\ffmpeg-6.1.6.tar.xz.asc"
-$ffmpegPublicKey = Join-Path $ffmpegBuildRoot "downloads\ffmpeg-devel.asc"
-$oggSourceArchive = Join-Path $ffmpegBuildRoot "downloads\libogg-1.3.6.tar.xz"
-$vorbisSourceArchive = Join-Path $ffmpegBuildRoot "downloads\libvorbis-1.3.7.tar.xz"
-$theoraSourceArchive = Join-Path $ffmpegBuildRoot "downloads\libtheora-1.2.0.tar.gz"
-$ffmpegLicense = Join-Path $ffmpegBuildRoot "src\ffmpeg-6.1.6\COPYING.LGPLv2.1"
-$ffmpegLicenseGuide = Join-Path $ffmpegBuildRoot "src\ffmpeg-6.1.6\LICENSE.md"
-$oggLicense = Join-Path $ffmpegBuildRoot "src\libogg-1.3.6\COPYING"
-$vorbisLicense = Join-Path $ffmpegBuildRoot "src\libvorbis-1.3.7\COPYING"
-$theoraCopying = Join-Path $ffmpegBuildRoot "src\libtheora-1.2.0\COPYING"
-$theoraLicense = Join-Path $ffmpegBuildRoot "src\libtheora-1.2.0\LICENSE"
-$mingwNotices = Join-Path (
+$ffmpegLicense = Join-Path $ffmpegBuildRoot "package\LICENSE.txt"
+$ffmpegArchive = Join-Path (
     $ffmpegBuildRoot
-) "toolchain\w64devkit\COPYING.MinGW-w64-runtime.txt"
-$gccRuntimeException = Join-Path (
-    $ffmpegBuildRoot
-) "downloads\COPYING.RUNTIME-GCC-16.1.0.txt"
-$buildRecipe = Join-Path (
-    $ffmpegBuildRoot
-) "source-bundle\build\build_ffmpeg_minimal.ps1"
-$buildAllRecipe = Join-Path (
-    $ffmpegBuildRoot
-) "source-bundle\build\build-all.sh"
+) "download\ffmpeg-n8.1-latest-win64-lgpl-8.1.zip"
 $godotCopyright = Join-Path $projectRoot "legal\GODOT_COPYRIGHT.txt"
 
 $verifiedFiles = @(
     @{
+        Path = $ffmpegArchive
+        Sha256 = "fce9c9c569425ec509bc90b361119ece81ee11fb7b557552c52187b497dba982"
+    },
+    @{
         Path = $ffmpegSourceExe
-        Sha256 = "a395c847b0f070012c0c0f7076f098ad11dd85754a8eecc9c59b0c10004bdd99"
+        Sha256 = "3f6613d4f28335e76b7c2bd6c27d2c28656e32c551f7236ff484ac7cf2ebd1c0"
     },
     @{
         Path = $ffprobeSourceExe
-        Sha256 = "fe7f73bbe528291779020e4272de2a5ef6bfb85a7ce475358c14cea2ca0c50eb"
-    },
-    @{
-        Path = $ffmpegSourceArchive
-        Sha256 = "d4fcb164028dd3beee5d92c0ac72e46aac6973c75ea12dc14de07bf8f407370a"
-    },
-    @{
-        Path = $ffmpegSignature
-        Sha256 = "d723aad27d00de29dc98a8718002c05cb4293eb2f6240baac70cf066a5607b88"
-    },
-    @{
-        Path = $ffmpegPublicKey
-        Sha256 = "397b3becedcd5a98769967ff1ff8501ddc89f8368b8f766e4701377d7dbaabe5"
-    },
-    @{
-        Path = $oggSourceArchive
-        Sha256 = "5c8253428e181840cd20d41f3ca16557a9cc04bad4a3d04cce84808677fa1061"
-    },
-    @{
-        Path = $vorbisSourceArchive
-        Sha256 = "b33cc4934322bcbf6efcbacf49e3ca01aadbea4114ec9589d1b1e9d20f72954b"
-    },
-    @{
-        Path = $theoraSourceArchive
-        Sha256 = "279327339903b544c28a92aeada7d0dcfd0397b59c2f368cc698ac56f515906e"
+        Sha256 = "e7bc681341cc545674e0644d864f52dad2a828ab99d4534f572cb95876b87740"
     },
     @{
         Path = $ffmpegLicense
-        Sha256 = "246041b6ecf9bc32d718a62c57877c78b5eb397b6467e74ed7ae2626ab189c30"
-    },
-    @{
-        Path = $ffmpegLicenseGuide
-        Sha256 = "cb48bf09a11f5fb576cddb0431c8f5ed0a60157a9ec942adffc13907cbe083f2"
-    },
-    @{
-        Path = $oggLicense
-        Sha256 = "d2ab5758336489da61c12cc5bb757da5339c4ae9001f9bb0562b4370249af814"
-    },
-    @{
-        Path = $vorbisLicense
-        Sha256 = "ec1815db59fcd302846df949d7424876cb2e2dc5ed1606c5fb0b36787b1cf43a"
-    },
-    @{
-        Path = $theoraCopying
-        Sha256 = "8417fad7da775735564e209484a2e011e0fa201e94f01fdbee6e4977e478e6fc"
-    },
-    @{
-        Path = $theoraLicense
-        Sha256 = "2c902950c73a63cd285dc0c36573de9c5fefe66d49312949c51d941f33e92932"
-    },
-    @{
-        Path = $mingwNotices
-        Sha256 = "ecff91ddb5799c8b79a4bdb576921b9c3e2989783fd1944527e8eb9b41a5ff5f"
-    },
-    @{
-        Path = $gccRuntimeException
-        Sha256 = "9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74"
-    },
-    @{
-        Path = $buildRecipe
-        Sha256 = "2b0de8c20fdfc38cf48e20a9c3d5d91bd2323dc676c298cb00805fca0d4c3cce"
-    },
-    @{
-        Path = $buildAllRecipe
-        Sha256 = "52929717a79175f6909d463c50da8c65b3622f79020e956273fd6c2992cc4b88"
+        Sha256 = "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
     },
     @{
         Path = $godotCopyright
@@ -377,22 +303,32 @@ $buildConfiguration = Invoke-RequiredProcess `
 $ffmpegVersionLine = [string]($versionResult.Lines | Select-Object -First 1)
 $ffprobeVersionLine = [string]($probeVersionResult.Lines | Select-Object -First 1)
 $versionText = $versionResult.Text
-if ($ffmpegVersionLine -notmatch "^ffmpeg version 6\.1\.6(\s|$)") {
+if (
+    $ffmpegVersionLine -notmatch (
+        "^ffmpeg version n8\.1\.2-31-g8c9502e9b0-20260729(\s|$)"
+    )
+) {
     throw "La versión de FFmpeg no es la validada: $ffmpegVersionLine"
 }
-if ($ffprobeVersionLine -notmatch "^ffprobe version 6\.1\.6(\s|$)") {
+if (
+    $ffprobeVersionLine -notmatch (
+        "^ffprobe version n8\.1\.2-31-g8c9502e9b0-20260729(\s|$)"
+    )
+) {
     throw "La versión de ffprobe no es la validada: $ffprobeVersionLine"
 }
-foreach ($forbiddenFlag in @("--enable-gpl", "--enable-nonfree", "--enable-version3")) {
+foreach ($forbiddenFlag in @("--enable-gpl", "--enable-nonfree")) {
     if ($versionText.Contains($forbiddenFlag)) {
         throw "La configuración contiene una opción prohibida: $forbiddenFlag"
     }
 }
 foreach ($requiredFlag in @(
-    "--enable-static",
-    "--disable-shared",
-    "--disable-autodetect",
-    "--disable-everything"
+    "--enable-version3",
+    "--disable-libx264",
+    "--disable-libx265",
+    "--disable-libfdk-aac",
+    "--enable-libtheora",
+    "--enable-libvorbis"
 )) {
     if (-not $versionText.Contains($requiredFlag)) {
         throw "La configuración no contiene la opción requerida: $requiredFlag"
@@ -400,9 +336,9 @@ foreach ($requiredFlag in @(
 }
 if (
     $licenseResult.Text -notmatch "GNU Lesser General Public" -or
-    $licenseResult.Text -notmatch "version 2\.1"
+    $licenseResult.Text -notmatch "version 3"
 ) {
-    throw "FFmpeg no informó la licencia LGPL 2.1 o posterior esperada."
+    throw "FFmpeg no informó la licencia LGPL 3 o posterior esperada."
 }
 
 $normalizedProfile = [System.IO.Path]::GetFullPath($env:USERPROFILE).Replace("\", "/")
@@ -426,7 +362,7 @@ Assert-Capabilities `
     -Kind "decodificador"
 Assert-Capabilities `
     -Available $filters `
-    -Required @("fps", "scale", "format") `
+    -Required @("aresample", "fps", "scale", "format", "setpts", "ssim") `
     -Kind "filtro"
 Assert-Capabilities `
     -Available $demuxers `
@@ -451,12 +387,7 @@ foreach ($generatedDirectory in @(
 }
 
 $ffmpegSourceTarget = Join-Path $ffmpegLicenseTarget "source"
-$xiphLicenseTarget = Join-Path $ffmpegLicenseTarget "Xiph"
-foreach ($directory in @(
-    $ffmpegTargetBin,
-    $ffmpegSourceTarget,
-    $xiphLicenseTarget
-)) {
+foreach ($directory in @($ffmpegTargetBin, $ffmpegSourceTarget)) {
     $null = New-Item -ItemType Directory -Path $directory -Force
 }
 
@@ -469,50 +400,22 @@ Copy-Item -LiteralPath $ffprobeSourceExe -Destination (
 Copy-Item -LiteralPath $ffmpegLicense -Destination (
     Join-Path $ffmpegLicenseTarget "LICENSE.txt"
 ) -Force
-Copy-Item -LiteralPath $ffmpegLicenseGuide -Destination (
-    Join-Path $ffmpegLicenseTarget "LICENSE.md"
-) -Force
 Copy-Item -LiteralPath (
     Join-Path $projectRoot "legal\FFMPEG_SOURCE_AND_BUILD.txt"
 ) -Destination (Join-Path $ffmpegLicenseTarget "SOURCE_AND_BUILD.txt") -Force
 Copy-Item -LiteralPath (
     Join-Path $projectRoot "legal\FFMPEG_EXTERNAL_LIBRARIES.txt"
 ) -Destination (Join-Path $ffmpegLicenseTarget "EXTERNAL_LIBRARIES.txt") -Force
-Copy-Item -LiteralPath $mingwNotices -Destination (
-    Join-Path $ffmpegLicenseTarget "MINGW_RUNTIME_LICENSES.txt"
+Copy-Item -LiteralPath (
+    Join-Path $projectRoot "legal\FFMPEG_RUNTIME_DEPENDENCIES.txt"
+) -Destination (
+    Join-Path $ffmpegLicenseTarget "RUNTIME_DEPENDENCIES.txt"
 ) -Force
-Copy-Item -LiteralPath $gccRuntimeException -Destination (
-    Join-Path $ffmpegLicenseTarget "GCC_RUNTIME_EXCEPTION.txt"
+Copy-Item -LiteralPath (
+    Join-Path $projectRoot "tools\prepare_ffmpeg_btbn.ps1"
+) -Destination (
+    Join-Path $ffmpegSourceTarget "prepare_ffmpeg_btbn.ps1"
 ) -Force
-
-Copy-Item -LiteralPath $oggLicense -Destination (
-    Join-Path $xiphLicenseTarget "libogg-COPYING.txt"
-) -Force
-Copy-Item -LiteralPath $vorbisLicense -Destination (
-    Join-Path $xiphLicenseTarget "libvorbis-COPYING.txt"
-) -Force
-Copy-Item -LiteralPath $theoraCopying -Destination (
-    Join-Path $xiphLicenseTarget "libtheora-COPYING.txt"
-) -Force
-Copy-Item -LiteralPath $theoraLicense -Destination (
-    Join-Path $xiphLicenseTarget "libtheora-LICENSE.txt"
-) -Force
-
-$sourceCopies = @(
-    @{ Source = $ffmpegSourceArchive; Name = "ffmpeg-6.1.6.tar.xz" },
-    @{ Source = $ffmpegSignature; Name = "ffmpeg-6.1.6.tar.xz.asc" },
-    @{ Source = $ffmpegPublicKey; Name = "ffmpeg-devel.asc" },
-    @{ Source = $oggSourceArchive; Name = "libogg-1.3.6.tar.xz" },
-    @{ Source = $vorbisSourceArchive; Name = "libvorbis-1.3.7.tar.xz" },
-    @{ Source = $theoraSourceArchive; Name = "libtheora-1.2.0.tar.gz" },
-    @{ Source = $buildRecipe; Name = "build_ffmpeg_minimal.ps1" },
-    @{ Source = $buildAllRecipe; Name = "build-all.sh" }
-)
-foreach ($copy in $sourceCopies) {
-    Copy-Item -LiteralPath $copy.Source -Destination (
-        Join-Path $ffmpegSourceTarget $copy.Name
-    ) -Force
-}
 
 Copy-Item -LiteralPath (Join-Path $projectRoot "legal\GODOT_LICENSE.txt") `
     -Destination (Join-Path $godotLicenseTarget "GODOT_LICENSE.txt") -Force
@@ -553,6 +456,39 @@ Set-Content -LiteralPath $buildConfigurationPath -Encoding UTF8 -Value @(
     "License report",
     "--------------",
     $licenseResult.Text
+)
+
+Set-Content -LiteralPath (
+    Join-Path $ffmpegLicenseTarget "AURORA_CAPABILITIES.txt"
+) -Encoding UTF8 -Value @(
+    "Aurora-required capabilities validated on the bundled FFmpeg",
+    "============================================================",
+    "",
+    "Encoders: libtheora, libvorbis, pcm_s16le",
+    "Decoders: h264, hevc, av1, aac, mp3, opus, vorbis, vp8, vp9",
+    "Filters: aresample, format, fps, scale, setpts, ssim",
+    "Demuxers: mov (MP4/MOV/M4V), avi, matroska (MKV/WebM)",
+    "Muxer: ogg"
+)
+Set-Content -LiteralPath (
+    Join-Path $ffmpegLicenseTarget "UPSTREAM_HASHES-SHA256.txt"
+) -Encoding UTF8 -Value @(
+    (
+        "fce9c9c569425ec509bc90b361119ece81ee11fb7b557552c52187b497dba982" +
+        "  ffmpeg-n8.1-latest-win64-lgpl-8.1.zip"
+    ),
+    (
+        "3f6613d4f28335e76b7c2bd6c27d2c28656e32c551f7236ff484ac7cf2ebd1c0" +
+        "  tools/ffmpeg/bin/ffmpeg.exe"
+    ),
+    (
+        "e7bc681341cc545674e0644d864f52dad2a828ab99d4534f572cb95876b87740" +
+        "  tools/ffmpeg/bin/ffprobe.exe"
+    ),
+    (
+        "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768" +
+        "  licenses/FFmpeg/LICENSE.txt"
+    )
 )
 
 $smokeVideo = Join-Path $ffmpegTargetRoot "aurora-ffmpeg-smoke.ogv"

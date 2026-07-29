@@ -35,59 +35,39 @@ Código fuente: https://github.com/godotengine/godot
 
 FFmpeg
 ------
-Aurora distribuye FFmpeg 6.1.6 como un programa independiente y reemplazable
-para convertir archivos de video seleccionados por el usuario a Ogg Theora.
-Aurora invoca el ejecutable mediante argumentos de línea de comandos y no
+Aurora distribuye el snapshot BtbN FFmpeg Windows x86_64 LGPL del 2026-07-29
+como dos programas independientes y reemplazables para analizar medios y
+convertir video a Ogg Theora. Aurora los invoca como procesos separados y no
 enlaza FFmpeg con Aurora.exe.
 
-Compilación Windows x86_64 preparada para Aurora sin componentes GPL ni
-nonfree. No se aplicaron parches al código fuente; únicamente se seleccionó
-una configuración mínima de compilación.
+Versión informada: n8.1.2-31-g8c9502e9b0-20260729.
+La configuración contiene --enable-version3, no contiene --enable-gpl ni
+--enable-nonfree, y desactiva libx264, libx265 y libfdk-aac.
 
 Copyright: FFmpeg developers y respectivos colaboradores.
 Licencia del ejecutable incluido: GNU Lesser General Public License,
-versión 2.1 o posterior.
+versión 3 o posterior.
 FFmpeg es una marca de Fabrice Bellard.
 Partes de FFmpeg contienen software desarrollado por Independent JPEG Group.
 
-Los textos, la configuración, la receta reproducible y las fuentes exactas se
-incluyen en:
+La licencia, la configuración informada, la receta de descarga y verificación,
+los hashes y los enlaces al código fuente correspondiente se incluyen en:
 licenses/FFmpeg/LICENSE.txt
-licenses/FFmpeg/LICENSE.md
 licenses/FFmpeg/SOURCE_AND_BUILD.txt
 licenses/FFmpeg/BUILD_CONFIGURATION.txt
 licenses/FFmpeg/EXTERNAL_LIBRARIES.txt
-licenses/FFmpeg/MINGW_RUNTIME_LICENSES.txt
-licenses/FFmpeg/GCC_RUNTIME_EXCEPTION.txt
-licenses/FFmpeg/Xiph/libogg-COPYING.txt
-licenses/FFmpeg/Xiph/libvorbis-COPYING.txt
-licenses/FFmpeg/Xiph/libtheora-COPYING.txt
-licenses/FFmpeg/Xiph/libtheora-LICENSE.txt
-licenses/FFmpeg/source/ffmpeg-6.1.6.tar.xz
-licenses/FFmpeg/source/ffmpeg-6.1.6.tar.xz.asc
-licenses/FFmpeg/source/ffmpeg-devel.asc
-licenses/FFmpeg/source/libogg-1.3.6.tar.xz
-licenses/FFmpeg/source/libvorbis-1.3.7.tar.xz
-licenses/FFmpeg/source/libtheora-1.2.0.tar.gz
-licenses/FFmpeg/source/build_ffmpeg_minimal.ps1
-licenses/FFmpeg/source/build-all.sh
+licenses/FFmpeg/RUNTIME_DEPENDENCIES.txt
+licenses/FFmpeg/AURORA_CAPABILITIES.txt
+licenses/FFmpeg/UPSTREAM_HASHES-SHA256.txt
+licenses/FFmpeg/source/prepare_ffmpeg_btbn.ps1
 
 Sitio oficial: https://ffmpeg.org/
+Distribución Windows: https://github.com/BtbN/FFmpeg-Builds
+Fuente exacta y scripts de compilación: consulta SOURCE_AND_BUILD.txt.
 
-
-Xiph.org libraries
-------------------
-La compilación de FFmpeg incluye de forma estática:
-
-- libogg 1.3.6
-- libvorbis 1.3.7
-- libtheora 1.2.0
-
-Copyright de Xiph.org Foundation. Licencia BSD de 3 cláusulas.
-Los avisos completos y la declaración de patentes de Theora se reproducen en:
-licenses/FFmpeg/EXTERNAL_LIBRARIES.txt
-
-Fuentes oficiales: https://xiph.org/downloads/
+La configuración reporta varias bibliotecas externas compatibles con el
+perfil BtbN LGPL. Su inventario técnico se conserva en
+EXTERNAL_LIBRARIES.txt. Estos avisos no constituyen asesoría legal.
 
 
 Press Start 2P

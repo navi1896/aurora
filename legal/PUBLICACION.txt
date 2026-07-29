@@ -22,9 +22,11 @@ Contenido de la descarga
 
 Aviso que debe permanecer visible
 ---------------------------------
-Aurora utiliza una copia independiente de FFmpeg 6.1.6 bajo GNU LGPL 2.1 o
-posterior. El texto de licencia, la configuración, la receta de compilación y
-las fuentes exactas acompañan a la descarga dentro de licenses/FFmpeg/.
+Aurora utiliza el snapshot BtbN FFmpeg Windows x64 LGPL del 2026-07-29,
+versión n8.1.2-31-g8c9502e9b0-20260729, como programas independientes bajo
+GNU LGPL versión 3 o posterior. La licencia, configuración, hashes, receta de
+verificación y enlaces al código fuente correspondiente acompañan a la
+descarga dentro de licenses/FFmpeg/.
 
 Aurora no incluye canciones ni videos de terceros. Quien importe o comparta
 contenido es responsable de contar con los permisos correspondientes.

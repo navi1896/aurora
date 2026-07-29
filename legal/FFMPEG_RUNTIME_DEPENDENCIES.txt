@@ -1,0 +1,54 @@
+BTBN FFMPEG N8.1 — WINDOWS RUNTIME IMPORTS
+==========================================
+
+This is the import-table inventory observed for the pinned x86_64 executables
+identified in SOURCE_AND_BUILD.txt. The programs are shipped without FFmpeg
+DLL files. These names are Windows system libraries or Windows API-set
+contracts and are not redistributed by Aurora.
+
+Observed in ffmpeg.exe and ffprobe.exe:
+
+ADVAPI32.dll
+AVICAP32.dll
+AVRT.dll
+bcrypt.dll
+CFGMGR32.dll
+CRYPT32.dll
+d2d1.dll
+DWrite.dll
+GDI32.dll
+IPHLPAPI.DLL
+KERNEL32.dll
+ncrypt.dll
+ntdll.dll
+ole32.dll
+OLEAUT32.dll
+RPCRT4.dll
+Secur32.dll
+SHELL32.dll
+SHLWAPI.dll
+USER32.dll
+USP10.dll
+WINMM.dll
+WS2_32.dll
+api-ms-win-core-synch-l1-2-0.dll
+api-ms-win-crt-convert-l1-1-0.dll
+api-ms-win-crt-environment-l1-1-0.dll
+api-ms-win-crt-filesystem-l1-1-0.dll
+api-ms-win-crt-heap-l1-1-0.dll
+api-ms-win-crt-locale-l1-1-0.dll
+api-ms-win-crt-math-l1-1-0.dll
+api-ms-win-crt-multibyte-l1-1-0.dll
+api-ms-win-crt-private-l1-1-0.dll
+api-ms-win-crt-runtime-l1-1-0.dll
+api-ms-win-crt-stdio-l1-1-0.dll
+api-ms-win-crt-string-l1-1-0.dll
+api-ms-win-crt-time-l1-1-0.dll
+api-ms-win-crt-utility-l1-1-0.dll
+
+Additional import observed only in ffmpeg.exe:
+
+api-ms-win-crt-conio-l1-1-0.dll
+
+This inventory documents the audited snapshot. It is not a guarantee about a
+different FFmpeg build and is not legal advice.

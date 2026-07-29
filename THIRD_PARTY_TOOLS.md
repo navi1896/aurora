@@ -4,49 +4,68 @@
 
 - Uso: convertir videos elegidos por el creador desde MP4, MOV, M4V, MKV,
   WebM y AVI al formato Ogg Theora que Godot reproduce directamente.
-- Versión distribuida: FFmpeg 6.1.6 para Windows x86_64.
-- Perfil: compilación mínima, estática y separada de `Aurora.exe`, bajo
-  GNU LGPL 2.1 o posterior.
-- Bibliotecas externas incluidas: libogg 1.3.6, libvorbis 1.3.7 y
-  libtheora 1.2.0.
-- Componentes GPL o `nonfree`: ninguno; la configuración no usa
-  `--enable-gpl`, `--enable-nonfree` ni `--enable-version3`.
-- Ruta local de la compilación validada:
-  `%LOCALAPPDATA%\AuroraDevTools\ffmpeg-minimal-build\package\bin\`.
-- Receta de reconstrucción:
-  `tools/build_ffmpeg_minimal.ps1`.
-- Receta exacta usada por el binario distribuido, conservada durante el
-  empaquetado:
-  `licenses/FFmpeg/source/build_ffmpeg_minimal.ps1` y
-  `licenses/FFmpeg/source/build-all.sh`.
+- Distribución seleccionada: BtbN FFmpeg Windows 64-bit LGPL, snapshot
+  `2026-07-29`, asset `ffmpeg-n8.1-latest-win64-lgpl-8.1.zip`.
+- Versión informada por los ejecutables:
+  `n8.1.2-31-g8c9502e9b0-20260729`.
+- Perfil legal informado por los ejecutables: GNU LGPL versión 3 o posterior.
+  La configuración contiene `--enable-version3`, no contiene `--enable-gpl`
+  ni `--enable-nonfree`, y desactiva libx264, libx265 y libfdk-aac.
+- Integración: Aurora ejecuta `ffmpeg.exe` y `ffprobe.exe` como procesos
+  separados. No se enlazan con `Aurora.exe`, no se renombran y el usuario
+  puede reemplazarlos por una distribución compatible.
+- SHA-256 del ZIP:
+  `fce9c9c569425ec509bc90b361119ece81ee11fb7b557552c52187b497dba982`.
 - SHA-256 de `ffmpeg.exe`:
-  `a395c847b0f070012c0c0f7076f098ad11dd85754a8eecc9c59b0c10004bdd99`.
+  `3f6613d4f28335e76b7c2bd6c27d2c28656e32c551f7236ff484ac7cf2ebd1c0`.
 - SHA-256 de `ffprobe.exe`:
-  `fe7f73bbe528291779020e4272de2a5ef6bfb85a7ce475358c14cea2ca0c50eb`.
+  `e7bc681341cc545674e0644d864f52dad2a828ab99d4534f572cb95876b87740`.
+- Scripts de compilación BtbN fijados:
+  `8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665`.
+- Código FFmpeg fijado:
+  `8c9502e9b048e21e1cae96477e338ac0635645ba`.
 
-Aurora limita la conversión a un ancho máximo de 1280, 30 FPS, Theora
-calidad 5 y Vorbis calidad 4. Antes de conservar la caché, decodifica la
-salida completa y rechaza archivos incompletos o dañados. La clave de caché
-combina ruta normalizada, tamaño, fecha de modificación y muestras SHA-256
-del principio, centro y final del archivo para detectar reemplazos sin
-bloquear la interfaz leyendo videos completos.
+La receta `tools/prepare_ffmpeg_btbn.ps1` descarga el asset por una URL
+fijada, verifica el hash del ZIP, extrae en una carpeta controlada y vuelve a
+verificar los hashes de ambos ejecutables y de la licencia. También comprueba
+la versión, el informe LGPL, las opciones de configuración y las capacidades
+que Aurora necesita. `tools/package_windows.ps1` repite las comprobaciones
+antes de copiar solo `ffmpeg.exe`, `ffprobe.exe` y los avisos de distribución.
 
-La matriz de compatibilidad permanente está en
-`tools/ffmpeg_matrix_fixtures/` y se ejecuta con
-`tools/test_ffmpeg_matrix.ps1`. Comprueba MP4 H.264/AAC, MOV ProRes/PCM,
-M4V MPEG-4/AAC, MKV H.264/Opus, WebM VP9/Opus, AVI MJPEG/PCM, video sin
-audio, Unicode, rutas con espacios y rechazo de un archivo corrupto.
+Flujo de release:
 
-El paquete público conserva `ffmpeg.exe` y `ffprobe.exe` en
-`tools/ffmpeg/bin/`. También incluye, dentro de `licenses/FFmpeg/`, la
-licencia, los avisos, la configuración exacta, la receta y los archivos
-fuente correspondientes. No se distribuyen DLL de FFmpeg ni se necesita
-una instalación externa.
+```powershell
+pwsh ./tools/prepare_ffmpeg_btbn.ps1
+pwsh ./tools/package_windows.ps1
+```
+
+Para reutilizar una raíz auditada, pasa el mismo `-RootPath` a la preparación
+y `-FfmpegBuildRoot` al empaquetador. Añade `-CreateZip` únicamente después de
+que el resto de la validación de release haya terminado.
+
+La matriz de compatibilidad está en `tools/ffmpeg_matrix_fixtures/` y se
+ejecuta con `tools/test_ffmpeg_matrix.ps1`. Comprueba MP4 H.264/AAC, MOV
+ProRes/PCM, M4V MPEG-4/AAC, MKV H.264/Opus, WebM VP9/Opus, AVI MJPEG/PCM,
+video sin audio, Unicode, rutas con espacios y rechazo de un archivo corrupto.
+Además del test sintético, este snapshot superó antes de ser seleccionado una
+comparación visual automatizada con video real; esa evidencia de auditoría no
+forma parte del paquete público.
+
+El paquete conserva la configuración exacta informada por el ejecutable, los
+hashes, la lista de capacidades, la licencia LGPLv3 completa, los enlaces al
+código fuente correspondiente y las dependencias reportadas. La configuración
+de BtbN habilita varias bibliotecas externas; su inventario se conserva sin
+presentarlo como una determinación legal exhaustiva. Este documento es un
+registro técnico, no asesoría legal.
+
+La receta anterior `tools/build_ffmpeg_minimal.ps1` se conserva únicamente
+como historial de investigación. Sus binarios no superaron el control visual
+con video real y no son una fuente oficial para releases de Aurora.
 
 Referencias primarias:
 
-- https://ffmpeg.org/
-- https://ffmpeg.org/legal.html
-- https://ffmpeg.org/releases/
-- https://xiph.org/downloads/
-- https://github.com/skeeto/w64devkit
+- https://ffmpeg.org/download.html
+- https://github.com/BtbN/FFmpeg-Builds
+- https://github.com/BtbN/FFmpeg-Builds/tree/8c736b2d6fe5da2a10a8896d01e53bfb0ca4f665
+- https://github.com/FFmpeg/FFmpeg/commit/8c9502e9b048e21e1cae96477e338ac0635645ba
+- https://github.com/FFmpeg/FFmpeg/blob/8c9502e9b048e21e1cae96477e338ac0635645ba/LICENSE.md
