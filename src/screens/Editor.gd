@@ -30,7 +30,7 @@ const EDITOR_LOG_DIRECTORY := "user://aurora_editor/logs"
 const MEDIA_IMPORT_LOG_PATH := "user://aurora_editor/logs/media_import.log"
 const RECOVERY_PATH := "user://aurora_editor/.recovery/recovery.json"
 const RECOVERY_INTERVAL_SECONDS := 8.0
-const VIDEO_CONVERSION_PROFILE := "theora_v5_720p30_visual_gate"
+const VIDEO_CONVERSION_PROFILE := "theora_v6_720p30_safe_speed_visual_gate"
 const MIN_HOLD_DURATION := 0.18
 const SUPPORTED_KEY_COUNTS: Array[int] = [4, 6, 8]
 const DIRECT_VIDEO_EXTENSIONS: Array[String] = ["ogv"]
@@ -1544,6 +1544,8 @@ func _build_ffmpeg_arguments(
 				"fps=30,scale=w='min(1280,iw)':h=-2:flags=lanczos,format=yuv420p",
 				"-c:v",
 				"libtheora",
+				"-speed_level",
+				"2",
 				"-g",
 				"30",
 				"-q:v",

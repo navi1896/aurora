@@ -45,7 +45,7 @@ func _run() -> void:
 		"El selector recupera su función después de cancelar"
 	)
 	_expect(
-		editor.VIDEO_CONVERSION_PROFILE.contains("v5")
+		editor.VIDEO_CONVERSION_PROFILE.contains("v6")
 		and editor._is_untrusted_legacy_video_cache(
 			"user://aurora_editor/media/probe_theora_v3_720p30.ogv"
 		),

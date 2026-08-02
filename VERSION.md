@@ -7,7 +7,10 @@ Incluye:
 - Compatibilidad con teclado y mandos
 - Biblioteca de canciones con vista previa
 - Editor manual y automático con notas normales y sostenidas
-- Importación de contenido local
+- Forma de onda, guardado de recuperación y prueba directa del chart
+- Exportación e importación portátil mediante paquetes `.aurora`
+- Importación de MP4, MOV, MKV, WEBM, AVI y M4V con FFmpeg incluido
+- Validación de decodificación y calidad antes de aceptar un video convertido
 - Configuración independiente de audio, video, jugabilidad y controles
 
 Contenido:

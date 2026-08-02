@@ -767,7 +767,7 @@ func _run() -> void:
 		)
 		editor.recording = false
 		_expect(
-			editor.VIDEO_CONVERSION_PROFILE.contains("v5")
+			editor.VIDEO_CONVERSION_PROFILE.contains("v6")
 			and editor._is_untrusted_legacy_video_cache(
 				"user://aurora_editor/media/probe_theora_v3_720p30.ogv"
 			),
@@ -800,8 +800,9 @@ func _run() -> void:
 			"El editor compara visualmente la conversión antes de publicarla"
 		)
 		_expect(
-			"-speed_level" not in conversion_arguments,
-			"La conversión usa opciones aceptadas por el FFmpeg LGPL incluido"
+			conversion_arguments.has("-speed_level")
+			and conversion_arguments[conversion_arguments.find("-speed_level") + 1] == "2",
+			"La conversión evita el nivel automático que corrompe Theora en FFmpeg 8.1"
 		)
 		var required_encoder_probe: Array[String] = ["libtheora", "libvorbis"]
 		_expect(
