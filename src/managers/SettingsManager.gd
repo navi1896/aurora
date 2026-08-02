@@ -13,7 +13,7 @@ const SETTINGS_SAVE_DEBOUNCE_SECONDS := 0.25
 const DEFAULT_SETTINGS := {
 	"language": "es",
 	"master_volume": 1.0,
-	"menu_music_volume": 0.72,
+	"menu_music_volume": 0.58,
 	"music_volume": 0.85,
 	"sfx_volume": 0.9,
 	"note_speed": 5.5,
@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS := {
 	"screen_shake_enabled": true,
 	"reduced_motion": false,
 	"window_mode": "windowed",
-	"resolution": "1600x900",
+	"resolution": "1280x720",
 	"vsync_enabled": true,
 	"fps_limit": 120,
 	"graphics_quality": "high",
@@ -168,7 +168,7 @@ func apply_language_setting() -> void:
 
 func apply_audio_settings() -> void:
 	_set_bus_volume("Master", float(get_setting("master_volume", 1.0)))
-	_set_bus_volume("MenuMusic", float(get_setting("menu_music_volume", 0.72)))
+	_set_bus_volume("MenuMusic", float(get_setting("menu_music_volume", 0.58)))
 	_set_bus_volume("Music", float(get_setting("music_volume", 0.85)))
 	_set_bus_volume("SFX", float(get_setting("sfx_volume", 0.9)))
 
@@ -182,7 +182,7 @@ func apply_display_settings() -> void:
 		_:
 			DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			if mode == "windowed":
-				var requested_resolution := _parse_resolution(str(get_setting("resolution", "1600x900")))
+				var requested_resolution := _parse_resolution(str(get_setting("resolution", "1280x720")))
 				var screen_index := DisplayServer.window_get_current_screen()
 				var usable_rect := DisplayServer.screen_get_usable_rect(screen_index)
 				var safe_resolution := _fit_resolution_to_rect(requested_resolution, usable_rect)
@@ -237,7 +237,7 @@ func _set_bus_volume(bus_name: String, linear_value: float) -> void:
 func _parse_resolution(value: String) -> Vector2i:
 	var parts := value.to_lower().split("x")
 	if parts.size() != 2:
-		return Vector2i(1600, 900)
+		return Vector2i(1280, 720)
 	var width := maxi(int(parts[0]), 960)
 	var height := maxi(int(parts[1]), 540)
 	return Vector2i(width, height)
@@ -281,7 +281,7 @@ func _validate_setting(key: String) -> void:
 				settings[key] = "windowed"
 		"resolution":
 			if str(settings[key]) not in ["1280x720", "1600x900", "1920x1080", "2560x1440"]:
-				settings[key] = "1600x900"
+				settings[key] = "1280x720"
 		"graphics_quality":
 			if str(settings[key]) not in ["low", "medium", "high"]:
 				settings[key] = "high"

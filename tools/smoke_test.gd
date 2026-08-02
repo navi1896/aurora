@@ -125,7 +125,7 @@ func _run() -> void:
 	settings_manager.settings["music_volume"] = original_song_volume
 	settings_manager.apply_audio_settings()
 	_expect(
-		str(settings_manager.DEFAULT_SETTINGS["resolution"]) == "1600x900",
+		str(settings_manager.DEFAULT_SETTINGS["resolution"]) == "1280x720",
 		"La ventana inicial usa una resolución segura para pantallas comunes"
 	)
 	_expect(
