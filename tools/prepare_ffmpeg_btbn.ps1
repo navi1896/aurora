@@ -314,7 +314,7 @@ $demuxers = Get-CapabilityNames -Executable $sourceFfmpeg -Option "-demuxers"
 $muxers = Get-CapabilityNames -Executable $sourceFfmpeg -Option "-muxers"
 Assert-Capabilities `
     -Available $encoders `
-    -Required @("libtheora", "libvorbis", "pcm_s16le") `
+    -Required @("libtheora", "libvorbis", "pcm_s16le", "pcm_f32le") `
     -Kind "codificador"
 Assert-Capabilities `
     -Available $decoders `
@@ -325,14 +325,14 @@ Assert-Capabilities `
 Assert-Capabilities `
     -Available $filters `
     -Required @(
-        "aresample", "format", "fps", "scale", "setpts", "ssim"
+        "aresample", "format", "fps", "scale", "setpts", "split", "ssim", "psnr"
     ) `
     -Kind "filtro"
 Assert-Capabilities `
     -Available $demuxers `
     -Required @("mov", "avi", "matroska") `
     -Kind "demuxer"
-Assert-Capabilities -Available $muxers -Required @("ogg") -Kind "muxer"
+Assert-Capabilities -Available $muxers -Required @("ogg", "f32le") -Kind "muxer"
 
 $unexpectedDlls = @(
     Get-ChildItem -LiteralPath $sourceBin -Filter "*.dll" -File `
@@ -391,11 +391,11 @@ $capabilityReport = @(
     "Aurora-required capabilities validated on $expectedVersion",
     "==========================================================",
     "",
-    "Encoders: libtheora, libvorbis, pcm_s16le",
+    "Encoders: libtheora, libvorbis, pcm_s16le, pcm_f32le",
     "Decoders: h264, hevc, av1, aac, mp3, opus, vorbis, vp8, vp9",
-    "Filters: aresample, format, fps, scale, setpts, ssim",
+    "Filters: aresample, format, fps, scale, setpts, split, ssim, psnr",
     "Demuxers: mov (MP4/MOV/M4V), avi, matroska (MKV/WebM)",
-    "Muxer: ogg"
+    "Muxers: ogg, f32le"
 )
 Set-Content -LiteralPath (
     Join-Path $metadataDirectory "AURORA_CAPABILITIES.txt"

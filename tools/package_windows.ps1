@@ -354,7 +354,9 @@ $demuxers = Get-FfmpegCapabilityNames -Executable $ffmpegSourceExe -Option "-dem
 $muxers = Get-FfmpegCapabilityNames -Executable $ffmpegSourceExe -Option "-muxers"
 Assert-Capabilities `
     -Available $encoders `
-    -Required @("libtheora", "libvorbis", "pcm_s16le", "wrapped_avframe") `
+    -Required @(
+        "libtheora", "libvorbis", "pcm_s16le", "pcm_f32le", "wrapped_avframe"
+    ) `
     -Kind "codificador"
 Assert-Capabilities `
     -Available $decoders `
@@ -362,13 +364,15 @@ Assert-Capabilities `
     -Kind "decodificador"
 Assert-Capabilities `
     -Available $filters `
-    -Required @("aresample", "fps", "scale", "format", "setpts", "ssim") `
+    -Required @(
+        "aresample", "fps", "scale", "format", "setpts", "split", "ssim", "psnr"
+    ) `
     -Kind "filtro"
 Assert-Capabilities `
     -Available $demuxers `
     -Required @("mov", "avi", "matroska", "m4v") `
     -Kind "demuxer"
-Assert-Capabilities -Available $muxers -Required @("ogg") -Kind "muxer"
+Assert-Capabilities -Available $muxers -Required @("ogg", "f32le") -Kind "muxer"
 
 $ffmpegTargetRoot = Join-Path $buildRoot "tools\ffmpeg"
 $ffmpegTargetBin = Join-Path $ffmpegTargetRoot "bin"
@@ -464,11 +468,11 @@ Set-Content -LiteralPath (
     "Aurora-required capabilities validated on the bundled FFmpeg",
     "============================================================",
     "",
-    "Encoders: libtheora, libvorbis, pcm_s16le",
+    "Encoders: libtheora, libvorbis, pcm_s16le, pcm_f32le",
     "Decoders: h264, hevc, av1, aac, mp3, opus, vorbis, vp8, vp9",
-    "Filters: aresample, format, fps, scale, setpts, ssim",
+    "Filters: aresample, format, fps, scale, setpts, split, ssim, psnr",
     "Demuxers: mov (MP4/MOV/M4V), avi, matroska (MKV/WebM)",
-    "Muxer: ogg"
+    "Muxers: ogg, f32le"
 )
 Set-Content -LiteralPath (
     Join-Path $ffmpegLicenseTarget "UPSTREAM_HASHES-SHA256.txt"
