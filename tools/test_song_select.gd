@@ -24,6 +24,7 @@ func _run() -> void:
 	var song_manager := app.get_node("Managers/SongManager") as SongManager
 	var settings_manager := app.get_node("Managers/SettingsManager") as SettingsManager
 	var game_manager := app.get_node("Managers/GameManager") as GameManager
+	var input_manager := app.get_node("Managers/InputManager") as InputManager
 	var alpha := _make_song("alpha", "Aurora Lights", "Navi")
 	var alpha_hard := ChartData.new()
 	alpha_hard.key_count = 6
@@ -56,6 +57,19 @@ func _run() -> void:
 		screen.preview_audio.bus == &"Music",
 		"La preescucha de audio usa el volumen de música"
 	)
+	_expect(
+		"ENTER" in screen.controls_label.text
+		and "ESC" in screen.controls_label.text,
+		"La ayuda inferior muestra teclado cuando se usa teclado"
+	)
+	input_manager._set_input_device(true, 0)
+	_expect(
+		input_manager.get_controller_action_label("confirm")
+		in screen.controls_label.text
+		and "D-PAD" in screen.controls_label.text,
+		"La ayuda inferior cambia a Xbox o PlayStation al usar mando"
+	)
+	input_manager._set_input_device(false)
 
 	screen._select_song(0, false)
 	screen.selected_chart_index = 0

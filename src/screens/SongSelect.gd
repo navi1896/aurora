@@ -71,6 +71,10 @@ func _ready() -> void:
 	song_manager = app.get_node("Managers/SongManager")
 	settings_manager = app.get_node("Managers/SettingsManager")
 	input_manager = app.get_node("Managers/InputManager")
+	input_manager.input_device_changed.connect(_on_input_device_changed)
+	input_manager.controller_bindings_changed.connect(
+		_on_controller_bindings_changed
+	)
 	all_songs = song_manager.get_all_songs()
 	song_button_group.allow_unpress = false
 	preview_video.bus = "Music" if AudioServer.get_bus_index("Music") >= 0 else "Master"
@@ -119,14 +123,33 @@ func _apply_localized_texts() -> void:
 	favorite_button.text = AuroraLocale.text("☆ FAVORITA")
 	edit_button.text = AuroraLocale.text("EDITAR")
 	delete_button.text = AuroraLocale.text("BORRAR CANCION")
-	controls_label.text = AuroraLocale.text(
-		"↑↓ CANCION   ←→ MODO   %s JUGAR   %s PREVIA   %s BORRAR   %s VOLVER"
-	) % [
-		input_manager.get_controller_action_label("confirm"),
-		input_manager.get_controller_action_label("preview"),
-		input_manager.get_controller_action_label("delete"),
-		input_manager.get_controller_action_label("back"),
-	]
+	_refresh_controls_hint()
+
+
+func _on_input_device_changed(_using_controller: bool) -> void:
+	_refresh_controls_hint()
+
+
+func _on_controller_bindings_changed(_mode: int) -> void:
+	_refresh_controls_hint()
+
+
+func _refresh_controls_hint() -> void:
+	if controls_label == null or input_manager == null:
+		return
+	if input_manager.using_controller:
+		controls_label.text = AuroraLocale.text(
+			"D-PAD CANCION/MODO   %s JUGAR   %s PREVIA   %s BORRAR   %s VOLVER"
+		) % [
+			input_manager.get_controller_action_label("confirm"),
+			input_manager.get_controller_action_label("preview"),
+			input_manager.get_controller_action_label("delete"),
+			input_manager.get_controller_action_label("back"),
+		]
+	else:
+		controls_label.text = AuroraLocale.text(
+			"↑↓ CANCION   ←→ MODO   ENTER JUGAR   P PREVIA   SUPR BORRAR   ESC VOLVER"
+		)
 
 
 func _setup_package_dialog() -> void:
