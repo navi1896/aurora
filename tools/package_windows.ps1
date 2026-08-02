@@ -510,6 +510,7 @@ try {
             "-vf",
             "fps=30,scale=w='min(1280,iw)':h=-2:flags=lanczos,format=yuv420p",
             "-c:v", "libtheora",
+            "-speed_level", "2",
             "-g", "30",
             "-q:v", "5",
             "-c:a", "libvorbis",

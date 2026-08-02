@@ -349,6 +349,11 @@ func _run() -> void:
 			song_select.delete_button.disabled,
 			"Sin canciones, la acción de borrado permanece desactivada"
 		)
+		_expect(
+			not song_select.edit_button.disabled
+			and song_select.edit_button.text == AuroraLocale.text("CREAR NIVEL"),
+			"La biblioteca vacía permite crear un nivel sin pasos ocultos"
+		)
 		var editor_song_probe := SongData.new()
 		editor_song_probe.editor_project_path = "user://aurora_editor/probe/project.json"
 		_expect(

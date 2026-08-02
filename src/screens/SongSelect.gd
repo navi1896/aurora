@@ -562,6 +562,7 @@ func _refresh_selection() -> void:
 	delete_button.disabled = not song_manager.is_removable_local_song(
 		song
 	)
+	edit_button.text = AuroraLocale.text("EDITAR")
 	edit_button.disabled = not song_manager.is_editor_song(song)
 	favorite_button.disabled = false
 	delete_button.tooltip_text = (
@@ -865,7 +866,15 @@ func _add_recent_song(song: SongData) -> void:
 
 func _edit_selected_song() -> void:
 	var song := _get_selected_song()
-	if song == null or not song_manager.is_editor_song(song):
+	if song == null:
+		if all_songs.is_empty():
+			_remember_library_state()
+			preview_request_token += 1
+			_stop_preview()
+			game_manager.request_editor_project("")
+			scene_manager.load_scene("editor")
+		return
+	if not song_manager.is_editor_song(song):
 		return
 	_remember_library_state()
 	preview_request_token += 1
@@ -1059,6 +1068,7 @@ func _get_selected_song() -> SongData:
 
 
 func _show_empty_library() -> void:
+	var library_is_empty := all_songs.is_empty()
 	preview_request_token += 1
 	_stop_preview()
 	for child in mode_buttons_container.get_children():
@@ -1087,6 +1097,9 @@ func _show_empty_library() -> void:
 	]
 	preview_button.disabled = true
 	favorite_button.disabled = true
-	edit_button.disabled = true
+	edit_button.text = AuroraLocale.text(
+		"CREAR NIVEL" if library_is_empty else "EDITAR"
+	)
+	edit_button.disabled = not library_is_empty
 	delete_button.disabled = true
 	play_button.disabled = true

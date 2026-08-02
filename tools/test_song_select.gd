@@ -186,6 +186,20 @@ func _run() -> void:
 		== empty_screen.import_package_button,
 		"La biblioteca vacía enfoca Importar"
 	)
+	_expect(
+		empty_screen != null
+		and not empty_screen.edit_button.disabled
+		and empty_screen.edit_button.text
+		== AuroraLocale.text("CREAR NIVEL"),
+		"La biblioteca vacía ofrece crear un nivel directamente"
+	)
+	empty_screen._edit_selected_song()
+	await process_frame
+	await process_frame
+	_expect(
+		scene_manager.current_scene_name == "editor",
+		"Crear nivel abre el editor sin depender de contenido previo"
+	)
 	_finish()
 
 
