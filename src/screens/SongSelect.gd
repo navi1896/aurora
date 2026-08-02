@@ -74,6 +74,7 @@ func _ready() -> void:
 	all_songs = song_manager.get_all_songs()
 	song_button_group.allow_unpress = false
 	preview_video.bus = "Music" if AudioServer.get_bus_index("Music") >= 0 else "Master"
+	preview_audio.bus = "Music" if AudioServer.get_bus_index("Music") >= 0 else "Master"
 	preview_video.loop = false
 	preview_video.autoplay = false
 	preview_video.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
@@ -100,6 +101,8 @@ func _ready() -> void:
 	_apply_song_filter()
 	if not song_buttons.is_empty():
 		song_buttons[selected_song_index].grab_focus()
+	elif all_songs.is_empty():
+		import_package_button.grab_focus()
 	call_deferred("_restore_scroll_position")
 
 
@@ -260,6 +263,7 @@ func _exit_tree() -> void:
 
 func _input(event: InputEvent) -> void:
 	var focused_control := get_viewport().gui_get_focus_owner()
+	var use_library_shortcuts := _uses_library_shortcuts(focused_control)
 	if focused_control == search_field and event is InputEventKey:
 		if event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
 			search_field.release_focus()
@@ -283,25 +287,33 @@ func _input(event: InputEvent) -> void:
 			_request_delete_selected_song()
 			get_viewport().set_input_as_handled()
 		elif input_manager.controller_event_matches(event, "confirm"):
-			if focused_control == import_package_button:
-				_open_package_dialog()
-			else:
+			if use_library_shortcuts:
 				_start_selected_song()
-			get_viewport().set_input_as_handled()
+				get_viewport().set_input_as_handled()
 		else:
 			match event.button_index:
 				JOY_BUTTON_DPAD_UP:
-					_move_song_selection(-1)
-					get_viewport().set_input_as_handled()
+					if use_library_shortcuts:
+						_move_song_selection(-1)
+						get_viewport().set_input_as_handled()
 				JOY_BUTTON_DPAD_DOWN:
-					_move_song_selection(1)
-					get_viewport().set_input_as_handled()
+					if use_library_shortcuts:
+						_move_song_selection(1)
+						get_viewport().set_input_as_handled()
 				JOY_BUTTON_DPAD_LEFT:
-					_move_chart_selection(-1)
-					get_viewport().set_input_as_handled()
+					if _is_note_speed_control(focused_control):
+						_adjust_note_speed(-0.5)
+						get_viewport().set_input_as_handled()
+					elif use_library_shortcuts:
+						_move_chart_selection(-1)
+						get_viewport().set_input_as_handled()
 				JOY_BUTTON_DPAD_RIGHT:
-					_move_chart_selection(1)
-					get_viewport().set_input_as_handled()
+					if _is_note_speed_control(focused_control):
+						_adjust_note_speed(0.5)
+						get_viewport().set_input_as_handled()
+					elif use_library_shortcuts:
+						_move_chart_selection(1)
+						get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if delete_modal != null and delete_modal.visible:
@@ -314,23 +326,27 @@ func _input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				_return_to_menu()
 			KEY_UP:
-				_move_song_selection(-1)
-				get_viewport().set_input_as_handled()
+				if use_library_shortcuts:
+					_move_song_selection(-1)
+					get_viewport().set_input_as_handled()
 			KEY_DOWN:
-				_move_song_selection(1)
-				get_viewport().set_input_as_handled()
+				if use_library_shortcuts:
+					_move_song_selection(1)
+					get_viewport().set_input_as_handled()
 			KEY_LEFT:
-				if note_speed_down.has_focus() or note_speed_up.has_focus():
-					_adjust_note_speed(-0.5)
-				else:
+				if use_library_shortcuts:
 					_move_chart_selection(-1)
-				get_viewport().set_input_as_handled()
+					get_viewport().set_input_as_handled()
+				elif _is_note_speed_control(focused_control):
+					_adjust_note_speed(-0.5)
+					get_viewport().set_input_as_handled()
 			KEY_RIGHT:
-				if note_speed_down.has_focus() or note_speed_up.has_focus():
-					_adjust_note_speed(0.5)
-				else:
+				if use_library_shortcuts:
 					_move_chart_selection(1)
-				get_viewport().set_input_as_handled()
+					get_viewport().set_input_as_handled()
+				elif _is_note_speed_control(focused_control):
+					_adjust_note_speed(0.5)
+					get_viewport().set_input_as_handled()
 			KEY_P:
 				_toggle_preview()
 				get_viewport().set_input_as_handled()
@@ -341,11 +357,17 @@ func _input(event: InputEvent) -> void:
 				_open_package_dialog()
 				get_viewport().set_input_as_handled()
 			KEY_ENTER, KEY_KP_ENTER:
-				get_viewport().set_input_as_handled()
-				if focused_control == import_package_button:
-					_open_package_dialog()
-				else:
+				if use_library_shortcuts:
+					get_viewport().set_input_as_handled()
 					_start_selected_song()
+
+
+func _uses_library_shortcuts(focused_control: Control) -> bool:
+	return focused_control == null or song_buttons.has(focused_control)
+
+
+func _is_note_speed_control(focused_control: Control) -> bool:
+	return focused_control == note_speed_down or focused_control == note_speed_up
 
 
 func _populate_song_list() -> void:
@@ -894,6 +916,8 @@ func _confirm_delete_selected_song() -> void:
 	preview_status.text = AuroraLocale.text("\"%s\" SE MOVIO A LA PAPELERA") % removed_title
 	if not song_buttons.is_empty():
 		song_buttons[selected_song_index].grab_focus()
+	elif all_songs.is_empty():
+		import_package_button.grab_focus()
 
 
 func _cancel_delete_selected_song() -> void:

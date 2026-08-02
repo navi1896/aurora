@@ -25,6 +25,11 @@ func _run() -> void:
 	var settings_manager := app.get_node("Managers/SettingsManager") as SettingsManager
 	var game_manager := app.get_node("Managers/GameManager") as GameManager
 	var alpha := _make_song("alpha", "Aurora Lights", "Navi")
+	var alpha_hard := ChartData.new()
+	alpha_hard.key_count = 6
+	alpha_hard.difficulty_name = "HARD"
+	alpha_hard.difficulty_level = 8
+	alpha.charts.append(alpha_hard)
 	var beta := _make_song("beta", "Night Drive", "Neon Avenue")
 	var gamma := _make_song("gamma", "Pulse Grid", "Vector Bloom")
 	song_manager.songs = [alpha, beta, gamma]
@@ -46,6 +51,39 @@ func _run() -> void:
 		and screen.favorite_button != null
 		and screen.edit_button != null,
 		"Incluye búsqueda, filtros, favoritos y edición"
+	)
+	_expect(
+		screen.preview_audio.bus == &"Music",
+		"La preescucha de audio usa el volumen de música"
+	)
+
+	screen._select_song(0, false)
+	screen.selected_chart_index = 0
+	screen._update_chart_selection()
+	screen.favorite_button.grab_focus()
+	await process_frame
+	var dpad_right := InputEventJoypadButton.new()
+	dpad_right.button_index = JOY_BUTTON_DPAD_RIGHT
+	dpad_right.pressed = true
+	screen._input(dpad_right)
+	_expect(
+		screen.selected_chart_index == 0
+		and screen.get_viewport().gui_get_focus_owner() == screen.favorite_button,
+		"El D-pad respeta los controles del panel derecho"
+	)
+	var focused_enter := InputEventKey.new()
+	focused_enter.keycode = KEY_ENTER
+	focused_enter.pressed = true
+	screen._input(focused_enter)
+	_expect(
+		scene_manager.current_scene == screen and not game_manager.is_playing,
+		"Enter no fuerza Jugar cuando otro control tiene foco"
+	)
+	screen.song_buttons[0].grab_focus()
+	screen._input(dpad_right)
+	_expect(
+		screen.selected_chart_index == 1,
+		"El atajo de dificultad se conserva con foco en la lista"
 	)
 
 	screen.search_field.text = "night"
@@ -109,6 +147,30 @@ func _run() -> void:
 		== "user://aurora_editor/probe/project.json"
 		and game_manager.take_requested_editor_project_path().is_empty(),
 		"La solicitud EDITAR se consume una sola vez"
+	)
+
+	screen.search_field.text = ""
+	screen.filter_option.select(0)
+	screen._on_filter_selected(0)
+	screen._select_song(0, false)
+	screen.song_buttons[0].grab_focus()
+	screen._input(focused_enter)
+	_expect(
+		scene_manager.current_scene_name == "gameplay" and game_manager.is_playing,
+		"Enter conserva Jugar cuando el foco está en la lista"
+	)
+
+	game_manager.stop_song()
+	song_manager.songs = []
+	scene_manager.load_scene("song_select")
+	await process_frame
+	await process_frame
+	var empty_screen := scene_manager.current_scene as SongSelect
+	_expect(
+		empty_screen != null
+		and empty_screen.get_viewport().gui_get_focus_owner()
+		== empty_screen.import_package_button,
+		"La biblioteca vacía enfoca Importar"
 	)
 	_finish()
 

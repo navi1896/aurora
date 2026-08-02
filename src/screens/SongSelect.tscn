@@ -500,3 +500,4 @@ text = "v1.0.0"
 horizontal_alignment = 2
 
 [node name="PreviewAudio" type="AudioStreamPlayer" parent="."]
+bus = &"Music"

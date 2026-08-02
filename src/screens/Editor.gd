@@ -21,6 +21,9 @@ const WAVEFORM_ENVELOPE_MODEL = preload(
 const VIDEO_QUALITY_GATE_MODEL = preload(
 	"res://src/screens/editor/VideoQualityGate.gd"
 )
+const PACKAGE_EXPORTER_MODEL = preload(
+	"res://src/screens/editor/EditorPackageExporter.gd"
+)
 const EDITOR_DIRECTORY := "user://aurora_editor"
 const EDITOR_MEDIA_DIRECTORY := "user://aurora_editor/media"
 const EDITOR_LOG_DIRECTORY := "user://aurora_editor/logs"
@@ -71,6 +74,7 @@ var video_path := ""
 var video_source_path := ""
 var audio_path := ""
 var current_project_path := ""
+var package_id := ""
 var preview_time := 0.0
 var duration_seconds := 120.0
 var key_count := 4
@@ -85,6 +89,7 @@ var tap_bpm_estimator
 var chart_difficulty_estimator
 var waveform_envelope_model: WaveformEnvelopeModel
 var video_quality_gate: VideoQualityGate
+var package_exporter: EditorPackageExporter
 var latest_tap_bpm_estimate: Dictionary = {}
 var latest_chart_difficulty_estimate: Dictionary = {}
 var saved_metadata_signature := ""
@@ -148,8 +153,14 @@ var waveform_status_label: Label
 var video_dialog: FileDialog
 var audio_dialog: FileDialog
 var project_dialog: FileDialog
+var package_export_dialog: FileDialog
 var video_select_button: Button
 var audio_select_button: Button
+var back_button: Button
+var new_project_button: Button
+var open_project_button: Button
+var save_project_button: Button
+var package_export_button: Button
 var video_conversion_pid := -1
 var video_conversion_source_path := ""
 var video_conversion_output_path := ""
@@ -178,6 +189,8 @@ var active_waveform_job := 0
 var waveform_cancel_pending := false
 var waveform_pending_source_path := ""
 var waveform_visible := true
+var package_export_thread: Thread
+var package_export_output_path := ""
 
 
 func _ready() -> void:
@@ -194,6 +207,7 @@ func _ready() -> void:
 	chart_difficulty_estimator = CHART_DIFFICULTY_ESTIMATOR_MODEL.new()
 	waveform_envelope_model = WAVEFORM_ENVELOPE_MODEL.new()
 	video_quality_gate = VIDEO_QUALITY_GATE_MODEL.new()
+	package_exporter = PACKAGE_EXPORTER_MODEL.new()
 	_setup_ui()
 	_setup_file_dialogs()
 	_setup_recovery_timer()
@@ -206,12 +220,19 @@ func _ready() -> void:
 	)
 	if not opened_explicit_context and not _restore_recovery_if_available():
 		_refresh_editor_state()
+	call_deferred("_focus_initial_control")
 	recovery_timer.start()
+
+
+func _focus_initial_control() -> void:
+	if video_select_button != null and is_instance_valid(video_select_button):
+		video_select_button.grab_focus()
 
 
 func _process(_delta: float) -> void:
 	_poll_video_conversion()
 	_poll_waveform_extraction()
+	_poll_package_export()
 	if not preview_running:
 		return
 	if audio_player != null and audio_player.stream != null and audio_player.playing:
@@ -297,9 +318,9 @@ func _build_header(page: VBoxContainer) -> void:
 	header.add_theme_constant_override("separation", 10)
 	page.add_child(header)
 
-	var back := _make_tool_button(AuroraLocale.text("◀ VOLVER"), 132.0)
-	back.pressed.connect(_request_leave_editor)
-	header.add_child(back)
+	back_button = _make_tool_button(AuroraLocale.text("◀ VOLVER"), 132.0)
+	back_button.pressed.connect(_request_leave_editor)
+	header.add_child(back_button)
 
 	var title_box := VBoxContainer.new()
 	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -324,15 +345,31 @@ func _build_header(page: VBoxContainer) -> void:
 	dirty_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	header.add_child(dirty_label)
 
-	var new_button := _make_tool_button(AuroraLocale.text("NUEVO"), 110.0)
-	new_button.pressed.connect(_request_new_project)
-	header.add_child(new_button)
-	var import_button := _make_tool_button(AuroraLocale.text("ABRIR PROYECTO"), 150.0)
-	import_button.pressed.connect(_request_open_project_dialog)
-	header.add_child(import_button)
-	var save_button := _make_tool_button(AuroraLocale.text("GUARDAR"), 130.0, true)
-	save_button.pressed.connect(_save_project)
-	header.add_child(save_button)
+	new_project_button = _make_tool_button(AuroraLocale.text("NUEVO"), 110.0)
+	new_project_button.pressed.connect(_request_new_project)
+	header.add_child(new_project_button)
+	open_project_button = _make_tool_button(
+		AuroraLocale.text("ABRIR PROYECTO"),
+		150.0
+	)
+	open_project_button.pressed.connect(_request_open_project_dialog)
+	header.add_child(open_project_button)
+	save_project_button = _make_tool_button(
+		AuroraLocale.text("GUARDAR"),
+		130.0,
+		true
+	)
+	save_project_button.pressed.connect(_save_project)
+	header.add_child(save_project_button)
+	package_export_button = _make_tool_button(
+		AuroraLocale.text("EXPORTAR .AURORA"),
+		184.0
+	)
+	package_export_button.tooltip_text = AuroraLocale.text(
+		"CREAR UN PAQUETE PORTÁTIL PARA COMPARTIR"
+	)
+	package_export_button.pressed.connect(_request_export_package)
+	header.add_child(package_export_button)
 
 
 func _build_preview(workspace: VBoxContainer) -> void:
@@ -1185,6 +1222,21 @@ func _setup_file_dialogs() -> void:
 	project_dialog.file_selected.connect(_load_project)
 	add_child(project_dialog)
 
+	package_export_dialog = FileDialog.new()
+	package_export_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	package_export_dialog.file_mode = FileDialog.FILE_MODE_SAVE_FILE
+	package_export_dialog.use_native_dialog = true
+	package_export_dialog.filters = PackedStringArray(
+		["*.aurora ; Aurora Song Package"]
+	)
+	package_export_dialog.title = AuroraLocale.text(
+		"EXPORTAR PAQUETE DE AURORA"
+	)
+	package_export_dialog.file_selected.connect(
+		_on_package_export_selected
+	)
+	add_child(package_export_dialog)
+
 	confirmation_dialog = ConfirmationDialog.new()
 	confirmation_dialog.title = AuroraLocale.text("CONFIRMAR CAMBIO")
 	confirmation_dialog.ok_button_text = AuroraLocale.text("CONTINUAR")
@@ -1255,6 +1307,24 @@ func _open_audio_dialog() -> void:
 func _open_project_dialog() -> void:
 	project_dialog.current_dir = EDITOR_DIRECTORY
 	project_dialog.popup_centered_ratio(0.72)
+
+
+func _open_package_export_dialog() -> void:
+	var last_directory := str(
+		settings_manager.get_setting(
+			"last_package_export_directory",
+			OS.get_system_dir(OS.SYSTEM_DIR_DOWNLOADS)
+		)
+	)
+	if (
+		not last_directory.is_empty()
+		and DirAccess.dir_exists_absolute(last_directory)
+	):
+		package_export_dialog.current_dir = last_directory
+	package_export_dialog.current_file = "%s.aurora" % _slugify(
+		title_edit.text
+	)
+	package_export_dialog.popup_centered_ratio(0.72)
 
 
 func _load_video(path: String) -> void:
@@ -2007,6 +2077,10 @@ func _set_video_conversion_controls_disabled(disabled: bool) -> void:
 		generate_button.disabled = disabled
 	if test_button != null:
 		test_button.disabled = disabled
+	if package_export_button != null:
+		package_export_button.disabled = disabled
+	if not disabled:
+		_refresh_editor_state()
 
 
 func _reset_video_conversion_state() -> void:
@@ -3372,6 +3446,14 @@ func _cancel_pending_confirmation() -> void:
 
 
 func _request_leave_editor() -> void:
+	if _is_package_export_active():
+		_set_status(
+			AuroraLocale.text(
+				"ESPERA A QUE TERMINE LA EXPORTACIÓN DEL PAQUETE."
+			),
+			true
+		)
+		return
 	if _is_editor_dirty():
 		_request_confirmation(
 			AuroraLocale.text("HAY CAMBIOS SIN GUARDAR. ¿SALIR DEL EDITOR Y DESCARTARLOS?"),
@@ -3382,6 +3464,14 @@ func _request_leave_editor() -> void:
 
 
 func _request_new_project() -> void:
+	if _is_package_export_active():
+		_set_status(
+			AuroraLocale.text(
+				"ESPERA A QUE TERMINE LA EXPORTACIÓN DEL PAQUETE."
+			),
+			true
+		)
+		return
 	if _is_editor_dirty():
 		_request_confirmation(
 			AuroraLocale.text("HAY CAMBIOS SIN GUARDAR. ¿CREAR UN PROYECTO NUEVO?"),
@@ -3392,6 +3482,14 @@ func _request_new_project() -> void:
 
 
 func _request_open_project_dialog() -> void:
+	if _is_package_export_active():
+		_set_status(
+			AuroraLocale.text(
+				"ESPERA A QUE TERMINE LA EXPORTACIÓN DEL PAQUETE."
+			),
+			true
+		)
+		return
 	if _is_editor_dirty():
 		_request_confirmation(
 			AuroraLocale.text("HAY CAMBIOS SIN GUARDAR. ¿ABRIR OTRO PROYECTO?"),
@@ -3399,6 +3497,167 @@ func _request_open_project_dialog() -> void:
 		)
 	else:
 		_open_project_dialog()
+
+
+func _request_export_package() -> void:
+	if _is_package_export_active():
+		_set_status(AuroraLocale.text("YA HAY UN PAQUETE EN EXPORTACIÓN"), true)
+		return
+	if recording or recording_countdown_active:
+		_set_status(
+			AuroraLocale.text(
+				"DETÉN LA GRABACIÓN ANTES DE EXPORTAR EL PAQUETE."
+			),
+			true
+		)
+		return
+	if video_conversion_pid > 0:
+		_set_status(
+			AuroraLocale.text(
+				"ESPERA A QUE TERMINE LA CONVERSIÓN DEL VIDEO."
+			),
+			true
+		)
+		return
+	if title_edit.text.strip_edges().is_empty():
+		_set_status(
+			AuroraLocale.text(
+				"ESCRIBE UN TÍTULO ANTES DE EXPORTAR."
+			),
+			true
+		)
+		return
+	if not _has_media():
+		_set_status(
+			AuroraLocale.text("PRIMERO SELECCIONA VIDEO O AUDIO"),
+			true
+		)
+		return
+	if notes.is_empty():
+		_set_status(
+			AuroraLocale.text(
+				"AGREGA O GENERA NOTAS ANTES DE EXPORTAR."
+			),
+			true
+		)
+		return
+	if not _save_project():
+		_set_status(
+			AuroraLocale.text(
+				"NO SE PUDO GUARDAR EL PROYECTO PARA EXPORTARLO."
+			),
+			true
+		)
+		return
+	_open_package_export_dialog()
+
+
+func _on_package_export_selected(selected_path: String) -> void:
+	var output_path := selected_path.strip_edges()
+	if output_path.get_extension().is_empty():
+		output_path += ".aurora"
+	if output_path.get_extension().to_lower() != "aurora":
+		_set_status(
+			AuroraLocale.text(
+				"EL PAQUETE DEBE USAR LA EXTENSIÓN .AURORA."
+			),
+			true
+		)
+		return
+	_remember_media_directory(
+		"last_package_export_directory",
+		output_path
+	)
+	_start_package_export(output_path)
+
+
+func _start_package_export(output_path: String) -> void:
+	if _is_package_export_active():
+		return
+	package_export_output_path = output_path
+	package_export_thread = Thread.new()
+	_set_package_export_controls_disabled(true)
+	_set_status(AuroraLocale.text("EXPORTANDO PAQUETE PORTÁTIL..."))
+	var start_error := package_export_thread.start(
+		Callable(
+			package_exporter,
+			"export_saved_project"
+		).bind(
+			current_project_path,
+			output_path,
+			package_id
+		)
+	)
+	if start_error != OK:
+		package_export_thread = null
+		package_export_output_path = ""
+		_set_package_export_controls_disabled(false)
+		_set_status(
+			AuroraLocale.text(
+				"NO SE PUDO INICIAR LA EXPORTACIÓN DEL PAQUETE."
+			),
+			true
+		)
+
+
+func _poll_package_export() -> void:
+	if (
+		package_export_thread == null
+		or package_export_thread.is_alive()
+	):
+		return
+	var result_value = package_export_thread.wait_to_finish()
+	package_export_thread = null
+	var completed_path := package_export_output_path
+	package_export_output_path = ""
+	_set_package_export_controls_disabled(false)
+	var result: Dictionary = (
+		result_value
+		if result_value is Dictionary
+		else {}
+	)
+	if bool(result.get("ok", false)):
+		_set_status(
+			AuroraLocale.text("PAQUETE EXPORTADO // %s")
+			% completed_path.get_file()
+		)
+		return
+	var message := str(
+		result.get(
+			"message",
+			"No se pudo exportar el paquete."
+		)
+	)
+	_set_status(AuroraLocale.text(message), true)
+
+
+func _is_package_export_active() -> bool:
+	return package_export_thread != null
+
+
+func _set_package_export_controls_disabled(
+	disabled: bool
+) -> void:
+	for button in [
+		back_button,
+		new_project_button,
+		open_project_button,
+		save_project_button,
+		package_export_button,
+		video_select_button,
+		audio_select_button,
+		record_button,
+		generate_button,
+		test_button,
+	]:
+		if button != null:
+			button.disabled = disabled
+	if package_export_button != null:
+		package_export_button.text = AuroraLocale.text(
+			"EXPORTANDO..." if disabled else "EXPORTAR .AURORA"
+		)
+	if not disabled:
+		_refresh_editor_state()
 
 
 func _refresh_editor_state() -> void:
@@ -3450,6 +3709,7 @@ func _refresh_duration_display() -> void:
 
 func _save_project() -> bool:
 	_finish_open_recorded_notes()
+	_ensure_package_id()
 	var next_project_path := current_project_path
 	var chart_path := ""
 	if next_project_path.is_empty():
@@ -3495,6 +3755,7 @@ func _make_project_document(chart_path: String = "") -> Dictionary:
 	return {
 		"version": PROJECT_STORE.PROJECT_VERSION,
 		"type": "aurora_editor_project",
+		"package_id": package_id,
 		"metadata": {
 			"title": title_edit.text.strip_edges(),
 			"artist": artist_edit.text.strip_edges(),
@@ -3513,6 +3774,31 @@ func _make_project_document(chart_path: String = "") -> Dictionary:
 		},
 		"chart_path": chart_path,
 	}
+
+
+func _ensure_package_id() -> void:
+	if not package_id.is_empty():
+		return
+	var random_bytes := Crypto.new().generate_random_bytes(16)
+	var identifier := random_bytes.hex_encode()
+	if identifier.is_empty():
+		var hash_context := HashingContext.new()
+		hash_context.start(HashingContext.HASH_SHA256)
+		hash_context.update(
+			(
+				"%s:%s:%d"
+				% [
+					title_edit.text,
+					artist_edit.text,
+					Time.get_ticks_usec(),
+				]
+			).to_utf8_buffer()
+		)
+		identifier = hash_context.finish().hex_encode().substr(
+			0,
+			32
+		)
+	package_id = "editor-%s" % identifier
 
 
 func _load_project(path: String) -> void:
@@ -3551,6 +3837,7 @@ func _apply_project_snapshot(
 	_reset_tap_bpm_assistant()
 	suppress_dirty_tracking = true
 	current_project_path = effective_project_path.simplify_path()
+	package_id = str(parsed.get("package_id", "")).strip_edges()
 	var metadata: Dictionary = parsed.get("metadata", {})
 	title_edit.text = str(metadata.get("title", "Nuevo nivel"))
 	artist_edit.text = str(metadata.get("artist", "Aurora Creator"))
@@ -3627,6 +3914,7 @@ func _new_project() -> void:
 	video_source_path = ""
 	audio_path = ""
 	current_project_path = ""
+	package_id = ""
 	video_player.stream = null
 	audio_player.stream = null
 	video_player.volume_db = 0.0
@@ -3854,6 +4142,9 @@ func _handle_timeline_keyboard_event(event: InputEventKey) -> bool:
 
 
 func _exit_tree() -> void:
+	if package_export_thread != null:
+		package_export_thread.wait_to_finish()
+		package_export_thread = null
 	if recovery_timer != null:
 		recovery_timer.stop()
 	if not suppress_dirty_tracking and _is_editor_dirty():

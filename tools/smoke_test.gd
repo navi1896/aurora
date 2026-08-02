@@ -177,7 +177,20 @@ func _run() -> void:
 	)
 	outline_button.free()
 
-	_expect(song_manager.songs.is_empty(), "La versión pública inicia sin canciones de prueba")
+	var bundled_song_found: bool = song_manager.songs.any(
+		func(song: SongData) -> bool:
+			return (
+				not song_manager.is_editor_song(song)
+				and not song_manager.is_local_package_song(song)
+			)
+	)
+	_expect(
+		not bundled_song_found,
+		"La versión pública no incluye canciones de prueba"
+	)
+	# El humo debe probar el estado vacío sin borrar ni ocultar el contenido
+	# personal que ya exista en user://. Solo aislamos la lista en memoria.
+	song_manager.songs.clear()
 	var demo_chart := ChartData.new()
 	demo_chart.key_count = 4
 	demo_chart.difficulty_name = "NORMAL"
@@ -703,7 +716,8 @@ func _run() -> void:
 		_expect(
 			"GODOT ENGINE // MIT" in complete_licenses
 			and (
-				"FFMPEG 6.1.6 // GNU LGPL 2.1 O POSTERIOR"
+				"FFMPEG %s // GNU LGPL V3 O POSTERIOR"
+				% settings_screen.FFMPEG_VERSION_LABEL
 				in complete_licenses
 			)
 			and "FFMPEG // BIBLIOTECAS EXTERNAS Y FUENTES" in complete_licenses
@@ -714,6 +728,11 @@ func _run() -> void:
 	var editor = scene_manager.current_scene
 	if editor != null and editor.name == "Editor":
 		_expect(editor.video_player != null, "El editor prepara una vista previa de video")
+		_expect(
+			editor.get_viewport().gui_get_focus_owner()
+			== editor.video_select_button,
+			"El editor enfoca su primera acción al entrar con mando"
+		)
 		_expect(
 			editor._get_video_import_mode("music_video.mp4") == "convert",
 			"El editor acepta MP4 mediante conversión automática"
@@ -727,6 +746,26 @@ func _run() -> void:
 			and editor.audio_dialog.use_native_dialog,
 			"Los archivos multimedia se eligen con el explorador nativo"
 		)
+		_expect(
+			editor.package_exporter != null
+			and editor.package_export_button != null
+			and editor.package_export_dialog != null
+			and editor.package_export_dialog.use_native_dialog
+			and "*.aurora ; Aurora Song Package"
+			in editor.package_export_dialog.filters,
+			"El editor puede exportar un paquete .aurora portable"
+		)
+		editor.recording = true
+		editor._request_export_package()
+		_expect(
+			editor.status_label.text
+			== AuroraLocale.text(
+				"DETÉN LA GRABACIÓN ANTES DE EXPORTAR EL PAQUETE."
+			)
+			and not editor.package_export_dialog.visible,
+			"Exportar nunca captura un snapshot mientras continúa la grabación"
+		)
+		editor.recording = false
 		_expect(
 			editor.VIDEO_CONVERSION_PROFILE.contains("v5")
 			and editor._is_untrusted_legacy_video_cache(
@@ -959,22 +998,26 @@ func _run() -> void:
 			var editor_rect: Rect2 = editor.get_global_rect()
 			var timeline_rect: Rect2 = editor.timeline.get_global_rect()
 			var toggle_rect: Rect2 = editor.properties_toggle_button.get_global_rect()
+			var export_rect: Rect2 = editor.package_export_button.get_global_rect()
 			var responsive_layout_valid := (
 				editor_rect.size.x > 0.0
 				and editor_rect.size.y > 0.0
 				and timeline_rect.position.y >= editor_rect.position.y
 				and timeline_rect.end.y <= editor_rect.end.y + 2.0
 				and toggle_rect.end.x <= editor_rect.end.x + 2.0
+				and export_rect.end.x <= editor_rect.end.x + 2.0
+				and export_rect.end.y <= editor_rect.end.y + 2.0
 			)
 			if not responsive_layout_valid:
 				print(
-					"EDITOR LAYOUT %dx%d: editor=%s timeline=%s toggle=%s"
+					"EDITOR LAYOUT %dx%d: editor=%s timeline=%s toggle=%s export=%s"
 					% [
 						viewport_size.x,
 						viewport_size.y,
 						editor_rect,
 						timeline_rect,
 						toggle_rect,
+						export_rect,
 					]
 				)
 			_expect(

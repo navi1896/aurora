@@ -91,6 +91,13 @@ func setup_ui() -> void:
 	_build_content_area(body)
 	_build_footer(page)
 	_show_category(current_category)
+	call_deferred("_focus_current_category")
+
+
+func _focus_current_category() -> void:
+	var button := category_buttons.get(current_category) as Button
+	if button != null and is_instance_valid(button):
+		button.grab_focus()
 
 
 func _build_terminal_ambient() -> void:
@@ -741,7 +748,10 @@ func _build_control_settings() -> void:
 		)
 	)
 	var action_grid := GridContainer.new()
-	action_grid.columns = 5
+	# Three columns keep every remappable action visible at 1280x720 while
+	# retaining a compact two-row layout on larger windows.
+	action_grid.columns = 3
+	action_grid.name = "ControllerActionGrid"
 	action_grid.add_theme_constant_override("h_separation", 12)
 	action_grid.add_theme_constant_override("v_separation", 12)
 	interface_actions.add_child(action_grid)
@@ -1402,6 +1412,14 @@ func _format_storage_size(byte_count: int) -> String:
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventJoypadButton and event.pressed:
+		if (
+			not capture_kind.is_empty()
+			and input_manager.controller_event_matches(event, "back")
+		):
+			_clear_binding_capture()
+			_show_category("controls")
+			get_viewport().set_input_as_handled()
+			return
 		if capture_kind == "controller_lane":
 			input_manager.set_mode_joy_button(
 				binding_mode,
