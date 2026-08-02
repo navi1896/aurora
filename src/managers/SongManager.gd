@@ -61,7 +61,19 @@ func get_all_songs() -> Array[SongData]:
 
 
 func import_song_package(package_path: String) -> Dictionary:
-	var inspection: Dictionary = package_service.validate_package_manifest(
+	var result := install_song_package_files(package_path)
+	if not bool(result.get("ok", false)):
+		return result
+	load_songs()
+	return result
+
+
+func install_song_package_files(package_path: String) -> Dictionary:
+	# Esta fase solo realiza I/O y validación. Puede ejecutarse en un Thread;
+	# la recarga de Resources se mantiene en el hilo principal mediante
+	# import_song_package() o SongSelect._poll_package_import().
+	var worker_service = PACKAGE_SERVICE_TYPE.new()
+	var inspection: Dictionary = worker_service.validate_package_manifest(
 		package_path
 	)
 	if not bool(inspection.get("ok", false)):
@@ -71,13 +83,12 @@ func import_song_package(package_path: String) -> Dictionary:
 		manifest.get("package_id", "")
 	).strip_edges()
 	var destination := PACKAGES_DIRECTORY.path_join(package_id)
-	var result: Dictionary = package_service.import_package(
+	var result: Dictionary = worker_service.import_package(
 		package_path,
 		destination
 	)
 	if not bool(result.get("ok", false)):
 		return result
-	load_songs()
 	result["song_id"] = "package_%s" % package_id
 	result["package_root"] = destination
 	return result

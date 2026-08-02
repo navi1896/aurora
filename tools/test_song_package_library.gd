@@ -127,8 +127,14 @@ func _test_import_and_multichart_selection(
 	screen._on_package_file_selected(
 		ProjectSettings.globalize_path(package_path)
 	)
-	await process_frame
-	await process_frame
+	_expect(
+		screen._is_package_import_active()
+		and screen.import_package_button.disabled
+		and screen.import_package_button.text
+		== AuroraLocale.text("IMPORTANDO..."),
+		"La importación se ejecuta sin bloquear la interfaz"
+	)
+	await _wait_for_package_import(screen)
 	var package_song := _find_song(TEST_SONG_ID)
 	_expect(
 		package_song != null
@@ -193,7 +199,7 @@ func _test_safe_rejection_and_authorized_deletion(
 	screen._on_package_file_selected(
 		ProjectSettings.globalize_path(package_path)
 	)
-	await process_frame
+	await _wait_for_package_import(screen)
 	_expect(
 		song_manager.get_all_songs().size() == duplicate_count
 		and screen.preview_status.text
@@ -237,6 +243,19 @@ func _test_safe_rejection_and_authorized_deletion(
 		)
 		and _find_song(TEST_SONG_ID) == null,
 		"La confirmación mueve solo el paquete local a la papelera"
+	)
+
+
+func _wait_for_package_import(screen: SongSelect) -> void:
+	var deadline := Time.get_ticks_msec() + 10000
+	while (
+		screen._is_package_import_active()
+		and Time.get_ticks_msec() < deadline
+	):
+		await process_frame
+	_expect(
+		not screen._is_package_import_active(),
+		"La importación termina dentro del límite"
 	)
 
 

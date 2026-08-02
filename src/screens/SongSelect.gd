@@ -62,6 +62,10 @@ var delete_cancel_button: Button
 var pending_delete_song: SongData
 var preview_request_token := 0
 var package_dialog: FileDialog
+var package_import_thread: Thread
+var package_import_path := ""
+var package_import_selected_song_id := ""
+var package_import_chart_signature := ""
 
 
 func _ready() -> void:
@@ -171,7 +175,7 @@ func _setup_package_dialog() -> void:
 
 
 func _open_package_dialog() -> void:
-	if package_dialog == null:
+	if package_dialog == null or _is_package_import_active():
 		return
 	var last_directory := str(
 		settings_manager.get_setting(
@@ -188,18 +192,23 @@ func _open_package_dialog() -> void:
 
 
 func _on_package_file_selected(package_path: String) -> void:
+	if _is_package_import_active():
+		preview_status.text = AuroraLocale.text(
+			"ESPERA A QUE TERMINE LA IMPORTACIÓN DEL PAQUETE."
+		)
+		return
 	settings_manager.set_setting(
 		"last_package_directory",
 		package_path.get_base_dir(),
 		false
 	)
 	var selected_before := _get_selected_song()
-	var selected_id_before := (
+	package_import_selected_song_id = (
 		str(selected_before.song_id)
 		if selected_before != null
 		else ""
 	)
-	var chart_signature_before := remembered_chart_signature
+	package_import_chart_signature = remembered_chart_signature
 	if (
 		selected_before != null
 		and not selected_before.charts.is_empty()
@@ -209,28 +218,61 @@ func _on_package_file_selected(package_path: String) -> void:
 			0,
 			selected_before.charts.size() - 1
 		)
-		chart_signature_before = _chart_signature(
+		package_import_chart_signature = _chart_signature(
 			selected_before.charts[safe_index]
 		)
+	_start_package_import(package_path)
 
-	import_package_button.disabled = true
+
+func _start_package_import(package_path: String) -> void:
+	package_import_path = package_path
+	package_import_thread = Thread.new()
+	_set_package_import_controls_disabled(true)
+	preview_status.text = AuroraLocale.text("VALIDANDO PAQUETE...")
+	var start_error := package_import_thread.start(
+		Callable(
+			song_manager,
+			"install_song_package_files"
+		).bind(package_path)
+	)
+	if start_error == OK:
+		return
+	package_import_thread = null
+	package_import_path = ""
+	_set_package_import_controls_disabled(false)
 	preview_status.text = AuroraLocale.text(
-		"VALIDANDO PAQUETE..."
+		"NO SE PUDO INICIAR LA IMPORTACIÓN DEL PAQUETE."
 	)
-	var result: Dictionary = song_manager.import_song_package(
-		package_path
+
+
+func _poll_package_import() -> void:
+	if (
+		package_import_thread == null
+		or package_import_thread.is_alive()
+	):
+		return
+	var result_value = package_import_thread.wait_to_finish()
+	package_import_thread = null
+	var completed_path := package_import_path
+	package_import_path = ""
+	_set_package_import_controls_disabled(false)
+	var result: Dictionary = (
+		result_value
+		if result_value is Dictionary
+		else {}
 	)
-	import_package_button.disabled = false
 	if not bool(result.get("ok", false)):
 		preview_status.text = _package_import_error_text(result)
 		return
-
+	song_manager.load_songs()
 	all_songs = song_manager.get_all_songs()
-	remembered_song_id = selected_id_before
-	remembered_chart_signature = chart_signature_before
+	remembered_song_id = package_import_selected_song_id
+	remembered_chart_signature = package_import_chart_signature
 	if remembered_song_id.is_empty():
 		remembered_song_id = str(result.get("song_id", ""))
 		remembered_chart_signature = ""
+	package_import_selected_song_id = ""
+	package_import_chart_signature = ""
 	_apply_song_filter()
 	var imported_song := _find_song_by_id(
 		str(result.get("song_id", ""))
@@ -238,11 +280,45 @@ func _on_package_file_selected(package_path: String) -> void:
 	var imported_title := (
 		imported_song.title
 		if imported_song != null
-		else package_path.get_file().get_basename()
+		else completed_path.get_file().get_basename()
 	)
 	preview_status.text = AuroraLocale.text(
 		"PAQUETE IMPORTADO: %s"
 	) % imported_title
+
+
+func _is_package_import_active() -> bool:
+	return package_import_thread != null
+
+
+func _set_package_import_controls_disabled(disabled: bool) -> void:
+	for button in [
+		back_button,
+		import_package_button,
+		play_button,
+		preview_button,
+		favorite_button,
+		edit_button,
+		delete_button,
+		note_speed_down,
+		note_speed_up,
+	]:
+		if button != null:
+			button.disabled = disabled
+	for button in song_buttons:
+		button.disabled = disabled
+	for button in mode_buttons:
+		button.disabled = disabled
+	if search_field != null:
+		search_field.editable = not disabled
+	if filter_option != null:
+		filter_option.disabled = disabled
+	if import_package_button != null:
+		import_package_button.text = AuroraLocale.text(
+			"IMPORTANDO..." if disabled else "IMPORTAR .AURORA"
+		)
+	if not disabled:
+		_refresh_selection()
 
 
 func _package_import_error_text(result: Dictionary) -> String:
@@ -269,6 +345,7 @@ func _find_song_by_id(song_id: String) -> SongData:
 
 
 func _process(_delta: float) -> void:
+	_poll_package_import()
 	if preview_audio.playing and preview_audio.get_playback_position() >= preview_end_seconds:
 		_finish_preview()
 	elif (
@@ -279,12 +356,32 @@ func _process(_delta: float) -> void:
 
 
 func _exit_tree() -> void:
+	if package_import_thread != null:
+		package_import_thread.wait_to_finish()
+		package_import_thread = null
 	_remember_library_state()
 	preview_request_token += 1
 	_stop_preview()
 
 
 func _input(event: InputEvent) -> void:
+	if _is_package_import_active():
+		var requested_back: bool = (
+			event is InputEventJoypadButton
+			and event.pressed
+			and input_manager.controller_event_matches(event, "back")
+		) or (
+			event is InputEventKey
+			and event.pressed
+			and not event.echo
+			and event.keycode == KEY_ESCAPE
+		)
+		if requested_back:
+			preview_status.text = AuroraLocale.text(
+				"ESPERA A QUE TERMINE LA IMPORTACIÓN DEL PAQUETE."
+			)
+			get_viewport().set_input_as_handled()
+		return
 	var focused_control := get_viewport().gui_get_focus_owner()
 	var use_library_shortcuts := _uses_library_shortcuts(focused_control)
 	if focused_control == search_field and event is InputEventKey:
