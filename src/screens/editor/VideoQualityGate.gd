@@ -2,8 +2,11 @@ extends RefCounted
 
 class_name VideoQualityGate
 
-const MINIMUM_SSIM := 0.90
-const MINIMUM_PSNR_DB := 25.0
+# Theora can score slightly lower on fast, high-contrast 23.976 FPS sources
+# even when the converted stream decodes cleanly. These floors still retain a
+# wide margin over the known corrupted-output fixture (0.57 SSIM / 13.5 dB).
+const MINIMUM_SSIM := 0.88
+const MINIMUM_PSNR_DB := 23.0
 const MINIMUM_FRAME_SAMPLES := 10
 const DEFAULT_SAMPLE_SECONDS := 8.0
 

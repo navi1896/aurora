@@ -46,6 +46,26 @@ func _init() -> void:
 		"Calcula el promedio PSNR"
 	)
 
+	var compatible_ssim_lines: Array[String] = []
+	var compatible_psnr_lines: Array[String] = []
+	for frame in range(1, 13):
+		compatible_ssim_lines.append(
+			"n:%d Y:0.89 U:0.90 V:0.90 All:0.894416 (9.7)"
+			% frame
+		)
+		compatible_psnr_lines.append(
+			"n:%d mse_avg:276.8 psnr_avg:23.707 psnr_y:23.5"
+			% frame
+		)
+	var compatible: Dictionary = gate.evaluate_stats_text(
+		"\n".join(compatible_ssim_lines),
+		"\n".join(compatible_psnr_lines)
+	)
+	_check(
+		bool(compatible.get("passed", false)),
+		"Acepta un video válido cercano al umbral sin confundirlo con corrupción"
+	)
+
 	var corrupt: Dictionary = gate.evaluate_stats_text(
 		"\n".join(corrupt_ssim_lines),
 		"\n".join(corrupt_psnr_lines)

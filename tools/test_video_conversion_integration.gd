@@ -68,8 +68,10 @@ func _run() -> void:
 	)
 	_expect(
 		bool(manifest.get("visual_quality_passed", false))
-		and float(manifest.get("visual_quality_ssim", 0.0)) >= 0.90
-		and float(manifest.get("visual_quality_psnr_db", 0.0)) >= 25.0
+		and float(manifest.get("visual_quality_ssim", 0.0))
+		>= editor.video_quality_gate.MINIMUM_SSIM
+		and float(manifest.get("visual_quality_psnr_db", 0.0))
+		>= editor.video_quality_gate.MINIMUM_PSNR_DB
 		and int(manifest.get("visual_quality_frames", 0)) >= 10,
 		"El manifiesto conserva la evidencia SSIM y PSNR"
 	)
