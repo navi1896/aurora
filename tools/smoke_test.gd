@@ -728,7 +728,7 @@ func _run() -> void:
 			"Los archivos multimedia se eligen con el explorador nativo"
 		)
 		_expect(
-			editor.VIDEO_CONVERSION_PROFILE.contains("v4")
+			editor.VIDEO_CONVERSION_PROFILE.contains("v5")
 			and editor._is_untrusted_legacy_video_cache(
 				"user://aurora_editor/media/probe_theora_v3_720p30.ogv"
 			),
@@ -753,6 +753,12 @@ func _run() -> void:
 			"fps=30,scale=w='min(1280,iw)':h=-2:flags=lanczos,format=yuv420p"
 			in conversion_arguments,
 			"La conversión limita el video a 720p y 30 fps para evitar corrupción"
+		)
+		_expect(
+			"ssim" in editor.REQUIRED_FFMPEG_FILTERS
+			and "psnr" in editor.REQUIRED_FFMPEG_FILTERS
+			and editor.video_quality_gate != null,
+			"El editor compara visualmente la conversión antes de publicarla"
 		)
 		_expect(
 			"-speed_level" not in conversion_arguments,

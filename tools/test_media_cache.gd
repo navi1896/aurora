@@ -45,7 +45,7 @@ func _run() -> void:
 		"El selector recupera su función después de cancelar"
 	)
 	_expect(
-		editor.VIDEO_CONVERSION_PROFILE.contains("v4")
+		editor.VIDEO_CONVERSION_PROFILE.contains("v5")
 		and editor._is_untrusted_legacy_video_cache(
 			"user://aurora_editor/media/probe_theora_v3_720p30.ogv"
 		),
@@ -73,13 +73,19 @@ func _run() -> void:
 			output_path,
 			source_path,
 			source_key,
-			"ffmpeg test sha256=probe"
+			"ffmpeg test sha256=probe",
+			{
+				"passed": true,
+				"average_ssim": 0.97,
+				"average_psnr_db": 33.0,
+				"frame_samples": 120,
+			}
 		),
 		"Publica un manifiesto de conversión atómico"
 	)
 	_expect(
 		editor._is_valid_cached_conversion(output_path, source_key),
-		"Reutiliza una conversión cuyo perfil, clave y tamaño coinciden"
+		"Reutiliza solo una conversión con calidad visual aprobada"
 	)
 	output_file = FileAccess.open(output_path, FileAccess.WRITE)
 	output_file.store_buffer(PackedByteArray([10, 20, 30, 40, 50]))

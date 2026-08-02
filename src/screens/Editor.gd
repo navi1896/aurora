@@ -15,13 +15,19 @@ const TAP_BPM_ESTIMATOR_MODEL = preload(
 const CHART_DIFFICULTY_ESTIMATOR_MODEL = preload(
 	"res://src/screens/editor/ChartDifficultyEstimator.gd"
 )
+const WAVEFORM_ENVELOPE_MODEL = preload(
+	"res://src/screens/editor/WaveformEnvelopeModel.gd"
+)
+const VIDEO_QUALITY_GATE_MODEL = preload(
+	"res://src/screens/editor/VideoQualityGate.gd"
+)
 const EDITOR_DIRECTORY := "user://aurora_editor"
 const EDITOR_MEDIA_DIRECTORY := "user://aurora_editor/media"
 const EDITOR_LOG_DIRECTORY := "user://aurora_editor/logs"
 const MEDIA_IMPORT_LOG_PATH := "user://aurora_editor/logs/media_import.log"
 const RECOVERY_PATH := "user://aurora_editor/.recovery/recovery.json"
 const RECOVERY_INTERVAL_SECONDS := 8.0
-const VIDEO_CONVERSION_PROFILE := "theora_v4_720p30_validated"
+const VIDEO_CONVERSION_PROFILE := "theora_v5_720p30_visual_gate"
 const MIN_HOLD_DURATION := 0.18
 const SUPPORTED_KEY_COUNTS: Array[int] = [4, 6, 8]
 const DIRECT_VIDEO_EXTENSIONS: Array[String] = ["ogv"]
@@ -34,10 +40,21 @@ const CONVERTIBLE_VIDEO_EXTENSIONS: Array[String] = [
 	"m4v",
 ]
 const REQUIRED_FFMPEG_ENCODERS: Array[String] = ["libtheora", "libvorbis"]
-const REQUIRED_FFMPEG_FILTERS: Array[String] = ["fps", "scale", "format"]
+const REQUIRED_FFMPEG_FILTERS: Array[String] = [
+	"fps",
+	"scale",
+	"format",
+	"setpts",
+	"split",
+	"ssim",
+	"psnr",
+]
 const REQUIRED_FFMPEG_DEMUXERS: Array[String] = ["mov", "avi", "matroska", "m4v"]
 const REQUIRED_FFMPEG_MUXERS: Array[String] = ["ogg"]
 const MEDIA_CACHE_SAMPLE_BYTES := 64 * 1024
+const WAVEFORM_SAMPLE_RATE := 1000
+const WAVEFORM_BUCKET_COUNT := 8192
+const WAVEFORM_MAX_PCM_BYTES := 64 * 1024 * 1024
 const DIFFICULTY_IDS: Array[String] = ["NORMAL", "DIFICIL", "MAXIMA"]
 const PROPERTIES_EXPANDED_WIDTH := 370.0
 const PROPERTIES_COLLAPSED_WIDTH := 56.0
@@ -66,6 +83,8 @@ var timeline_state
 var timeline_operations
 var tap_bpm_estimator
 var chart_difficulty_estimator
+var waveform_envelope_model: WaveformEnvelopeModel
+var video_quality_gate: VideoQualityGate
 var latest_tap_bpm_estimate: Dictionary = {}
 var latest_chart_difficulty_estimate: Dictionary = {}
 var saved_metadata_signature := ""
@@ -124,6 +143,8 @@ var manual_properties_container: VBoxContainer
 var properties_collapsed := false
 var timeline_snap_option: OptionButton
 var timeline_zoom_label: Label
+var waveform_toggle_button: Button
+var waveform_status_label: Label
 var video_dialog: FileDialog
 var audio_dialog: FileDialog
 var project_dialog: FileDialog
@@ -137,6 +158,9 @@ var video_conversion_progress_path := ""
 var video_conversion_manifest_path := ""
 var video_conversion_legacy_path := ""
 var video_conversion_ffmpeg_path := ""
+var video_quality_ssim_path := ""
+var video_quality_psnr_path := ""
+var video_conversion_quality_result: Dictionary = {}
 var video_conversion_phase := ""
 var video_conversion_expected_seconds := 0.0
 var video_conversion_started_msec := 0
@@ -145,6 +169,15 @@ var video_conversion_job_sequence := 0
 var active_video_conversion_job := 0
 var recording_countdown_active := false
 var recording_countdown_token := 0
+var waveform_process_id := -1
+var waveform_temporary_path := ""
+var waveform_source_path := ""
+var waveform_source_key := ""
+var waveform_job_sequence := 0
+var active_waveform_job := 0
+var waveform_cancel_pending := false
+var waveform_pending_source_path := ""
+var waveform_visible := true
 
 
 func _ready() -> void:
@@ -159,6 +192,8 @@ func _ready() -> void:
 	timeline_operations = TIMELINE_EDIT_OPERATIONS.new()
 	tap_bpm_estimator = TAP_BPM_ESTIMATOR_MODEL.new()
 	chart_difficulty_estimator = CHART_DIFFICULTY_ESTIMATOR_MODEL.new()
+	waveform_envelope_model = WAVEFORM_ENVELOPE_MODEL.new()
+	video_quality_gate = VIDEO_QUALITY_GATE_MODEL.new()
 	_setup_ui()
 	_setup_file_dialogs()
 	_setup_recovery_timer()
@@ -176,6 +211,7 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_poll_video_conversion()
+	_poll_waveform_extraction()
 	if not preview_running:
 		return
 	if audio_player != null and audio_player.stream != null and audio_player.playing:
@@ -516,6 +552,37 @@ func _build_timeline(workspace: VBoxContainer) -> void:
 		"CTRL+C/V/D COPIAR, PEGAR Y DUPLICAR // SUPR BORRAR // CTRL+RUEDA ZOOM"
 	)
 	header.add_child(timeline_title)
+	waveform_toggle_button = _make_tool_button(
+		AuroraLocale.text("FORMA DE ONDA"),
+		112.0
+	)
+	waveform_toggle_button.name = "WaveformToggle"
+	waveform_toggle_button.custom_minimum_size.y = 34.0
+	waveform_toggle_button.toggle_mode = true
+	waveform_toggle_button.set_pressed_no_signal(
+		waveform_visible
+	)
+	waveform_toggle_button.tooltip_text = AuroraLocale.text(
+		"MOSTRAR U OCULTAR LA FORMA DE ONDA"
+	)
+	waveform_toggle_button.toggled.connect(
+		_on_waveform_visibility_toggled
+	)
+	header.add_child(waveform_toggle_button)
+	waveform_status_label = AuroraUi.make_pixel_label(
+		AuroraLocale.text("NO DISPONIBLE"),
+		7,
+		AuroraUi.MUTED
+	)
+	waveform_status_label.name = "WaveformStatus"
+	waveform_status_label.custom_minimum_size.x = 104.0
+	waveform_status_label.horizontal_alignment = (
+		HORIZONTAL_ALIGNMENT_CENTER
+	)
+	waveform_status_label.vertical_alignment = (
+		VERTICAL_ALIGNMENT_CENTER
+	)
+	header.add_child(waveform_status_label)
 	header.add_child(
 		AuroraUi.make_pixel_label(
 			AuroraLocale.text("AJUSTE"),
@@ -559,7 +626,16 @@ func _build_timeline(workspace: VBoxContainer) -> void:
 	timeline.move_selection_requested.connect(_on_timeline_move_requested)
 	timeline.resize_hold_requested.connect(_on_timeline_resize_requested)
 	timeline.zoom_changed.connect(_on_timeline_zoom_changed)
+	timeline.set_waveform_visible(waveform_visible)
 	box.add_child(timeline)
+
+
+func _on_waveform_visibility_toggled(
+	visible: bool
+) -> void:
+	waveform_visible = visible
+	if timeline != null:
+		timeline.set_waveform_visible(visible)
 
 
 func _on_timeline_snap_selected(index: int) -> void:
@@ -1213,6 +1289,7 @@ func _assign_video_stream(
 	preview_placeholder.hide()
 	media_status_label.text = AuroraLocale.text("VIDEO LISTO // AUDIO INTEGRADO")
 	media_status_label.add_theme_color_override("font_color", AuroraUi.TEAL)
+	_request_waveform_for_current_media()
 	call_deferred("_refresh_media_duration")
 	if was_converted:
 		_set_status(
@@ -1268,6 +1345,7 @@ func _start_video_conversion(source_path: String) -> void:
 		_set_status(AuroraLocale.text("NO SE PUDO PREPARAR LA CARPETA DE MEDIOS"), true)
 		return
 
+	_cancel_waveform_extraction(true)
 	var source_hash := _media_source_cache_key(source_path)
 	if source_hash.is_empty():
 		_set_status(AuroraLocale.text("NO SE PUDO LEER EL VIDEO SELECCIONADO"), true)
@@ -1307,6 +1385,18 @@ func _start_video_conversion(source_path: String) -> void:
 		safe_name,
 		VIDEO_CONVERSION_PROFILE,
 	]
+	video_quality_ssim_path = "%s/%s_%s_%s.quality-ssim.log" % [
+		EDITOR_MEDIA_DIRECTORY,
+		source_hash,
+		safe_name,
+		VIDEO_CONVERSION_PROFILE,
+	]
+	video_quality_psnr_path = "%s/%s_%s_%s.quality-psnr.log" % [
+		EDITOR_MEDIA_DIRECTORY,
+		source_hash,
+		safe_name,
+		VIDEO_CONVERSION_PROFILE,
+	]
 	video_conversion_legacy_path = "%s/%s_%s.ogv" % [
 		EDITOR_MEDIA_DIRECTORY,
 		source_hash,
@@ -1317,6 +1407,7 @@ func _start_video_conversion(source_path: String) -> void:
 		DirAccess.remove_absolute(temporary_absolute)
 	if FileAccess.file_exists(video_conversion_progress_path):
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(video_conversion_progress_path))
+	_remove_video_quality_artifacts()
 	var source_absolute := ProjectSettings.globalize_path(source_path)
 	video_conversion_expected_seconds = _probe_media_duration(ffmpeg_path, source_absolute)
 	video_conversion_ffmpeg_path = ffmpeg_path
@@ -1409,7 +1500,10 @@ func _find_ffmpeg_executable() -> String:
 		ProjectSettings.globalize_path("res://tools/ffmpeg/bin/ffmpeg.exe"),
 		ProjectSettings.globalize_path("res://tools/ffmpeg/ffmpeg.exe"),
 		local_app_data.path_join(
-			"AuroraDevTools/ffmpeg-minimal-build/package/bin/ffmpeg.exe"
+			"AuroraDevTools/btbn-ffmpeg-n8.1-win64-lgpl-20260729/package/bin/ffmpeg.exe"
+		),
+		local_app_data.path_join(
+			"AuroraDevTools/btbn-ffmpeg-n8.1-win64-lgpl-audit-20260729-01/package/bin/ffmpeg.exe"
 		),
 		local_app_data.path_join("Microsoft/WinGet/Links/ffmpeg.exe"),
 	]
@@ -1428,6 +1522,81 @@ func _find_ffmpeg_executable() -> String:
 	return ""
 
 
+func _find_waveform_ffmpeg_executable() -> String:
+	var primary_candidate := _find_ffmpeg_executable()
+	if (
+		not primary_candidate.is_empty()
+		and _ffmpeg_has_waveform_capabilities(
+			primary_candidate
+		)
+	):
+		return primary_candidate
+	var local_app_data := OS.get_environment(
+		"LOCALAPPDATA"
+	)
+	var executable_directory := (
+		OS.get_executable_path().get_base_dir()
+	)
+	var candidates: Array[String] = [
+		executable_directory.path_join(
+			"tools/ffmpeg/bin/ffmpeg.exe"
+		),
+		executable_directory.path_join(
+			"tools/ffmpeg/ffmpeg.exe"
+		),
+		ProjectSettings.globalize_path(
+			"res://tools/ffmpeg/bin/ffmpeg.exe"
+		),
+		ProjectSettings.globalize_path(
+			"res://tools/ffmpeg/ffmpeg.exe"
+		),
+		local_app_data.path_join(
+			"AuroraDevTools/btbn-ffmpeg-n8.1-win64-lgpl-20260729/package/bin/ffmpeg.exe"
+		),
+		local_app_data.path_join(
+			"AuroraDevTools/btbn-ffmpeg-n8.1-win64-lgpl-audit-20260729-01/package/bin/ffmpeg.exe"
+		),
+		local_app_data.path_join(
+			"Microsoft/WinGet/Links/ffmpeg.exe"
+		),
+	]
+	for candidate in candidates:
+		if (
+			candidate == primary_candidate
+			or candidate.is_empty()
+			or not FileAccess.file_exists(candidate)
+		):
+			continue
+		if (
+			_ffmpeg_has_required_capabilities(candidate)
+			and _ffmpeg_has_waveform_capabilities(
+				candidate
+			)
+		):
+			return candidate
+	var winget_ffmpeg := _find_winget_ffmpeg(
+		local_app_data
+	)
+	if (
+		not winget_ffmpeg.is_empty()
+		and winget_ffmpeg != primary_candidate
+		and _ffmpeg_has_required_capabilities(
+			winget_ffmpeg
+		)
+		and _ffmpeg_has_waveform_capabilities(
+			winget_ffmpeg
+		)
+	):
+		return winget_ffmpeg
+	if (
+		primary_candidate != "ffmpeg"
+		and _ffmpeg_has_required_capabilities("ffmpeg")
+		and _ffmpeg_has_waveform_capabilities("ffmpeg")
+	):
+		return "ffmpeg"
+	return ""
+
+
 func _ffmpeg_has_required_capabilities(executable_path: String) -> bool:
 	var encoders := _read_ffmpeg_capability_list(executable_path, "-encoders")
 	var filters := _read_ffmpeg_capability_list(executable_path, "-filters")
@@ -1440,6 +1609,31 @@ func _ffmpeg_has_required_capabilities(executable_path: String) -> bool:
 		and _ffmpeg_listing_has_all(filters, REQUIRED_FFMPEG_FILTERS)
 		and _ffmpeg_listing_has_all(demuxers, REQUIRED_FFMPEG_DEMUXERS)
 		and _ffmpeg_listing_has_all(muxers, REQUIRED_FFMPEG_MUXERS)
+	)
+
+
+func _ffmpeg_has_waveform_capabilities(
+	executable_path: String
+) -> bool:
+	var encoders := _read_ffmpeg_capability_list(
+		executable_path,
+		"-encoders"
+	)
+	var muxers := _read_ffmpeg_capability_list(
+		executable_path,
+		"-muxers"
+	)
+	return (
+		not encoders.is_empty()
+		and not muxers.is_empty()
+		and _ffmpeg_listing_has_name(
+			encoders,
+			"pcm_f32le"
+		)
+		and _ffmpeg_listing_has_name(
+			muxers,
+			"f32le"
+		)
 	)
 
 
@@ -1534,28 +1728,110 @@ func _poll_video_conversion() -> void:
 		var tick := elapsed_seconds % 4
 		if tick != video_conversion_status_tick:
 			video_conversion_status_tick = tick
-			if video_conversion_phase == "validating":
-				media_status_label.text = AuroraLocale.text("VALIDANDO VIDEO")
-			else:
-				var progress := _read_video_conversion_progress()
-				if progress >= 0:
-					media_status_label.text = AuroraLocale.text("CONVIRTIENDO VIDEO %d%%") % progress
-				else:
-					var dots := ".".repeat(tick)
-					media_status_label.text = AuroraLocale.text("CONVIRTIENDO VIDEO%s") % dots
+			match video_conversion_phase:
+				"validating":
+					media_status_label.text = AuroraLocale.text("VALIDANDO VIDEO")
+				"quality":
+					media_status_label.text = AuroraLocale.text(
+						"VALIDANDO CALIDAD VISUAL"
+					)
+				_:
+					var progress := _read_video_conversion_progress()
+					if progress >= 0:
+						media_status_label.text = (
+							AuroraLocale.text("CONVIRTIENDO VIDEO %d%%")
+							% progress
+						)
+					else:
+						var dots := ".".repeat(tick)
+						media_status_label.text = (
+							AuroraLocale.text("CONVIRTIENDO VIDEO%s")
+							% dots
+						)
 		return
 
 	var exit_code := OS.get_process_exit_code(video_conversion_pid)
-	if video_conversion_phase == "encoding":
-		if exit_code != 0 or not FileAccess.file_exists(video_conversion_temporary_path):
-			_fail_video_conversion(
-				AuroraLocale.text(
-					"NO SE PUDO CONVERTIR EL VIDEO. REVISA QUE EL ARCHIVO NO ESTÉ DAÑADO."
+	match video_conversion_phase:
+		"encoding":
+			if (
+				exit_code != 0
+				or not FileAccess.file_exists(
+					video_conversion_temporary_path
+				)
+			):
+				_fail_video_conversion(
+					AuroraLocale.text(
+						"NO SE PUDO CONVERTIR EL VIDEO. REVISA QUE EL ARCHIVO NO ESTÉ DAÑADO."
+					)
+				)
+				return
+			_start_video_validation()
+			return
+		"validating":
+			if (
+				exit_code != 0
+				or not FileAccess.file_exists(
+					video_conversion_temporary_path
+				)
+			):
+				_fail_video_conversion(
+					AuroraLocale.text(
+						"LA COPIA CONVERTIDA NO SUPERÓ LA VALIDACIÓN."
+					)
+				)
+				return
+			_start_video_quality_validation()
+			return
+		"quality":
+			if exit_code != 0:
+				_fail_video_conversion(
+					AuroraLocale.text(
+						"NO SE PUDO COMPROBAR LA CALIDAD VISUAL DEL VIDEO."
+					)
+				)
+				return
+			var quality_result: Dictionary = (
+				video_quality_gate.evaluate_stats_files(
+					video_quality_ssim_path,
+					video_quality_psnr_path
 				)
 			)
+			_remove_video_quality_artifacts()
+			if (
+				not bool(quality_result.get("valid", false))
+				or not bool(quality_result.get("passed", false))
+			):
+				_append_media_import_log(
+					"job=%d rejected phase=quality code=%s ssim=%.6f psnr=%.3f frames=%d"
+					% [
+						active_video_conversion_job,
+						str(quality_result.get("error_code", "invalid_stats")),
+						float(quality_result.get("average_ssim", 0.0)),
+						float(quality_result.get("average_psnr_db", 0.0)),
+						int(quality_result.get("frame_samples", 0)),
+					]
+				)
+				_fail_video_conversion(
+					AuroraLocale.text(
+						"EL VIDEO CONVERTIDO PRESENTA ARTEFACTOS VISUALES Y FUE RECHAZADO."
+					)
+				)
+				return
+			video_conversion_quality_result = quality_result.duplicate(true)
+			_append_media_import_log(
+				"job=%d quality_pass ssim=%.6f psnr=%.3f frames=%d"
+				% [
+					active_video_conversion_job,
+					float(quality_result.get("average_ssim", 0.0)),
+					float(quality_result.get("average_psnr_db", 0.0)),
+					int(quality_result.get("frame_samples", 0)),
+				]
+			)
+		_:
+			_fail_video_conversion(
+				AuroraLocale.text("ESTADO DE CONVERSIÓN DE VIDEO INVÁLIDO.")
+			)
 			return
-		_start_video_validation()
-		return
 
 	var completed_output_path := video_conversion_output_path
 	var completed_temporary_path := video_conversion_temporary_path
@@ -1564,6 +1840,7 @@ func _poll_video_conversion() -> void:
 	var completed_progress_path := video_conversion_progress_path
 	var completed_job := active_video_conversion_job
 	var completed_encoder_identity := _ffmpeg_identity(video_conversion_ffmpeg_path)
+	var completed_quality_result := video_conversion_quality_result.duplicate(true)
 	_reset_video_conversion_state()
 	_set_video_conversion_controls_disabled(false)
 	if exit_code != 0 or not FileAccess.file_exists(completed_temporary_path):
@@ -1592,7 +1869,8 @@ func _poll_video_conversion() -> void:
 		completed_output_path,
 		completed_source_path,
 		source_key,
-		completed_encoder_identity
+		completed_encoder_identity,
+		completed_quality_result
 	)
 	_append_media_import_log(
 		"job=%d complete source=%s output=%s"
@@ -1622,6 +1900,36 @@ func _start_video_validation() -> void:
 		_fail_video_conversion(AuroraLocale.text("NO SE PUDO VALIDAR EL VIDEO CONVERTIDO."))
 
 
+func _start_video_quality_validation() -> void:
+	video_conversion_phase = "quality"
+	media_status_label.text = AuroraLocale.text("VALIDANDO CALIDAD VISUAL")
+	_remove_video_quality_artifacts()
+	if video_quality_gate == null:
+		video_quality_gate = VIDEO_QUALITY_GATE_MODEL.new()
+	var sample_seconds := minf(
+		VIDEO_QUALITY_GATE_MODEL.DEFAULT_SAMPLE_SECONDS,
+		maxf(video_conversion_expected_seconds, 1.0)
+	)
+	var arguments := video_quality_gate.build_ffmpeg_arguments(
+		ProjectSettings.globalize_path(video_conversion_source_path),
+		ProjectSettings.globalize_path(video_conversion_temporary_path),
+		ProjectSettings.globalize_path(video_quality_ssim_path),
+		ProjectSettings.globalize_path(video_quality_psnr_path),
+		sample_seconds
+	)
+	video_conversion_pid = OS.create_process(
+		video_conversion_ffmpeg_path,
+		arguments,
+		false
+	)
+	if video_conversion_pid <= 0:
+		_fail_video_conversion(
+			AuroraLocale.text(
+				"NO SE PUDO INICIAR LA COMPROBACIÓN DE CALIDAD VISUAL."
+			)
+		)
+
+
 func _read_video_conversion_progress() -> int:
 	if video_conversion_expected_seconds <= 0.0:
 		return -1
@@ -1644,17 +1952,24 @@ func _fail_video_conversion(message: String) -> void:
 	)
 	_remove_generated_file(video_conversion_temporary_path)
 	_remove_generated_file(video_conversion_progress_path)
+	_remove_video_quality_artifacts()
 	_reset_video_conversion_state()
 	_set_video_conversion_controls_disabled(false)
 	media_status_label.text = AuroraLocale.text("ERROR DE CONVERSIÓN")
 	media_status_label.add_theme_color_override("font_color", AuroraUi.CORAL)
 	_set_status(message, true)
+	_request_waveform_for_current_media()
 
 
 func _remove_generated_file(path: String) -> void:
 	if path.is_empty() or not FileAccess.file_exists(path):
 		return
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+
+
+func _remove_video_quality_artifacts() -> void:
+	_remove_generated_file(video_quality_ssim_path)
+	_remove_generated_file(video_quality_psnr_path)
 
 
 func _cancel_video_conversion(update_ui: bool = true) -> void:
@@ -1665,6 +1980,7 @@ func _cancel_video_conversion(update_ui: bool = true) -> void:
 		OS.kill(video_conversion_pid)
 	_remove_generated_file(video_conversion_temporary_path)
 	_remove_generated_file(video_conversion_progress_path)
+	_remove_video_quality_artifacts()
 	_append_media_import_log(
 		"job=%d canceled phase=%s" % [canceled_job, video_conversion_phase]
 	)
@@ -1674,6 +1990,7 @@ func _cancel_video_conversion(update_ui: bool = true) -> void:
 		media_status_label.text = AuroraLocale.text("CONVERSIÓN CANCELADA")
 		media_status_label.add_theme_color_override("font_color", AuroraUi.MUTED)
 		_set_status(AuroraLocale.text("CONVERSIÓN CANCELADA // EL ORIGINAL SIGUE INTACTO"))
+		_request_waveform_for_current_media()
 
 
 func _set_video_conversion_controls_disabled(disabled: bool) -> void:
@@ -1701,6 +2018,9 @@ func _reset_video_conversion_state() -> void:
 	video_conversion_manifest_path = ""
 	video_conversion_legacy_path = ""
 	video_conversion_ffmpeg_path = ""
+	video_quality_ssim_path = ""
+	video_quality_psnr_path = ""
+	video_conversion_quality_result.clear()
 	video_conversion_phase = ""
 	video_conversion_expected_seconds = 0.0
 	video_conversion_started_msec = 0
@@ -1730,6 +2050,7 @@ func _load_audio(path: String) -> void:
 		preview_placeholder.text = AuroraLocale.text("NIVEL SOLO AUDIO")
 		preview_placeholder.show()
 	media_status_label.add_theme_color_override("font_color", AuroraUi.GOLD)
+	_request_waveform_for_current_media()
 	_refresh_media_duration()
 	_set_status(AuroraLocale.text("AUDIO CARGADO Y LISTO PARA CREAR EL CHART."))
 	_refresh_dirty_state()
@@ -1799,6 +2120,365 @@ func _media_source_cache_key(source_path: String) -> String:
 	return hash_context.finish().hex_encode().substr(0, 16)
 
 
+func _request_waveform_for_current_media() -> void:
+	var source_path := _get_waveform_source_path()
+	if source_path.is_empty():
+		_cancel_waveform_extraction(true)
+		return
+	_start_waveform_extraction(source_path)
+
+
+func _get_waveform_source_path() -> String:
+	for candidate in [
+		audio_path,
+		video_source_path,
+		video_path,
+	]:
+		var path := str(candidate).strip_edges()
+		if (
+			not path.is_empty()
+			and FileAccess.file_exists(path)
+		):
+			return path
+	return ""
+
+
+func _start_waveform_extraction(source_path: String) -> void:
+	if not _cancel_waveform_extraction(false):
+		waveform_pending_source_path = source_path
+		if timeline != null:
+			timeline.clear_waveform()
+		_set_waveform_status("unavailable")
+		return
+	waveform_pending_source_path = ""
+	if timeline != null:
+		timeline.clear_waveform()
+	if (
+		source_path.strip_edges().is_empty()
+		or not FileAccess.file_exists(source_path)
+	):
+		_set_waveform_status("unavailable")
+		return
+	var source_key := _media_source_cache_key(source_path)
+	if source_key.is_empty():
+		_set_waveform_status("unavailable")
+		return
+
+	waveform_source_path = source_path
+	waveform_source_key = source_key
+	var cached_envelope := _load_cached_waveform_envelope(
+		source_key
+	)
+	if (
+		not cached_envelope.is_empty()
+		and timeline != null
+		and timeline.set_waveform(cached_envelope)
+	):
+		_set_waveform_status("ready")
+		return
+
+	var ffmpeg_path := (
+		_find_waveform_ffmpeg_executable()
+	)
+	if ffmpeg_path.is_empty():
+		waveform_source_path = ""
+		waveform_source_key = ""
+		_set_waveform_status("unavailable")
+		return
+	var cache_directory := str(
+		waveform_envelope_model.cache_directory
+	)
+	var directory_error := DirAccess.make_dir_recursive_absolute(
+		ProjectSettings.globalize_path(cache_directory)
+	)
+	if (
+		directory_error != OK
+		and directory_error != ERR_ALREADY_EXISTS
+	):
+		waveform_source_path = ""
+		waveform_source_key = ""
+		_set_waveform_status("unavailable")
+		return
+
+	waveform_job_sequence += 1
+	active_waveform_job = waveform_job_sequence
+	waveform_temporary_path = (
+		"%s/.%s.%d.waveform.f32.tmp"
+		% [
+			cache_directory,
+			source_key,
+			active_waveform_job,
+		]
+	)
+	_remove_generated_file(waveform_temporary_path)
+	var arguments := _build_waveform_ffmpeg_arguments(
+		ProjectSettings.globalize_path(source_path),
+		ProjectSettings.globalize_path(
+			waveform_temporary_path
+		)
+	)
+	waveform_process_id = OS.create_process(
+		ffmpeg_path,
+		arguments,
+		false
+	)
+	if waveform_process_id <= 0:
+		_remove_generated_file(waveform_temporary_path)
+		_reset_waveform_process_state()
+		waveform_source_path = ""
+		waveform_source_key = ""
+		_set_waveform_status("unavailable")
+		return
+	_set_waveform_status("preparing")
+
+
+func _build_waveform_ffmpeg_arguments(
+	source_absolute: String,
+	destination_absolute: String
+) -> PackedStringArray:
+	return PackedStringArray([
+		"-hide_banner",
+		"-loglevel",
+		"error",
+		"-nostdin",
+		"-y",
+		"-i",
+		source_absolute,
+		"-map",
+		"0:a:0",
+		"-vn",
+		"-ac",
+		"1",
+		"-ar",
+		str(WAVEFORM_SAMPLE_RATE),
+		"-f",
+		"f32le",
+		"-acodec",
+		"pcm_f32le",
+		"-fs",
+		str(WAVEFORM_MAX_PCM_BYTES),
+		destination_absolute,
+	])
+
+
+func _poll_waveform_extraction() -> void:
+	if waveform_process_id <= 0:
+		return
+	if OS.is_process_running(waveform_process_id):
+		return
+	var completed_job := active_waveform_job
+	var completed_source_path := waveform_source_path
+	var completed_source_key := waveform_source_key
+	var completed_temporary_path := waveform_temporary_path
+	var was_cancel_pending := waveform_cancel_pending
+	var pending_source_path := waveform_pending_source_path
+	var exit_code := OS.get_process_exit_code(
+		waveform_process_id
+	)
+	_reset_waveform_process_state()
+	if was_cancel_pending:
+		_remove_generated_file(completed_temporary_path)
+		if (
+			not pending_source_path.is_empty()
+			and FileAccess.file_exists(pending_source_path)
+		):
+			call_deferred(
+				"_start_waveform_extraction",
+				pending_source_path
+			)
+		return
+	if (
+		exit_code != 0
+		or not FileAccess.file_exists(
+			completed_temporary_path
+		)
+	):
+		_remove_generated_file(completed_temporary_path)
+		_fail_waveform_extraction(completed_job)
+		return
+	var pcm_samples := _read_waveform_pcm(
+		completed_temporary_path
+	)
+	_remove_generated_file(completed_temporary_path)
+	if pcm_samples.is_empty():
+		_fail_waveform_extraction(completed_job)
+		return
+	if (
+		completed_source_path
+		!= _get_waveform_source_path()
+	):
+		_fail_waveform_extraction(completed_job)
+		return
+	var envelope: Dictionary = (
+		waveform_envelope_model.get_or_build(
+			completed_source_key,
+			pcm_samples,
+			1,
+			WAVEFORM_BUCKET_COUNT,
+			WAVEFORM_SAMPLE_RATE
+		)
+	)
+	if (
+		not bool(envelope.get("valid", false))
+		or timeline == null
+		or not timeline.set_waveform(envelope)
+	):
+		_fail_waveform_extraction(completed_job)
+		return
+	waveform_source_path = completed_source_path
+	waveform_source_key = completed_source_key
+	_set_waveform_status("ready")
+
+
+func _read_waveform_pcm(
+	path: String
+) -> PackedFloat32Array:
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null:
+		return PackedFloat32Array()
+	var byte_count := file.get_length()
+	if (
+		byte_count <= 0
+		or byte_count % 4 != 0
+		or byte_count >= WAVEFORM_MAX_PCM_BYTES
+	):
+		return PackedFloat32Array()
+	return file.get_buffer(byte_count).to_float32_array()
+
+
+func _load_cached_waveform_envelope(
+	source_key: String
+) -> Dictionary:
+	var cache_path: String = (
+		waveform_envelope_model
+		.get_cache_path_for_source(source_key)
+	)
+	var file := FileAccess.open(
+		cache_path,
+		FileAccess.READ
+	)
+	if file == null:
+		return {}
+	var parsed = JSON.parse_string(file.get_as_text())
+	if not (parsed is Dictionary):
+		return {}
+	var document: Dictionary = parsed
+	if (
+		int(document.get("version", 0))
+		!= WAVEFORM_ENVELOPE_MODEL.CACHE_VERSION
+		or str(document.get("source_key", ""))
+		!= source_key
+		or int(
+			document.get(
+				"requested_bucket_count",
+				0
+			)
+		) != WAVEFORM_BUCKET_COUNT
+		or int(document.get("sample_rate", 0))
+		!= WAVEFORM_SAMPLE_RATE
+		or not (
+			document.get("envelope", null)
+			is Dictionary
+		)
+	):
+		return {}
+	var envelope: Dictionary = document["envelope"]
+	if (
+		timeline == null
+		or not timeline.set_waveform(envelope)
+	):
+		if timeline != null:
+			timeline.clear_waveform()
+		return {}
+	return envelope.duplicate(true)
+
+
+func _fail_waveform_extraction(job: int) -> void:
+	if (
+		active_waveform_job > 0
+		and job != active_waveform_job
+	):
+		return
+	waveform_source_path = ""
+	waveform_source_key = ""
+	if timeline != null:
+		timeline.clear_waveform()
+	_set_waveform_status("unavailable")
+
+
+func _cancel_waveform_extraction(
+	clear_display: bool = true
+) -> bool:
+	waveform_pending_source_path = ""
+	if waveform_process_id > 0:
+		if OS.is_process_running(waveform_process_id):
+			OS.kill(waveform_process_id)
+			var deadline := Time.get_ticks_msec() + 1000
+			while (
+				OS.is_process_running(
+					waveform_process_id
+				)
+				and Time.get_ticks_msec() < deadline
+			):
+				OS.delay_msec(5)
+			if OS.is_process_running(waveform_process_id):
+				waveform_cancel_pending = true
+				waveform_source_path = ""
+				waveform_source_key = ""
+				if clear_display:
+					if timeline != null:
+						timeline.clear_waveform()
+					_set_waveform_status("unavailable")
+				return false
+		_remove_generated_file(waveform_temporary_path)
+	_reset_waveform_process_state()
+	waveform_source_path = ""
+	waveform_source_key = ""
+	if clear_display:
+		if timeline != null:
+			timeline.clear_waveform()
+		_set_waveform_status("unavailable")
+	return true
+
+
+func _reset_waveform_process_state() -> void:
+	waveform_process_id = -1
+	waveform_temporary_path = ""
+	active_waveform_job = 0
+	waveform_cancel_pending = false
+	waveform_pending_source_path = ""
+
+
+func _set_waveform_status(state: String) -> void:
+	if waveform_status_label == null:
+		return
+	match state:
+		"preparing":
+			waveform_status_label.text = (
+				AuroraLocale.text("PREPARANDO")
+			)
+			waveform_status_label.add_theme_color_override(
+				"font_color",
+				AuroraUi.GOLD
+			)
+		"ready":
+			waveform_status_label.text = (
+				AuroraLocale.text("LISTA")
+			)
+			waveform_status_label.add_theme_color_override(
+				"font_color",
+				AuroraUi.TEAL
+			)
+		_:
+			waveform_status_label.text = (
+				AuroraLocale.text("NO DISPONIBLE")
+			)
+			waveform_status_label.add_theme_color_override(
+				"font_color",
+				AuroraUi.MUTED
+			)
+
+
 func _remember_media_directory(setting_key: String, selected_path: String) -> void:
 	if selected_path.is_empty():
 		return
@@ -1831,6 +2511,7 @@ func _is_valid_cached_conversion(output_path: String, source_key: String) -> boo
 		and str(manifest.get("profile", "")) == VIDEO_CONVERSION_PROFILE
 		and str(manifest.get("source_key", "")) == source_key
 		and int(manifest.get("output_size", -1)) == actual_output_size
+		and bool(manifest.get("visual_quality_passed", false))
 		and actual_output_size > 0
 	)
 
@@ -1839,7 +2520,8 @@ func _write_conversion_manifest(
 	output_path: String,
 	source_path: String,
 	source_key: String,
-	encoder_identity: String
+	encoder_identity: String,
+	quality_result: Dictionary = {}
 ) -> bool:
 	if source_key.is_empty() or not FileAccess.file_exists(output_path):
 		return false
@@ -1859,6 +2541,18 @@ func _write_conversion_manifest(
 				"output_size": _file_size(output_path),
 				"created_unix": int(Time.get_unix_time_from_system()),
 				"encoder": encoder_identity,
+				"visual_quality_passed": bool(
+					quality_result.get("passed", false)
+				),
+				"visual_quality_ssim": float(
+					quality_result.get("average_ssim", 0.0)
+				),
+				"visual_quality_psnr_db": float(
+					quality_result.get("average_psnr_db", 0.0)
+				),
+				"visual_quality_frames": int(
+					quality_result.get("frame_samples", 0)
+				),
 			},
 			"\t"
 		)
@@ -2853,6 +3547,7 @@ func _apply_project_snapshot(
 	recovered: bool
 ) -> bool:
 	_stop_preview()
+	_cancel_waveform_extraction(true)
 	_reset_tap_bpm_assistant()
 	suppress_dirty_tracking = true
 	current_project_path = effective_project_path.simplify_path()
@@ -2923,6 +3618,7 @@ func _restore_recovery_if_available() -> bool:
 func _new_project() -> void:
 	_discard_recovery_snapshot()
 	_stop_preview()
+	_cancel_waveform_extraction(true)
 	_reset_tap_bpm_assistant()
 	suppress_dirty_tracking = true
 	notes.clear()
@@ -3164,6 +3860,7 @@ func _exit_tree() -> void:
 		_autosave_recovery_if_needed()
 	if video_conversion_pid > 0:
 		_cancel_video_conversion(false)
+	_cancel_waveform_extraction(false)
 	if video_player != null:
 		video_player.stop()
 	if audio_player != null:

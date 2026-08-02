@@ -18,6 +18,7 @@ const HEADER_HEIGHT := 28.0
 const MIN_HOLD_DURATION := 0.18
 const NOTE_HANDLE_WIDTH := 9.0
 const DRAG_THRESHOLD := 5.0
+const MAX_WAVEFORM_BUCKETS := 8192
 const LANE_COLORS: Array[Color] = [
 	Color(0.08, 0.86, 1.0),
 	Color(0.42, 0.24, 1.0),
@@ -38,6 +39,10 @@ var key_count := 4
 var snap_steps_per_beat := 4
 var viewport_model = VIEWPORT_MODEL.new()
 var maximum_hold_duration := 0.0
+var waveform_envelope: Dictionary = {}
+var waveform_visible := true
+var waveform_segment_cache: Array[Dictionary] = []
+var waveform_segment_cache_valid := false
 
 var drag_mode := ""
 var drag_start_position := Vector2.ZERO
@@ -93,12 +98,42 @@ func set_chart(
 	viewport_model.set_duration(duration_seconds)
 	viewport_model.set_key_count(key_count)
 	_update_viewport_geometry()
+	_invalidate_waveform_segment_cache()
 	queue_redraw()
 
 
 func set_playhead(seconds: float) -> void:
 	current_time = clampf(seconds, 0.0, duration_seconds)
 	queue_redraw()
+
+
+func set_waveform(envelope: Dictionary) -> bool:
+	if not _is_valid_waveform(envelope):
+		clear_waveform()
+		return false
+	waveform_envelope = envelope.duplicate(true)
+	_invalidate_waveform_segment_cache()
+	queue_redraw()
+	return true
+
+
+func clear_waveform() -> void:
+	waveform_envelope.clear()
+	_invalidate_waveform_segment_cache()
+	queue_redraw()
+
+
+func set_waveform_visible(visible: bool) -> void:
+	waveform_visible = visible
+	queue_redraw()
+
+
+func is_waveform_available() -> bool:
+	return _is_valid_waveform(waveform_envelope)
+
+
+func get_waveform_bucket_count() -> int:
+	return int(waveform_envelope.get("bucket_count", 0))
 
 
 func set_snap_steps(steps_per_beat: int) -> void:
@@ -112,6 +147,7 @@ func get_snap_seconds() -> float:
 
 func set_zoom(pixels_per_second: float, anchor_x: float = -1.0) -> void:
 	viewport_model.set_zoom(pixels_per_second, anchor_x)
+	_invalidate_waveform_segment_cache()
 	zoom_changed.emit(viewport_model.pixels_per_second)
 	scroll_changed.emit(viewport_model.scroll_time)
 	queue_redraw()
@@ -123,6 +159,7 @@ func zoom_by(factor: float, anchor_x: float = -1.0) -> void:
 
 func set_scroll_time(seconds: float) -> void:
 	viewport_model.set_scroll_time(seconds)
+	_invalidate_waveform_segment_cache()
 	scroll_changed.emit(viewport_model.scroll_time)
 	queue_redraw()
 
@@ -264,6 +301,7 @@ func _handle_mouse_motion(event: InputEventMouseMotion) -> void:
 				- (event.position.x - drag_start_position.x)
 				/ viewport_model.pixels_per_second
 			)
+			_invalidate_waveform_segment_cache()
 			scroll_changed.emit(viewport_model.scroll_time)
 		"move":
 			var target_time := viewport_model.snap_time(
@@ -339,6 +377,12 @@ func _get_marquee_rect() -> Rect2:
 func _update_viewport_geometry() -> void:
 	viewport_model.set_viewport_size(size)
 	viewport_model.set_header_height(HEADER_HEIGHT)
+	_invalidate_waveform_segment_cache()
+
+
+func _invalidate_waveform_segment_cache() -> void:
+	waveform_segment_cache.clear()
+	waveform_segment_cache_valid = false
 
 
 func _draw() -> void:
@@ -347,6 +391,7 @@ func _draw() -> void:
 	if size.x <= 1.0 or size.y <= 1.0:
 		return
 	_draw_lanes()
+	_draw_waveform()
 	_draw_grid()
 	_draw_notes()
 	_draw_playhead()
@@ -356,6 +401,160 @@ func _draw() -> void:
 		draw_rect(marquee, Color(0.08, 0.86, 1.0, 0.12), true)
 		draw_rect(marquee, Color(0.08, 0.86, 1.0, 0.92), false, 2.0)
 	draw_rect(bounds, Color(0.18, 0.82, 0.82, 0.42), false, 2.0)
+
+
+func _draw_waveform() -> void:
+	if not waveform_visible or not is_waveform_available():
+		return
+	var lane_area_height := maxf(size.y - HEADER_HEIGHT, 1.0)
+	var center_y := HEADER_HEIGHT + lane_area_height * 0.5
+	var amplitude_scale := lane_area_height * 0.38
+	for segment in _get_visible_waveform_segments():
+		var minimum := clampf(
+			float(segment.get("minimum", 0.0)),
+			-1.0,
+			1.0
+		)
+		var maximum := clampf(
+			float(segment.get("maximum", 0.0)),
+			-1.0,
+			1.0
+		)
+		var rms := clampf(
+			float(segment.get("rms", 0.0)),
+			0.0,
+			1.0
+		)
+		var x := float(segment.get("x", 0.0))
+		var line_width := clampf(
+			float(segment.get("pixel_width", 1.0)),
+			1.0,
+			3.0
+		)
+		draw_line(
+			Vector2(x, center_y - maximum * amplitude_scale),
+			Vector2(x, center_y - minimum * amplitude_scale),
+			Color(0.08, 0.86, 1.0, 0.10 + rms * 0.13),
+			line_width
+		)
+
+
+func _get_visible_waveform_segments(
+	maximum_segments: int = -1
+) -> Array[Dictionary]:
+	if maximum_segments < 0 and waveform_segment_cache_valid:
+		return waveform_segment_cache
+	var result: Array[Dictionary] = []
+	if not is_waveform_available():
+		return result
+	var bucket_count := get_waveform_bucket_count()
+	var envelope_duration := float(
+		waveform_envelope.get("duration_seconds", 0.0)
+	)
+	var minimums: Array = waveform_envelope["minimums"]
+	var maximums: Array = waveform_envelope["maximums"]
+	var rms_values: Array = waveform_envelope["rms"]
+	var visible_start := clampf(
+		viewport_model.get_visible_start(),
+		0.0,
+		envelope_duration
+	)
+	var visible_end := clampf(
+		viewport_model.get_visible_end(),
+		0.0,
+		envelope_duration
+	)
+	if visible_end <= visible_start:
+		return result
+	var first_bucket := clampi(
+		floori(
+			visible_start / envelope_duration
+			* float(bucket_count)
+		) - 1,
+		0,
+		bucket_count - 1
+	)
+	var last_bucket := clampi(
+		ceili(
+			visible_end / envelope_duration
+			* float(bucket_count)
+		) + 1,
+		first_bucket + 1,
+		bucket_count
+	)
+	var segment_limit := (
+		maximum_segments
+		if maximum_segments > 0
+		else maxi(1, mini(2048, ceili(size.x)))
+	)
+	var stride := maxi(
+		1,
+		ceili(
+			float(last_bucket - first_bucket)
+			/ float(segment_limit)
+		)
+	)
+	var bucket_duration := (
+		envelope_duration / float(bucket_count)
+	)
+	var bucket_index := first_bucket
+	while bucket_index < last_bucket:
+		var group_end := mini(
+			bucket_index + stride,
+			last_bucket
+		)
+		var minimum := 0.0
+		var maximum := 0.0
+		var rms := 0.0
+		for index in range(bucket_index, group_end):
+			minimum = minf(minimum, float(minimums[index]))
+			maximum = maxf(maximum, float(maximums[index]))
+			rms = maxf(rms, float(rms_values[index]))
+		var midpoint_bucket := (
+			float(bucket_index + group_end) * 0.5
+		)
+		var midpoint_time := (
+			midpoint_bucket * bucket_duration
+		)
+		result.append({
+			"x": viewport_model.time_to_x(
+				midpoint_time
+			),
+			"time": midpoint_time,
+			"minimum": minimum,
+			"maximum": maximum,
+			"rms": rms,
+			"pixel_width": maxf(
+				float(group_end - bucket_index)
+				* bucket_duration
+				* viewport_model.pixels_per_second,
+				1.0
+			),
+		})
+		bucket_index = group_end
+	if maximum_segments < 0:
+		waveform_segment_cache = result
+		waveform_segment_cache_valid = true
+	return result
+
+
+func _is_valid_waveform(envelope: Dictionary) -> bool:
+	var bucket_count := int(envelope.get("bucket_count", 0))
+	var minimums: Variant = envelope.get("minimums", null)
+	var maximums: Variant = envelope.get("maximums", null)
+	var rms_values: Variant = envelope.get("rms", null)
+	return (
+		bool(envelope.get("valid", false))
+		and bucket_count > 0
+		and bucket_count <= MAX_WAVEFORM_BUCKETS
+		and float(envelope.get("duration_seconds", 0.0)) > 0.0
+		and minimums is Array
+		and maximums is Array
+		and rms_values is Array
+		and (minimums as Array).size() == bucket_count
+		and (maximums as Array).size() == bucket_count
+		and (rms_values as Array).size() == bucket_count
+	)
 
 
 func _draw_lanes() -> void:
