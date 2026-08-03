@@ -389,8 +389,21 @@ func _run() -> void:
 			gameplay._apply_visual_settings()
 		_expect(gameplay.get_node_or_null("PlayfieldFrame") != null, "Gameplay crea el playfield central")
 		_expect(
-			not gameplay.start_gate_active and not gameplay.start_gate_panel.visible,
-			"Una partida normal comienza sin pedir Espacio ni A/Cross"
+			gameplay.start_gate_active
+			and gameplay.start_countdown_active
+			and gameplay.start_gate_panel.visible,
+			"Una partida normal prepara cinco segundos sin pedir confirmación"
+		)
+		_expect(
+			gameplay.START_COUNTDOWN_SECONDS == 5
+			and gameplay.preparation_blackout != null
+			and gameplay.preparation_blackout.visible,
+			"La preparación conserva el playfield sobre un fondo negro"
+		)
+		_expect(
+			is_equal_approx(gameplay.level_end_time, demo_song.duration_seconds)
+			and gameplay.level_end_time > gameplay.chart_end_time,
+			"El nivel termina según la duración del medio y no la última nota"
 		)
 		var enter_event := InputEventKey.new()
 		enter_event.keycode = KEY_ENTER

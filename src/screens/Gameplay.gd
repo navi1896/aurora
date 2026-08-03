@@ -15,6 +15,7 @@ const HOLD_NOTE_MIN_DURATION := 0.18
 const HIT_ZONE_HEIGHT := 40.0
 const HIT_LINE_GAP := NOTE_HALF_HEIGHT * 3.0
 const HIT_LINE_BOTTOM_OFFSET := CONTROL_DECK_HEIGHT + RECEPTOR_TOP_OFFSET + HIT_LINE_GAP
+const START_COUNTDOWN_SECONDS := 5
 const LANE_COLORS: Array[Color] = [
 	Color(0.08, 0.86, 1.0),
 	Color(0.42, 0.24, 1.0),
@@ -56,13 +57,14 @@ var on_time_hit_count := 0
 var ambient_time := 0.0
 var gameplay_time := 0.0
 var chart_end_time := 0.0
+var level_end_time := 0.0
 var next_note_index := 0
 var next_beat_time := 0.0
 var gameplay_finished := false
 var start_gate_active := true
 var start_countdown_active := false
 var start_countdown_token := 0
-var start_countdown_step_seconds := 0.75
+var start_countdown_step_seconds := 1.0
 
 var chart_notes: Array[Dictionary] = []
 var active_notes: Array[Dictionary] = []
@@ -84,6 +86,7 @@ var frame_panel: PanelContainer
 var hit_line: ColorRect
 var control_deck: PanelContainer
 var dim_overlay: ColorRect
+var preparation_blackout: ColorRect
 var start_gate_panel: PanelContainer
 var start_prompt_label: Label
 var combo_feedback_tween: Tween
@@ -98,13 +101,13 @@ func _ready() -> void:
 	game_manager = managers.get_node("GameManager") as GameManager
 	settings_manager = managers.get_node("SettingsManager") as SettingsManager
 	input_manager = managers.get_node("InputManager") as InputManager
-	start_gate_active = game_manager.editor_test_active
+	start_gate_active = true
 	lane_mode = _get_lane_mode()
 	setup_ui()
 	_setup_pause_menu()
 	_initialize_gameplay()
-	if not start_gate_active:
-		_start_gameplay_media()
+	if not game_manager.editor_test_active:
+		call_deferred("_begin_start_countdown")
 	settings_manager.setting_changed.connect(_on_setting_changed)
 	input_manager.input_device_changed.connect(_on_input_device_changed)
 
@@ -121,6 +124,7 @@ func setup_ui() -> void:
 
 	AuroraUi.add_background(self)
 	_add_stage_background()
+	_build_preparation_blackout()
 	_build_compact_playfield()
 	_build_floating_screen_hud()
 	_apply_visual_settings()
@@ -164,6 +168,16 @@ func _add_stage_background() -> void:
 	bottom_shade.color = Color(0.0, 0.005, 0.025, 0.58)
 	bottom_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(bottom_shade)
+
+
+func _build_preparation_blackout() -> void:
+	preparation_blackout = ColorRect.new()
+	preparation_blackout.name = "PreparationBlackout"
+	AuroraUi.fill(preparation_blackout)
+	preparation_blackout.color = Color.BLACK
+	preparation_blackout.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	preparation_blackout.visible = start_gate_active
+	add_child(preparation_blackout)
 
 
 func _build_compact_playfield() -> void:
@@ -602,7 +616,7 @@ func _process(delta: float) -> void:
 		_spawn_upcoming_notes()
 		_update_active_notes()
 		_update_practice_beat()
-		_check_chart_finished()
+		_check_level_finished()
 
 	for lane_index in range(lane_mode):
 		var action := input_manager.get_lane_action(lane_mode, lane_index)
@@ -761,6 +775,10 @@ func _initialize_gameplay() -> void:
 			chart_end_time,
 			float(note_data.get("time", 0.0)) + float(note_data.get("duration", 0.0))
 		)
+	# The editor stores the detected media duration in SongData. It is the
+	# authoritative level boundary, so an intentional outro without notes plays
+	# completely. Chart time is only a fallback for legacy data without duration.
+	level_end_time = duration if duration > 0.0 else chart_end_time + 0.65
 
 	next_note_index = 0
 	gameplay_time = 0.0
@@ -815,9 +833,14 @@ func _build_start_gate() -> void:
 	)
 	add_child(start_gate_panel)
 
+	var initial_prompt := AuroraLocale.text("PREPÁRATE")
+	if game_manager.editor_test_active:
+		initial_prompt = (
+			AuroraLocale.text("ESPACIO O %s\nPARA INICIAR")
+			% input_manager.get_controller_action_label("confirm")
+		)
 	start_prompt_label = AuroraUi.make_pixel_label(
-		AuroraLocale.text("ESPACIO O %s\nPARA INICIAR")
-		% input_manager.get_controller_action_label("confirm"),
+		initial_prompt,
 		15,
 		AuroraUi.TEXT
 	)
@@ -840,22 +863,20 @@ func _begin_start_countdown() -> void:
 	start_countdown_active = true
 	start_countdown_token += 1
 	var countdown_token := start_countdown_token
-	for value in [2, 1]:
+	for value in range(START_COUNTDOWN_SECONDS, 0, -1):
 		if countdown_token != start_countdown_token or not is_inside_tree():
 			return
 		start_prompt_label.text = str(value)
 		start_prompt_label.add_theme_color_override("font_color", AuroraUi.GOLD)
-		await get_tree().create_timer(start_countdown_step_seconds).timeout
-	if countdown_token != start_countdown_token or not is_inside_tree():
-		return
-	start_prompt_label.text = AuroraLocale.text("¡YA!")
-	start_prompt_label.add_theme_color_override("font_color", AuroraUi.TEAL)
-	await get_tree().create_timer(0.22).timeout
+		await get_tree().create_timer(start_countdown_step_seconds, false).timeout
 	if countdown_token != start_countdown_token or not is_inside_tree():
 		return
 	start_countdown_active = false
 	start_gate_active = false
 	start_gate_panel.hide()
+	if preparation_blackout != null:
+		preparation_blackout.hide()
+	_apply_visual_settings()
 	_start_gameplay_media()
 
 
@@ -1231,11 +1252,13 @@ func _update_practice_beat() -> void:
 		next_beat_time += beat_seconds
 
 
-func _check_chart_finished() -> void:
-	if chart_notes.is_empty():
-		return
-	if next_note_index >= chart_notes.size() and active_notes.is_empty() and gameplay_time >= chart_end_time + 0.65:
+func _check_level_finished() -> void:
+	if _has_reached_level_end():
 		_finish_gameplay()
+
+
+func _has_reached_level_end() -> bool:
+	return level_end_time > 0.0 and gameplay_time >= level_end_time
 
 
 func _finish_gameplay() -> void:
@@ -1296,7 +1319,7 @@ func _apply_visual_settings() -> void:
 		var background_enabled := bool(settings_manager.get_setting("background_animation_enabled", true))
 		var intensity := float(settings_manager.get_setting("background_animation_intensity", 3))
 		var brightness := 0.72 + intensity * 0.055
-		background_video_player.visible = background_enabled
+		background_video_player.visible = background_enabled and not start_gate_active
 		background_video_player.modulate = Color(brightness, brightness, brightness, 1.0)
 	for lane_index in range(lane_panels.size()):
 		_set_lane_pressed(lane_index, lane_pressed[lane_index])
@@ -1367,10 +1390,7 @@ func _return_to_main_menu() -> void:
 func _open_pause_menu() -> void:
 	if pause_menu == null:
 		return
-	var total_seconds := chart_end_time
-	if game_manager.current_song != null:
-		total_seconds = maxf(total_seconds, game_manager.current_song.duration_seconds)
-	pause_menu.set_playback_progress(gameplay_time, total_seconds)
+	pause_menu.set_playback_progress(gameplay_time, level_end_time)
 	pause_menu.open_menu()
 
 
