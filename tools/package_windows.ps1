@@ -166,7 +166,7 @@ $buildParent = [System.IO.Path]::GetFullPath(
     (Join-Path $projectRoot "build")
 ).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
 if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
-    $BuildDirectory = Join-Path $buildParent "Aurora-v1.0.0-Windows"
+    $BuildDirectory = Join-Path $buildParent "Aurora-v1.0.2-Windows"
 }
 if (-not (Test-Path -LiteralPath $BuildDirectory -PathType Container)) {
     throw "No existe la carpeta de exportación: $BuildDirectory"
@@ -175,15 +175,16 @@ if (-not (Test-Path -LiteralPath $BuildDirectory -PathType Container)) {
 $buildRoot = [System.IO.Path]::GetFullPath($BuildDirectory).TrimEnd(
     [System.IO.Path]::DirectorySeparatorChar
 )
-$buildPrefix = $buildParent + [System.IO.Path]::DirectorySeparatorChar
+$buildLeaf = [System.IO.Path]::GetFileName($buildRoot)
+$buildContainer = [System.IO.Path]::GetDirectoryName($buildRoot)
 if (
-    -not $buildRoot.StartsWith(
-        $buildPrefix,
-        [System.StringComparison]::OrdinalIgnoreCase
-    ) -or
-    [System.IO.Path]::GetFileName($buildRoot) -ne "Aurora-v1.0.0-Windows"
+    [string]::IsNullOrWhiteSpace($buildContainer) -or
+    $buildLeaf -notmatch '^Aurora-v\d+\.\d+\.\d+-Windows$'
 ) {
-    throw "El paquete oficial debe permanecer en '$buildParent\Aurora-v1.0.0-Windows'."
+    throw (
+        "La carpeta de exportación debe llamarse " +
+        "'Aurora-vX.Y.Z-Windows': $buildRoot"
+    )
 }
 
 $auroraExecutable = Join-Path $buildRoot "Aurora.exe"
@@ -245,13 +246,13 @@ $ffprobeSourceExe = Join-Path $ffmpegBuildRoot "package\bin\ffprobe.exe"
 $ffmpegLicense = Join-Path $ffmpegBuildRoot "package\LICENSE.txt"
 $ffmpegArchive = Join-Path (
     $ffmpegBuildRoot
-) "download\ffmpeg-n8.1-latest-win64-lgpl-8.1.zip"
+) "download\ffmpeg-n8.1.2-31-g8c9502e9b0-win64-lgpl-8.1.zip"
 $godotCopyright = Join-Path $projectRoot "legal\GODOT_COPYRIGHT.txt"
 
 $verifiedFiles = @(
     @{
         Path = $ffmpegArchive
-        Sha256 = "fce9c9c569425ec509bc90b361119ece81ee11fb7b557552c52187b497dba982"
+        Sha256 = "dc1caf47ae4fbbf33dcd39d30e7c7af2c63d417e872f0e948b5d68ae5a106794"
     },
     @{
         Path = $ffmpegSourceExe
@@ -478,8 +479,8 @@ Set-Content -LiteralPath (
     Join-Path $ffmpegLicenseTarget "UPSTREAM_HASHES-SHA256.txt"
 ) -Encoding UTF8 -Value @(
     (
-        "fce9c9c569425ec509bc90b361119ece81ee11fb7b557552c52187b497dba982" +
-        "  ffmpeg-n8.1-latest-win64-lgpl-8.1.zip"
+        "dc1caf47ae4fbbf33dcd39d30e7c7af2c63d417e872f0e948b5d68ae5a106794" +
+        "  ffmpeg-n8.1.2-31-g8c9502e9b0-win64-lgpl-8.1.zip"
     ),
     (
         "3f6613d4f28335e76b7c2bd6c27d2c28656e32c551f7236ff484ac7cf2ebd1c0" +
@@ -574,8 +575,8 @@ if ($CreateZip) {
     $zipPath = "$buildRoot.zip"
     $zipFull = [System.IO.Path]::GetFullPath($zipPath)
     if (
-        [System.IO.Path]::GetDirectoryName($zipFull) -ne $buildParent -or
-        [System.IO.Path]::GetFileName($zipFull) -ne "Aurora-v1.0.0-Windows.zip"
+        [System.IO.Path]::GetDirectoryName($zipFull) -ne $buildContainer -or
+        [System.IO.Path]::GetFileName($zipFull) -ne "$buildLeaf.zip"
     ) {
         throw "La ruta del ZIP final no es la esperada: $zipFull"
     }

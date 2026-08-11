@@ -4,8 +4,11 @@ class_name SongPackageService
 
 const PACKAGE_TYPE := "aurora_song_package"
 const FORMAT_VERSION := 1
+const DEFAULT_PACKAGE_VERSION := "1.0.0"
 const MANIFEST_PATH := "manifest.json"
 const IMPORT_TEMP_SUFFIX := ".aurora-importing"
+const UPDATE_TEMP_SUFFIX := ".aurora-updating"
+const UPDATE_BACKUP_SUFFIX := ".aurora-backup"
 const ZIP_LOCAL_FILE_SIGNATURE := 0x04034b50
 const ZIP_CENTRAL_FILE_SIGNATURE := 0x02014b50
 const ZIP_END_SIGNATURE := 0x06054b50
@@ -32,6 +35,46 @@ func _init(custom_limits: Dictionary = {}) -> void:
 	for key in custom_limits:
 		if _limits.has(key):
 			_limits[key] = maxi(int(custom_limits[key]), 1)
+
+
+static func is_valid_package_version(value: String) -> bool:
+	var parts := value.strip_edges().split(".", false)
+	if parts.size() != 3:
+		return false
+	for part in parts:
+		if part.is_empty() or not part.is_valid_int() or int(part) < 0:
+			return false
+	return true
+
+
+static func normalize_package_version(value: String) -> String:
+	var normalized := value.strip_edges()
+	if not is_valid_package_version(normalized):
+		return DEFAULT_PACKAGE_VERSION
+	var parts := normalized.split(".", false)
+	return "%d.%d.%d" % [int(parts[0]), int(parts[1]), int(parts[2])]
+
+
+static func compare_package_versions(left: String, right: String) -> int:
+	var left_parts := normalize_package_version(left).split(".", false)
+	var right_parts := normalize_package_version(right).split(".", false)
+	for index in range(3):
+		var left_value := int(left_parts[index])
+		var right_value := int(right_parts[index])
+		if left_value < right_value:
+			return -1
+		if left_value > right_value:
+			return 1
+	return 0
+
+
+static func increment_patch_version(value: String) -> String:
+	var parts := normalize_package_version(value).split(".", false)
+	return "%d.%d.%d" % [
+		int(parts[0]),
+		int(parts[1]),
+		int(parts[2]) + 1,
+	]
 
 
 func export_package(
@@ -63,6 +106,9 @@ func export_package(
 	var manifest: Dictionary = manifest_draft.duplicate(true)
 	manifest["type"] = PACKAGE_TYPE
 	manifest["format_version"] = FORMAT_VERSION
+	manifest["package_version"] = normalize_package_version(
+		str(manifest.get("package_version", DEFAULT_PACKAGE_VERSION))
+	)
 	var structure_check := validate_manifest(manifest, false)
 	if not bool(structure_check.get("ok", false)):
 		return structure_check
@@ -358,13 +404,38 @@ func import_package(
 		return inspection
 
 	var destination_absolute := _absolute_path(destination_staging_path)
-	if _path_exists(destination_staging_path):
-		return _failure(
-			"destination_exists",
-			ERR_ALREADY_EXISTS,
-			"El destino ya existe y no será sobrescrito."
+	var incoming_manifest: Dictionary = inspection.get("manifest", {})
+	var incoming_version := normalize_package_version(
+		str(incoming_manifest.get("package_version", DEFAULT_PACKAGE_VERSION))
+	)
+	var installed_version := ""
+	var is_update := _path_exists(destination_staging_path)
+	if is_update:
+		var installed_check := validate_staging(destination_staging_path, true)
+		if not bool(installed_check.get("ok", false)):
+			return _failure(
+				"installed_package_invalid",
+				ERR_INVALID_DATA,
+				"La copia instalada está dañada; no se reemplazará automáticamente.",
+				{"cause": installed_check}
+			)
+		var installed_manifest: Dictionary = installed_check.get("manifest", {})
+		installed_version = normalize_package_version(
+			str(installed_manifest.get("package_version", DEFAULT_PACKAGE_VERSION))
 		)
-	var temporary_path := destination_staging_path + IMPORT_TEMP_SUFFIX
+		if compare_package_versions(incoming_version, installed_version) <= 0:
+			return _failure(
+				"destination_exists",
+				ERR_ALREADY_EXISTS,
+				"La misma versión o una más reciente ya está instalada.",
+				{
+					"incoming_version": incoming_version,
+					"installed_version": installed_version,
+				}
+			)
+	var temporary_path := destination_staging_path + (
+		UPDATE_TEMP_SUFFIX if is_update else IMPORT_TEMP_SUFFIX
+	)
 	var temporary_absolute := _absolute_path(temporary_path)
 	if (
 		DirAccess.dir_exists_absolute(temporary_absolute)
@@ -415,33 +486,88 @@ func import_package(
 			write_error,
 			"No se pudo escribir el staging importado."
 		)
+	var staged_validation := validate_staging(temporary_path, true)
+	if not bool(staged_validation.get("ok", false)):
+		_remove_tree_created_by_service(temporary_absolute)
+		return _failure(
+			"staging_validation_failed",
+			ERR_INVALID_DATA,
+			"La copia preparada no superó la validación final.",
+			{"cause": staged_validation}
+		)
 
-	if _path_exists(destination_staging_path):
+	if not is_update and _path_exists(destination_staging_path):
 		_remove_tree_created_by_service(temporary_absolute)
 		return _failure(
 			"destination_exists",
 			ERR_ALREADY_EXISTS,
 			"El destino apareció durante la importación."
 		)
-	var rename_error := DirAccess.rename_absolute(
-		temporary_absolute,
-		destination_absolute
-	)
-	if rename_error != OK:
-		_remove_tree_created_by_service(temporary_absolute)
-		return _failure(
-			"staging_install_failed",
-			rename_error,
-			"No se pudo instalar el staging importado."
+	if is_update:
+		var backup_path := destination_staging_path + UPDATE_BACKUP_SUFFIX
+		var backup_absolute := _absolute_path(backup_path)
+		if _path_exists(backup_path):
+			_remove_tree_created_by_service(temporary_absolute)
+			return _failure(
+				"update_backup_exists",
+				ERR_ALREADY_EXISTS,
+				"Existe un respaldo de actualización pendiente; no se modificó la instalación."
+			)
+		var backup_error := DirAccess.rename_absolute(
+			destination_absolute,
+			backup_absolute
 		)
+		if backup_error != OK:
+			_remove_tree_created_by_service(temporary_absolute)
+			return _failure(
+				"update_backup_failed",
+				backup_error,
+				"No se pudo proteger la versión instalada antes de actualizar."
+			)
+		var update_error := DirAccess.rename_absolute(
+			temporary_absolute,
+			destination_absolute
+		)
+		if update_error != OK:
+			var restore_error := DirAccess.rename_absolute(
+				backup_absolute,
+				destination_absolute
+			)
+			_remove_tree_created_by_service(temporary_absolute)
+			return _failure(
+				"staging_update_failed",
+				update_error,
+				(
+					"No se pudo actualizar; se restauró la versión anterior."
+					if restore_error == OK
+					else "No se pudo actualizar ni restaurar automáticamente el respaldo."
+				),
+				{"restore_error": restore_error}
+			)
+		_remove_tree_created_by_service(backup_absolute)
+	else:
+		var rename_error := DirAccess.rename_absolute(
+			temporary_absolute,
+			destination_absolute
+		)
+		if rename_error != OK:
+			_remove_tree_created_by_service(temporary_absolute)
+			return _failure(
+				"staging_install_failed",
+				rename_error,
+				"No se pudo instalar el staging importado."
+			)
 
 	return _success({
 		"destination_path": destination_staging_path,
 		"manifest_path": destination_staging_path.path_join(
 			MANIFEST_PATH
 		),
-		"manifest": inspection.get("manifest", {}),
+		"manifest": incoming_manifest,
 		"file_count": payloads.size() + 1,
+		"updated": is_update,
+		"package_version": incoming_version,
+		"previous_package_version": installed_version,
 	})
 
 
@@ -482,6 +608,16 @@ func validate_manifest(
 			"unsupported_version",
 			ERR_UNAVAILABLE,
 			"La versión del paquete no es compatible."
+		)
+
+	var package_version_value := str(
+		document.get("package_version", DEFAULT_PACKAGE_VERSION)
+	).strip_edges()
+	if not is_valid_package_version(package_version_value):
+		return _failure(
+			"invalid_package_version",
+			ERR_INVALID_DATA,
+			"La versión de contenido debe usar MAYOR.MENOR.PARCHE."
 		)
 
 	var package_id := str(document.get("package_id", "")).strip_edges()
@@ -869,6 +1005,9 @@ func migrate_editor_v3_to_manifest(
 	var manifest := {
 		"type": PACKAGE_TYPE,
 		"format_version": FORMAT_VERSION,
+		"package_version": normalize_package_version(
+			str(project.get("package_version", DEFAULT_PACKAGE_VERSION))
+		),
 		"package_id": package_id,
 		"song": {
 			"song_id": str(

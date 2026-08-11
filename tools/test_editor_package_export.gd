@@ -69,8 +69,9 @@ func _test_portable_single_chart_export() -> void:
 	_expect(
 		bool(validation.get("ok", false))
 		and str(manifest.get("package_id", "")) == PACKAGE_ID
+		and str(manifest.get("package_version", "")) == "2.3.4"
 		and charts.size() == 1,
-		"El paquete final supera validación completa y conserva su ID"
+		"El paquete final supera validación completa y conserva ID y versión"
 	)
 	_expect(
 		str((charts[0] as Dictionary).get("path", ""))
@@ -256,6 +257,7 @@ func _create_project_fixture(
 		"version": PROJECT_STORE.PROJECT_VERSION,
 		"type": PROJECT_STORE.PROJECT_TYPE,
 		"package_id": "editor-%s" % name,
+		"package_version": "2.3.4",
 		"metadata": {
 			"title": title,
 			"artist": "Aurora Tests",

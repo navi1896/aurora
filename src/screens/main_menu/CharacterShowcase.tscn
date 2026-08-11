@@ -1,6 +1,6 @@
 [gd_scene load_steps=3 format=3]
 
-[ext_resource type="Texture2D" path="res://assets/menu/character/menu_character.png" id="1_character"]
+[ext_resource type="Texture2D" path="res://assets/menu/character/menu_character_female.png" id="1_character"]
 [ext_resource type="Script" path="res://src/screens/main_menu/CharacterIdleRig.gd" id="2_idle"]
 
 [node name="CharacterShowcase" type="CenterContainer"]
@@ -31,9 +31,10 @@ stretch_mode = 5
 
 [node name="HeadphonePulse" type="Line2D" parent="IdleRig/MenuCharacter"]
 visible = false
-z_index = 1
-points = PackedVector2Array(158, 119, 179, 125, 194, 143, 200, 161, 194, 180, 179, 197, 158, 203, 136, 197, 122, 180, 117, 161, 122, 143, 136, 125)
-width = 4.0
+show_behind_parent = true
+z_index = -1
+points = PackedVector2Array(146, 119, 170, 119, 170, 123, 182, 123, 182, 127, 190, 127, 190, 135, 194, 135, 194, 143, 198, 143, 198, 151, 202, 151, 202, 171, 198, 171, 198, 183, 194, 183, 194, 191, 190, 191, 190, 195, 182, 195, 182, 199, 170, 199, 170, 203, 146, 203, 146, 199, 134, 199, 134, 195, 126, 195, 126, 191, 122, 191, 122, 183, 118, 183, 118, 171, 114, 171, 114, 151, 118, 151, 118, 143, 122, 143, 122, 135, 126, 135, 126, 127, 134, 127, 134, 123, 146, 123)
+width = 3.0
 default_color = Color(0.15, 0.93, 1, 0.9)
 closed = true
 antialiased = false

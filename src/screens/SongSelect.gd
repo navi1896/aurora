@@ -3,11 +3,20 @@ extends Control
 class_name SongSelect
 
 const SONG_LIST_ITEM_SCENE := preload("res://src/screens/song_select/SongListItem.tscn")
+const LOCAL_PACKAGE_SHARE_PANEL := preload(
+	"res://src/screens/song_select/LocalPackageSharePanel.gd"
+)
+const LOCAL_PACKAGE_INSTALL_PANEL := preload(
+	"res://src/screens/song_select/LocalPackageInstallPanel.gd"
+)
+const PREVIEW_FADE_SECONDS := 0.5
+const PREVIEW_SILENT_DB := -48.0
 
 @onready var back_button: Button = $LibraryMargins/PageLayout/Header/BackButton
 @onready var title_label: Label = $LibraryMargins/PageLayout/Header/HeaderCopy/TitleLabel
 @onready var subtitle_label: Label = $LibraryMargins/PageLayout/Header/HeaderCopy/SubtitleLabel
-@onready var import_package_button: Button = $LibraryMargins/PageLayout/Header/HeaderActions/ImportPackageButton
+@onready var import_package_button: Button = $LibraryMargins/PageLayout/Header/HeaderActions/ActionButtons/ImportPackageButton
+@onready var share_package_button: Button = $LibraryMargins/PageLayout/Header/HeaderActions/ActionButtons/SharePackageButton
 @onready var song_count_label: Label = $LibraryMargins/PageLayout/Header/HeaderActions/SongCountLabel
 @onready var song_list_header: Label = $LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/SongListHeader
 @onready var search_field: LineEdit = $LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/FilterRow/SearchField
@@ -26,6 +35,7 @@ const SONG_LIST_ITEM_SCENE := preload("res://src/screens/song_select/SongListIte
 @onready var mode_buttons_container: HFlowContainer = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/ModeButtons
 @onready var mode_caption: Label = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/ModeCaption
 @onready var difficulty_label: Label = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/DifficultyLabel
+@onready var personal_best_label: Label = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PersonalBestLabel
 @onready var preview_status: Label = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewStatus
 @onready var preview_button: Button = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions/PreviewButton
 @onready var favorite_button: Button = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions/FavoriteButton
@@ -55,6 +65,10 @@ var selected_song_index := 0
 var selected_chart_index := 0
 var preview_end_seconds := 0.0
 var preview_video_end_seconds := 0.0
+var preview_loop_song: SongData
+var preview_fade_tween: Tween
+var preview_fade_timer: Timer
+var preview_finish_timer: Timer
 var delete_modal: Control
 var delete_dialog_message: Label
 var delete_confirm_button: Button
@@ -66,6 +80,9 @@ var package_import_thread: Thread
 var package_import_path := ""
 var package_import_selected_song_id := ""
 var package_import_chart_signature := ""
+var preserve_remembered_selection_on_exit := false
+var share_panel: Control
+var package_install_panel: Control
 
 
 func _ready() -> void:
@@ -86,10 +103,12 @@ func _ready() -> void:
 	preview_video.loop = false
 	preview_video.autoplay = false
 	preview_video.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_setup_preview_loop_timers()
 	_apply_localized_texts()
 	_setup_package_dialog()
 	back_button.pressed.connect(_return_to_menu)
 	import_package_button.pressed.connect(_open_package_dialog)
+	share_package_button.pressed.connect(_open_local_package_share)
 	play_button.pressed.connect(_start_selected_song)
 	preview_button.pressed.connect(_toggle_preview)
 	favorite_button.pressed.connect(_toggle_selected_favorite)
@@ -116,7 +135,14 @@ func _ready() -> void:
 
 func _apply_localized_texts() -> void:
 	back_button.text = AuroraLocale.text("VOLVER")
-	import_package_button.text = AuroraLocale.text("IMPORTAR .AURORA")
+	import_package_button.text = AuroraLocale.text("INSTALAR NIVEL")
+	import_package_button.tooltip_text = AuroraLocale.text(
+		"AÑADE A TU BIBLIOTECA UN ARCHIVO .AURORA RECIBIDO POR CORREO, CHAT, USB O NUBE"
+	)
+	share_package_button.text = AuroraLocale.text("COMPARTIR NIVEL")
+	share_package_button.tooltip_text = AuroraLocale.text(
+		"CREA UN ARCHIVO .AURORA PORTÁTIL PARA ENVIAR A OTRA PERSONA"
+	)
 	title_label.text = AuroraLocale.text("BIBLIOTECA DE CANCIONES")
 	subtitle_label.text = AuroraLocale.text("ELIGE UNA PISTA Y UN MODO DE TECLAS")
 	song_list_header.text = AuroraLocale.text("LISTA DE PISTAS")
@@ -125,7 +151,7 @@ func _apply_localized_texts() -> void:
 	play_button.text = AuroraLocale.text("JUGAR")
 	preview_button.text = AuroraLocale.text("▶ VISTA PREVIA")
 	favorite_button.text = AuroraLocale.text("☆ FAVORITA")
-	edit_button.text = AuroraLocale.text("EDITAR")
+	edit_button.text = AuroraLocale.text("EDITAR CANCION")
 	delete_button.text = AuroraLocale.text("BORRAR CANCION")
 	_refresh_controls_hint()
 
@@ -159,9 +185,7 @@ func _refresh_controls_hint() -> void:
 func _setup_package_dialog() -> void:
 	package_dialog = FileDialog.new()
 	package_dialog.name = "ImportPackageDialog"
-	package_dialog.title = AuroraLocale.text(
-		"IMPORTAR PAQUETE .AURORA"
-	)
+	package_dialog.title = AuroraLocale.text("INSTALAR NIVEL .AURORA")
 	package_dialog.access = FileDialog.ACCESS_FILESYSTEM
 	package_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	package_dialog.use_native_dialog = true
@@ -202,6 +226,43 @@ func _on_package_file_selected(package_path: String) -> void:
 		package_path.get_base_dir(),
 		false
 	)
+	var inspection := song_manager.inspect_song_package(package_path)
+	if not bool(inspection.get("ok", false)):
+		preview_status.text = _package_import_error_text(inspection)
+		return
+	_open_package_install_confirmation(
+		package_path,
+		inspection.get("manifest", {})
+	)
+
+
+func _open_package_install_confirmation(
+	package_path: String,
+	manifest: Dictionary
+) -> void:
+	_close_package_install_confirmation()
+	var package_id := str(manifest.get("package_id", ""))
+	var installed_version := song_manager.get_installed_package_version(package_id)
+	package_install_panel = LOCAL_PACKAGE_INSTALL_PANEL.new()
+	package_install_panel.name = "LocalPackageInstallPanel"
+	package_install_panel.install_confirmed.connect(_confirm_package_install)
+	package_install_panel.close_requested.connect(
+		_close_package_install_confirmation
+	)
+	add_child(package_install_panel)
+	package_install_panel.setup(package_path, manifest, installed_version)
+
+
+func _close_package_install_confirmation() -> void:
+	if package_install_panel == null:
+		return
+	package_install_panel.queue_free()
+	package_install_panel = null
+	import_package_button.grab_focus()
+
+
+func _confirm_package_install(package_path: String) -> void:
+	_close_package_install_confirmation()
 	var selected_before := _get_selected_song()
 	package_import_selected_song_id = (
 		str(selected_before.song_id)
@@ -209,6 +270,9 @@ func _on_package_file_selected(package_path: String) -> void:
 		else ""
 	)
 	package_import_chart_signature = remembered_chart_signature
+	preview_request_token += 1
+	_stop_preview()
+	song_manager.release_unselected_package_media(null)
 	if (
 		selected_before != null
 		and not selected_before.charts.is_empty()
@@ -282,9 +346,12 @@ func _poll_package_import() -> void:
 		if imported_song != null
 		else completed_path.get_file().get_basename()
 	)
+	var imported_version := str(result.get("package_version", "1.0.0"))
 	preview_status.text = AuroraLocale.text(
-		"PAQUETE IMPORTADO: %s"
-	) % imported_title
+		"PAQUETE ACTUALIZADO: %s // v%s"
+		if bool(result.get("updated", false))
+		else "PAQUETE IMPORTADO: %s // v%s"
+	) % [imported_title, imported_version]
 
 
 func _is_package_import_active() -> bool:
@@ -295,6 +362,7 @@ func _set_package_import_controls_disabled(disabled: bool) -> void:
 	for button in [
 		back_button,
 		import_package_button,
+		share_package_button,
 		play_button,
 		preview_button,
 		favorite_button,
@@ -315,8 +383,10 @@ func _set_package_import_controls_disabled(disabled: bool) -> void:
 		filter_option.disabled = disabled
 	if import_package_button != null:
 		import_package_button.text = AuroraLocale.text(
-			"IMPORTANDO..." if disabled else "IMPORTAR .AURORA"
+			"INSTALANDO..." if disabled else "INSTALAR NIVEL"
 		)
+	if share_package_button != null:
+		share_package_button.text = AuroraLocale.text("COMPARTIR NIVEL")
 	if not disabled:
 		_refresh_selection()
 
@@ -346,20 +416,14 @@ func _find_song_by_id(song_id: String) -> SongData:
 
 func _process(_delta: float) -> void:
 	_poll_package_import()
-	if preview_audio.playing and preview_audio.get_playback_position() >= preview_end_seconds:
-		_finish_preview()
-	elif (
-		preview_video.is_playing()
-		and preview_video.stream_position >= preview_video_end_seconds
-	):
-		_finish_preview()
 
 
 func _exit_tree() -> void:
 	if package_import_thread != null:
 		package_import_thread.wait_to_finish()
 		package_import_thread = null
-	_remember_library_state()
+	if not preserve_remembered_selection_on_exit:
+		_remember_library_state()
 	preview_request_token += 1
 	_stop_preview()
 
@@ -380,6 +444,36 @@ func _input(event: InputEvent) -> void:
 			preview_status.text = AuroraLocale.text(
 				"ESPERA A QUE TERMINE LA IMPORTACIÓN DEL PAQUETE."
 			)
+			get_viewport().set_input_as_handled()
+		return
+	if package_install_panel != null:
+		var close_install: bool = (
+			event is InputEventJoypadButton
+			and event.pressed
+			and input_manager.controller_event_matches(event, "back")
+		) or (
+			event is InputEventKey
+			and event.pressed
+			and not event.echo
+			and event.keycode == KEY_ESCAPE
+		)
+		if close_install:
+			package_install_panel.request_close()
+			get_viewport().set_input_as_handled()
+		return
+	if share_panel != null:
+		var close_share: bool = (
+			event is InputEventJoypadButton
+			and event.pressed
+			and input_manager.controller_event_matches(event, "back")
+		) or (
+			event is InputEventKey
+			and event.pressed
+			and not event.echo
+			and event.keycode == KEY_ESCAPE
+		)
+		if close_share:
+			share_panel.request_close()
 			get_viewport().set_input_as_handled()
 		return
 	var focused_control := get_viewport().gui_get_focus_owner()
@@ -562,8 +656,6 @@ func _refresh_selection() -> void:
 	delete_button.disabled = not song_manager.is_removable_local_song(
 		song
 	)
-	edit_button.text = AuroraLocale.text("EDITAR")
-	edit_button.disabled = not song_manager.is_editor_song(song)
 	favorite_button.disabled = false
 	delete_button.tooltip_text = (
 		AuroraLocale.text(
@@ -617,7 +709,9 @@ func _update_chart_selection() -> void:
 	var song := _get_selected_song()
 	if song == null or song.charts.is_empty():
 		difficulty_label.text = AuroraLocale.text("DIFICULTAD: -")
+		personal_best_label.text = AuroraLocale.text("MEJOR: SIN REGISTRO")
 		play_button.disabled = true
+		edit_button.disabled = true
 		return
 
 	selected_chart_index = clampi(selected_chart_index, 0, song.charts.size() - 1)
@@ -625,7 +719,41 @@ func _update_chart_selection() -> void:
 		mode_buttons[index].button_pressed = index == selected_chart_index
 	var chart := song.charts[selected_chart_index]
 	difficulty_label.text = AuroraLocale.text("DIFICULTAD: %s") % chart.get_difficulty_label()
+	_refresh_personal_best(song, chart)
 	play_button.disabled = false
+	_refresh_edit_action(song, chart)
+
+
+func _refresh_edit_action(song: SongData, chart: ChartData) -> void:
+	edit_button.text = AuroraLocale.text("EDITAR CANCION")
+	edit_button.disabled = not song_manager.can_edit_song(song, chart)
+	if edit_button.disabled:
+		edit_button.tooltip_text = AuroraLocale.text(
+			"ESTA CANCION NO TIENE UN CHART O MEDIO DISPONIBLE PARA EDITAR"
+		)
+	elif song_manager.is_editor_song(song):
+		edit_button.tooltip_text = AuroraLocale.text(
+			"ABRE ESTE PROYECTO PARA CAMBIAR NOTAS, DIFICULTAD Y DATOS"
+		)
+	else:
+		edit_button.tooltip_text = AuroraLocale.text(
+			"CREA UNA COPIA EDITABLE DEL CHART SELECCIONADO; EL ORIGINAL NO CAMBIA"
+		)
+
+
+func _refresh_personal_best(song: SongData, chart: ChartData) -> void:
+	var record := game_manager.get_personal_record(song, chart)
+	if record.is_empty():
+		personal_best_label.text = AuroraLocale.text("MEJOR: SIN REGISTRO")
+		return
+	personal_best_label.text = AuroraLocale.text(
+		"MEJOR %07d  //  %.2f%%  //  COMBO %d  //  %d PARTIDAS"
+	) % [
+		int(record.get("best_score", 0)),
+		float(record.get("best_accuracy", 0.0)),
+		int(record.get("best_max_combo", 0)),
+		int(record.get("play_count", 0)),
+	]
 
 
 func _move_song_selection(direction: int) -> void:
@@ -706,6 +834,19 @@ func _schedule_preview(song: SongData) -> void:
 	_start_preview(song)
 
 
+func _setup_preview_loop_timers() -> void:
+	preview_fade_timer = Timer.new()
+	preview_fade_timer.name = "PreviewFadeTimer"
+	preview_fade_timer.one_shot = true
+	preview_fade_timer.timeout.connect(_begin_preview_fade_out)
+	add_child(preview_fade_timer)
+	preview_finish_timer = Timer.new()
+	preview_finish_timer.name = "PreviewFinishTimer"
+	preview_finish_timer.one_shot = true
+	preview_finish_timer.timeout.connect(_finish_preview)
+	add_child(preview_finish_timer)
+
+
 func _start_preview(song: SongData) -> void:
 	_stop_preview()
 	song_manager.ensure_song_media_loaded(song)
@@ -720,10 +861,14 @@ func _start_preview(song: SongData) -> void:
 		song.duration_seconds,
 		start_seconds + song.preview_duration_seconds
 	)
+	var segment_duration := maxf(preview_end_seconds - start_seconds, 0.1)
+	var fade_duration := minf(PREVIEW_FADE_SECONDS, segment_duration * 0.5)
+	preview_loop_song = song
+	preview_cover.modulate = Color.BLACK
 	if has_video:
 		preview_video.stream = song.background_video
 		preview_video.visible = true
-		preview_video.volume_db = -80.0 if has_audio else 0.0
+		preview_video.volume_db = -80.0 if has_audio else PREVIEW_SILENT_DB
 		preview_video_end_seconds = (
 			song.background_video_start_seconds + preview_end_seconds
 		)
@@ -731,9 +876,34 @@ func _start_preview(song: SongData) -> void:
 		preview_video.stream_position = song.background_video_start_seconds + start_seconds
 	if has_audio:
 		preview_audio.stream = song.audio
+		preview_audio.volume_db = PREVIEW_SILENT_DB
 		preview_audio.play(start_seconds)
+	preview_fade_tween = create_tween()
+	preview_fade_tween.set_parallel(true)
+	preview_fade_tween.tween_property(
+		preview_cover,
+		"modulate",
+		Color.WHITE,
+		fade_duration
+	)
+	if has_audio:
+		preview_fade_tween.tween_property(
+			preview_audio,
+			"volume_db",
+			0.0,
+			fade_duration
+		)
+	elif has_video:
+		preview_fade_tween.tween_property(
+			preview_video,
+			"volume_db",
+			0.0,
+			fade_duration
+		)
+	preview_fade_timer.start(maxf(segment_duration - fade_duration, 0.01))
+	preview_finish_timer.start(segment_duration)
 	preview_button.text = AuroraLocale.text("■ DETENER VISTA PREVIA")
-	preview_status.text = AuroraLocale.text("REPRODUCIENDO PREESCUCHA")
+	preview_status.text = AuroraLocale.text("PREESCUCHA EN BUCLE")
 
 
 func _toggle_preview() -> void:
@@ -752,18 +922,62 @@ func _is_preview_playing() -> bool:
 
 
 func _finish_preview() -> void:
-	_stop_preview()
-	preview_status.text = AuroraLocale.text("PREESCUCHA FINALIZADA")
+	var loop_song := preview_loop_song
+	if loop_song == null or loop_song != _get_selected_song():
+		_stop_preview()
+		return
+	_start_preview(loop_song)
+
+
+func _begin_preview_fade_out() -> void:
+	if preview_loop_song == null or not _is_preview_playing():
+		return
+	if preview_fade_tween != null and preview_fade_tween.is_valid():
+		preview_fade_tween.kill()
+	preview_fade_tween = create_tween()
+	preview_fade_tween.set_parallel(true)
+	preview_fade_tween.tween_property(
+		preview_cover,
+		"modulate",
+		Color.BLACK,
+		PREVIEW_FADE_SECONDS
+	)
+	if preview_audio.playing:
+		preview_fade_tween.tween_property(
+			preview_audio,
+			"volume_db",
+			PREVIEW_SILENT_DB,
+			PREVIEW_FADE_SECONDS
+		)
+	elif preview_video.is_playing():
+		preview_fade_tween.tween_property(
+			preview_video,
+			"volume_db",
+			PREVIEW_SILENT_DB,
+			PREVIEW_FADE_SECONDS
+		)
 
 
 func _stop_preview() -> void:
+	if preview_fade_timer != null:
+		preview_fade_timer.stop()
+	if preview_finish_timer != null:
+		preview_finish_timer.stop()
+	if preview_fade_tween != null and preview_fade_tween.is_valid():
+		preview_fade_tween.kill()
+	preview_fade_tween = null
+	preview_loop_song = null
 	if preview_audio != null:
 		preview_audio.stop()
 		preview_audio.stream = null
+		preview_audio.volume_db = 0.0
 	if preview_video != null:
 		preview_video.stop()
 		preview_video.stream = null
+		preview_video.volume_db = 0.0
 		preview_video.visible = false
+	if preview_cover != null:
+		preview_cover.modulate = Color.WHITE
 	if preview_button != null:
 		preview_button.text = AuroraLocale.text("▶ VISTA PREVIA")
 
@@ -874,12 +1088,43 @@ func _edit_selected_song() -> void:
 			game_manager.request_editor_project("")
 			scene_manager.load_scene("editor")
 		return
+	if song.charts.is_empty():
+		return
+	var chart := song.charts[
+		clampi(selected_chart_index, 0, song.charts.size() - 1)
+	]
 	if not song_manager.is_editor_song(song):
+		edit_button.disabled = true
+		preview_status.text = AuroraLocale.text(
+			"PREPARANDO COPIA EDITABLE..."
+		)
+		await get_tree().process_frame
+	var edit_result: Dictionary = song_manager.prepare_song_for_editor(
+		song,
+		chart
+	)
+	if not bool(edit_result.get("ok", false)):
+		_refresh_edit_action(song, chart)
+		preview_status.text = AuroraLocale.text(
+			str(
+				edit_result.get(
+					"message",
+					"NO SE PUDO PREPARAR LA CANCION PARA EDITAR"
+				)
+			)
+		)
 		return
 	_remember_library_state()
+	var editor_song_id := str(edit_result.get("editor_song_id", ""))
+	if not editor_song_id.is_empty():
+		remembered_song_id = editor_song_id
+		remembered_chart_signature = _chart_signature(chart)
+	preserve_remembered_selection_on_exit = true
 	preview_request_token += 1
 	_stop_preview()
-	game_manager.request_editor_project(song.editor_project_path)
+	game_manager.request_editor_project(
+		str(edit_result.get("project_path", ""))
+	)
 	scene_manager.load_scene("editor")
 
 
@@ -1061,6 +1306,26 @@ func _return_to_menu() -> void:
 	scene_manager.load_scene("main_menu")
 
 
+func _open_local_package_share() -> void:
+	if share_panel != null or _is_package_import_active():
+		return
+	preview_request_token += 1
+	_stop_preview()
+	share_panel = LOCAL_PACKAGE_SHARE_PANEL.new()
+	share_panel.name = "LocalPackageSharePanel"
+	share_panel.close_requested.connect(_close_local_package_share)
+	add_child(share_panel)
+	share_panel.setup(song_manager, settings_manager, _get_selected_song())
+
+
+func _close_local_package_share() -> void:
+	if share_panel == null:
+		return
+	share_panel.queue_free()
+	share_panel = null
+	share_package_button.grab_focus()
+
+
 func _get_selected_song() -> SongData:
 	if selected_song_index < 0 or selected_song_index >= songs.size():
 		return null
@@ -1085,10 +1350,11 @@ func _show_empty_library() -> void:
 		AuroraLocale.text("CAMBIA LA BUSQUEDA O EL FILTRO")
 		if not all_songs.is_empty()
 		else AuroraLocale.text(
-			"USA IMPORTAR .AURORA O CREA UN NIVEL EN EL EDITOR"
+			"USA INSTALAR NIVEL O CREA UNO EN EL EDITOR"
 		)
 	)
 	preview_meta.text = AuroraLocale.text("DURACION --:--")
+	personal_best_label.text = AuroraLocale.text("MEJOR: SIN REGISTRO")
 	difficulty_label.text = AuroraLocale.text("DIFICULTAD: -")
 	preview_status.text = AuroraLocale.text("BIBLIOTECA VACIA")
 	song_count_label.text = AuroraLocale.text("%d / %d CANCIONES") % [
@@ -1098,7 +1364,7 @@ func _show_empty_library() -> void:
 	preview_button.disabled = true
 	favorite_button.disabled = true
 	edit_button.text = AuroraLocale.text(
-		"CREAR NIVEL" if library_is_empty else "EDITAR"
+		"CREAR NIVEL" if library_is_empty else "EDITAR CANCION"
 	)
 	edit_button.disabled = not library_is_empty
 	delete_button.disabled = true

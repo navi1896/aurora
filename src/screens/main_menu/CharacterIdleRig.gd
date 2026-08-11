@@ -8,8 +8,8 @@ const BREATH_CYCLE_SECONDS := 3.4
 const SWAY_CYCLE_SECONDS := 6.8
 const MAX_BREATH_PIXELS := 2
 const MAX_SWAY_PIXELS := 1
-const LEFT_EYE_RECT := Rect2i(268, 190, 43, 48)
-const RIGHT_EYE_RECT := Rect2i(337, 190, 29, 48)
+const LEFT_EYE_RECT := Rect2i(250, 178, 62, 46)
+const RIGHT_EYE_RECT := Rect2i(326, 178, 32, 46)
 
 @onready var character: TextureRect = $MenuCharacter
 @onready var headphone_pulse: Line2D = $MenuCharacter/HeadphonePulse
@@ -157,9 +157,23 @@ func _build_blink_texture(source_texture: Texture2D) -> ImageTexture:
 
 func _paint_closed_eye(target: Image, source: Image, eye_rect: Rect2i) -> void:
 	var source_y := mini(eye_rect.end.y + 8, source.get_height() - 1)
+	var ellipse_center := Vector2(
+		float(eye_rect.position.x) + float(eye_rect.size.x - 1) * 0.5,
+		float(eye_rect.position.y) + float(eye_rect.size.y - 1) * 0.5
+	)
+	var ellipse_radius := Vector2(
+		maxf(float(eye_rect.size.x - 1) * 0.5, 1.0),
+		maxf(float(eye_rect.size.y - 1) * 0.5, 1.0)
+	)
 	for x in range(eye_rect.position.x, eye_rect.end.x):
 		var sample_x := clampi(x, 0, source.get_width() - 1)
 		for y in range(eye_rect.position.y, eye_rect.end.y):
+			var normalized := Vector2(
+				(float(x) - ellipse_center.x) / ellipse_radius.x,
+				(float(y) - ellipse_center.y) / ellipse_radius.y
+			)
+			if normalized.length_squared() > 1.0:
+				continue
 			var sample_offset := mini((y - eye_rect.position.y) / 9, 3)
 			var skin_color := source.get_pixel(
 				sample_x,
@@ -196,8 +210,23 @@ func uses_pixel_safe_motion() -> bool:
 
 
 func has_interactive_headphone_pulse() -> bool:
-	return (
-		headphone_pulse != null
-		and headphone_pulse.closed
-		and headphone_pulse.points.size() >= 8
-	)
+	if (
+		headphone_pulse == null
+		or not headphone_pulse.closed
+		or headphone_pulse.antialiased
+		or not headphone_pulse.show_behind_parent
+		or headphone_pulse.points.size() < 16
+		or not is_equal_approx(headphone_pulse.width, roundf(headphone_pulse.width))
+	):
+		return false
+
+	for point_index in range(headphone_pulse.points.size()):
+		var current_point := headphone_pulse.points[point_index]
+		var next_point := headphone_pulse.points[
+			(point_index + 1) % headphone_pulse.points.size()
+		]
+		var horizontal := is_equal_approx(current_point.y, next_point.y)
+		var vertical := is_equal_approx(current_point.x, next_point.x)
+		if not horizontal and not vertical:
+			return false
+	return true

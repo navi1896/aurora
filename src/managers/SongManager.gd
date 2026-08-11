@@ -8,6 +8,9 @@ const PACKAGES_DIRECTORY := "user://aurora_packages"
 const PACKAGE_SERVICE_TYPE := preload(
 	"res://src/packages/SongPackageService.gd"
 )
+const EDITOR_PROJECT_STORE_TYPE := preload(
+	"res://src/screens/editor/EditorProjectStore.gd"
+)
 
 var songs: Array[SongData] = []
 var package_roots_by_song_id: Dictionary = {}
@@ -68,6 +71,41 @@ func import_song_package(package_path: String) -> Dictionary:
 	return result
 
 
+func inspect_song_package(package_path: String) -> Dictionary:
+	var inspector = PACKAGE_SERVICE_TYPE.new()
+	return inspector.validate_package_manifest(package_path)
+
+
+func can_share_song_package(song: SongData) -> bool:
+	return is_editor_song(song) or is_local_package_song(song)
+
+
+func make_song_package_share_descriptor(song: SongData) -> Dictionary:
+	if is_editor_song(song):
+		return {
+			"kind": "editor",
+			"project_path": song.editor_project_path.simplify_path(),
+			"package_id": "",
+		}
+	if is_local_package_song(song):
+		return {
+			"kind": "installed_package",
+			"package_root": str(
+				package_roots_by_song_id.get(str(song.song_id), "")
+			).simplify_path(),
+			"package_id": str(song.song_id).trim_prefix("package_"),
+		}
+	return {}
+
+
+func get_installed_package_version(package_id: String) -> String:
+	var song_id := "package_%s" % package_id.strip_edges()
+	for song in songs:
+		if str(song.song_id) == song_id and is_local_package_song(song):
+			return song.package_version
+	return ""
+
+
 func install_song_package_files(package_path: String) -> Dictionary:
 	# Esta fase solo realiza I/O y validación. Puede ejecutarse en un Thread;
 	# la recarga de Resources se mantiene en el hilo principal mediante
@@ -104,9 +142,9 @@ func _scan_package_directory(directory_path: String) -> void:
 		if (
 			not entry_name.begins_with(".")
 			and directory.current_is_dir()
-			and not entry_name.ends_with(
-				PACKAGE_SERVICE_TYPE.IMPORT_TEMP_SUFFIX
-			)
+			and not entry_name.ends_with(PACKAGE_SERVICE_TYPE.IMPORT_TEMP_SUFFIX)
+			and not entry_name.ends_with(PACKAGE_SERVICE_TYPE.UPDATE_TEMP_SUFFIX)
+			and not entry_name.ends_with(PACKAGE_SERVICE_TYPE.UPDATE_BACKUP_SUFFIX)
 		):
 			_load_package_staging(
 				directory_path.path_join(entry_name)
@@ -157,6 +195,9 @@ func _load_package_staging(package_root: String) -> void:
 
 	var song := SongData.new()
 	song.song_id = StringName(song_id)
+	song.package_version = PACKAGE_SERVICE_TYPE.normalize_package_version(
+		str(manifest.get("package_version", PACKAGE_SERVICE_TYPE.DEFAULT_PACKAGE_VERSION))
+	)
 	song.title = str(song_document.get("title", "Paquete Aurora"))
 	song.artist = str(song_document.get("artist", "Aurora Creator"))
 	song.bpm = clampf(
@@ -362,6 +403,350 @@ func _load_editor_project(project_path: String) -> void:
 	song.editor_project_path = project_path
 	song.charts = [chart]
 	songs.append(song)
+
+
+func can_edit_song(song: SongData, chart: ChartData) -> bool:
+	if song == null or chart == null:
+		return false
+	if is_editor_song(song):
+		return true
+	if not has_available_media(song):
+		return false
+	if chart.chart_path.is_empty():
+		return not chart.load_notes(song.bpm, song.duration_seconds).is_empty()
+	return chart.has_valid_file_chart()
+
+
+func prepare_song_for_editor(song: SongData, chart: ChartData) -> Dictionary:
+	if song == null or chart == null:
+		return _editor_copy_failure(
+			ERR_INVALID_PARAMETER,
+			"Selecciona una canción y una dificultad antes de editar."
+		)
+	if is_editor_song(song):
+		return _editor_copy_success({
+			"project_path": song.editor_project_path.simplify_path(),
+			"editor_song_id": str(song.song_id),
+			"created": false,
+		})
+	if not can_edit_song(song, chart):
+		return _editor_copy_failure(
+			ERR_UNAVAILABLE,
+			"Esta canción no tiene un chart o medio disponible para editar."
+		)
+
+	var source_signature := _editor_source_signature(song, chart)
+	var location := _find_editor_copy_location(song, source_signature)
+	if bool(location.get("existing", false)):
+		return _editor_copy_success({
+			"project_path": str(location.get("project_path", "")),
+			"editor_song_id": str(location.get("editor_song_id", "")),
+			"created": false,
+		})
+	var project_path := str(location.get("project_path", ""))
+	var chart_path := str(location.get("chart_path", ""))
+	if project_path.is_empty() or chart_path.is_empty():
+		return _editor_copy_failure(
+			ERR_CANT_CREATE,
+			"No se pudo reservar una copia editable segura."
+		)
+
+	var notes := chart.load_notes(song.bpm, song.duration_seconds)
+	if notes.is_empty():
+		return _editor_copy_failure(
+			ERR_INVALID_DATA,
+			"El chart seleccionado está vacío o dañado."
+		)
+	var media := _editable_media_paths(song)
+	var source_video_path := str(media.get("video_path", ""))
+	var source_audio_path := str(media.get("audio_path", ""))
+	if source_video_path.is_empty() and source_audio_path.is_empty():
+		return _editor_copy_failure(
+			ERR_FILE_NOT_FOUND,
+			"No se encontró el video o audio de la canción."
+		)
+	var project_directory := project_path.get_base_dir()
+	var media_copy: Dictionary = _copy_editor_media(
+		project_directory,
+		source_video_path,
+		source_audio_path
+	)
+	if not bool(media_copy.get("ok", false)):
+		_cleanup_failed_editor_copy(project_directory)
+		return media_copy
+	var video_path := str(media_copy.get("video_path", ""))
+	var audio_path := str(media_copy.get("audio_path", ""))
+
+	var editable_package_id := ""
+	var editable_package_version := PACKAGE_SERVICE_TYPE.DEFAULT_PACKAGE_VERSION
+	if is_local_package_song(song):
+		editable_package_id = str(song.song_id).trim_prefix("package_")
+		editable_package_version = PACKAGE_SERVICE_TYPE.increment_patch_version(
+			song.package_version
+		)
+	var project_document := {
+		"version": EDITOR_PROJECT_STORE_TYPE.PROJECT_VERSION,
+		"type": EDITOR_PROJECT_STORE_TYPE.PROJECT_TYPE,
+		"package_id": editable_package_id,
+		"package_version": editable_package_version,
+		"source_song_id": str(song.song_id),
+		"source_chart_signature": source_signature,
+		"metadata": {
+			"title": song.title,
+			"artist": song.artist,
+			"difficulty": _editor_difficulty_id(chart.difficulty_name),
+			"difficulty_level": clampi(chart.difficulty_level, 1, 20),
+			"bpm": clampf(song.bpm, 40.0, 300.0),
+			"duration_seconds": maxf(song.duration_seconds, 1.0),
+			"key_count": chart.key_count,
+			"creation_mode": "manual",
+			"automatic_density": 1,
+		},
+		"media": {
+			"video_path": video_path,
+			"video_source_path": (
+				video_path
+				if not video_path.is_empty()
+				and video_path.get_extension().to_lower() != "ogv"
+				else ""
+			),
+			"audio_path": audio_path,
+		},
+		"chart_path": chart_path,
+	}
+	var save_result: Dictionary = EDITOR_PROJECT_STORE_TYPE.save_bundle(
+		project_path,
+		project_document,
+		ChartData.make_chart_document(notes, chart.key_count)
+	)
+	if not bool(save_result.get("ok", false)):
+		_cleanup_failed_editor_copy(project_directory)
+		return _editor_copy_failure(
+			int(save_result.get("error", ERR_CANT_CREATE)),
+			str(save_result.get("message", "No se pudo crear la copia editable."))
+		)
+
+	load_songs()
+	return _editor_copy_success({
+		"project_path": str(save_result.get("project_path", project_path)),
+		"editor_song_id": "editor_%s" % project_path.get_base_dir().get_file(),
+		"created": true,
+	})
+
+
+func _find_editor_copy_location(
+	song: SongData,
+	source_signature: String
+) -> Dictionary:
+	var title_slug := _editor_slug(song.title)
+	var signature_slug := source_signature.sha256_text().substr(0, 12)
+	var base_slug := "editar_%s_%s" % [title_slug, signature_slug]
+	for attempt in range(100):
+		var folder_name := (
+			base_slug
+			if attempt == 0
+			else "%s_%d" % [base_slug, attempt + 1]
+		)
+		var project_directory := EDITOR_DIRECTORY.path_join(folder_name)
+		var project_path := project_directory.path_join(
+			EDITOR_PROJECT_STORE_TYPE.PROJECT_FILE_NAME
+		)
+		var chart_path := project_directory.path_join(
+			EDITOR_PROJECT_STORE_TYPE.CHART_FILE_NAME
+		)
+		if FileAccess.file_exists(project_path):
+			var existing: Dictionary = EDITOR_PROJECT_STORE_TYPE.load_bundle(
+				project_path
+			)
+			var existing_document: Dictionary = existing.get("project", {})
+			if (
+				bool(existing.get("ok", false))
+				and str(existing_document.get("source_song_id", ""))
+				== str(song.song_id)
+				and str(existing_document.get("source_chart_signature", ""))
+				== source_signature
+			):
+				return {
+					"existing": true,
+					"project_path": project_path,
+					"chart_path": str(existing.get("chart_path", chart_path)),
+					"editor_song_id": "editor_%s" % folder_name,
+				}
+			continue
+		if DirAccess.dir_exists_absolute(
+			ProjectSettings.globalize_path(project_directory)
+		):
+			continue
+		return {
+			"existing": false,
+			"project_path": project_path,
+			"chart_path": chart_path,
+			"editor_song_id": "editor_%s" % folder_name,
+		}
+	return {}
+
+
+func _editable_media_paths(song: SongData) -> Dictionary:
+	var package_media: Dictionary = package_media_by_song_id.get(
+		str(song.song_id),
+		{}
+	)
+	var video_path := str(package_media.get("video_path", ""))
+	var audio_path := str(package_media.get("audio_path", ""))
+	if video_path.is_empty() and song.background_video != null:
+		video_path = song.background_video.resource_path
+	if audio_path.is_empty() and song.audio != null:
+		audio_path = song.audio.resource_path
+	if not video_path.is_empty() and not FileAccess.file_exists(video_path):
+		video_path = ""
+	if not audio_path.is_empty() and not FileAccess.file_exists(audio_path):
+		audio_path = ""
+	return {
+		"video_path": video_path,
+		"audio_path": audio_path,
+	}
+
+
+func _copy_editor_media(
+	project_directory: String,
+	video_source: String,
+	audio_source: String
+) -> Dictionary:
+	var directory_error := DirAccess.make_dir_recursive_absolute(
+		ProjectSettings.globalize_path(project_directory)
+	)
+	if directory_error != OK:
+		return _editor_copy_failure(
+			directory_error,
+			"No se pudo crear la carpeta de la copia editable."
+		)
+	var copied_video := ""
+	var copied_audio := ""
+	if not video_source.is_empty():
+		copied_video = project_directory.path_join(
+			"video.%s" % video_source.get_extension().to_lower()
+		)
+		var video_error := _copy_editor_media_file(
+			video_source,
+			copied_video
+		)
+		if video_error != OK:
+			return _editor_copy_failure(
+				video_error,
+				"No se pudo copiar el video para editarlo."
+			)
+	if not audio_source.is_empty():
+		copied_audio = project_directory.path_join(
+			"audio.%s" % audio_source.get_extension().to_lower()
+		)
+		var audio_error := _copy_editor_media_file(
+			audio_source,
+			copied_audio
+		)
+		if audio_error != OK:
+			return _editor_copy_failure(
+				audio_error,
+				"No se pudo copiar el audio para editarlo."
+			)
+	return _editor_copy_success({
+		"video_path": copied_video,
+		"audio_path": copied_audio,
+	})
+
+
+func _copy_editor_media_file(source_path: String, target_path: String) -> Error:
+	var source := FileAccess.open(source_path, FileAccess.READ)
+	if source == null:
+		return FileAccess.get_open_error()
+	var target := FileAccess.open(target_path, FileAccess.WRITE)
+	if target == null:
+		return FileAccess.get_open_error()
+	var remaining := source.get_length()
+	const COPY_CHUNK_BYTES := 1024 * 1024
+	while remaining > 0:
+		var chunk_size := mini(remaining, COPY_CHUNK_BYTES)
+		var chunk := source.get_buffer(chunk_size)
+		if chunk.size() != chunk_size:
+			return ERR_FILE_CORRUPT
+		target.store_buffer(chunk)
+		if target.get_error() != OK:
+			return target.get_error()
+		remaining -= chunk_size
+	target.flush()
+	return target.get_error()
+
+
+func _cleanup_failed_editor_copy(project_directory: String) -> void:
+	var editor_root_absolute := _normalized_absolute_path(
+		EDITOR_DIRECTORY
+	).trim_suffix("/")
+	var project_absolute := _normalized_absolute_path(
+		project_directory
+	).trim_suffix("/")
+	if (
+		project_absolute.is_empty()
+		or project_absolute.get_base_dir() != editor_root_absolute
+	):
+		return
+	for file_name in [
+		"video.ogv", "video.mp4", "video.mov", "video.mkv",
+		"video.webm", "video.avi", "video.m4v", "audio.mp3",
+		"audio.ogg", "audio.wav", EDITOR_PROJECT_STORE_TYPE.PROJECT_FILE_NAME,
+		EDITOR_PROJECT_STORE_TYPE.CHART_FILE_NAME,
+	]:
+		var candidate := project_directory.path_join(file_name)
+		if FileAccess.file_exists(candidate):
+			DirAccess.remove_absolute(ProjectSettings.globalize_path(candidate))
+	DirAccess.remove_absolute(project_absolute)
+
+
+func _editor_source_signature(song: SongData, chart: ChartData) -> String:
+	return "%s|%d|%s|%d|%s" % [
+		str(song.song_id),
+		chart.key_count,
+		chart.difficulty_name.to_upper(),
+		chart.difficulty_level,
+		chart.chart_path.simplify_path(),
+	]
+
+
+func _editor_difficulty_id(source: String) -> String:
+	var normalized := source.strip_edges().to_upper()
+	normalized = normalized.replace("Í", "I").replace("Á", "A")
+	if normalized in ["HARD", "DIFICIL"]:
+		return "DIFICIL"
+	if normalized in ["MAXIMUM", "MAXIMA"]:
+		return "MAXIMA"
+	return "NORMAL"
+
+
+func _editor_slug(source: String) -> String:
+	var regex := RegEx.new()
+	regex.compile("[^a-z0-9]+")
+	var slug := regex.sub(
+		source.strip_edges().to_lower(),
+		"_",
+		true
+	).trim_prefix("_").trim_suffix("_")
+	return slug if not slug.is_empty() else "cancion"
+
+
+func _editor_copy_success(values: Dictionary) -> Dictionary:
+	var result := {
+		"ok": true,
+		"error": OK,
+		"message": "",
+	}
+	result.merge(values, true)
+	return result
+
+
+func _editor_copy_failure(error: int, message: String) -> Dictionary:
+	return {
+		"ok": false,
+		"error": error,
+		"message": message,
+	}
 
 
 func is_editor_song(song: SongData) -> bool:

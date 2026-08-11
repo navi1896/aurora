@@ -21,6 +21,7 @@ func _run() -> void:
 	_reset_test_root()
 	service = ServiceType.new()
 	_test_export_multichart_package()
+	_test_content_version_helpers()
 	_test_manifest_only_and_full_validation()
 	_test_import_is_transactional_and_never_overwrites()
 	_test_future_version_and_manifest_paths()
@@ -52,8 +53,9 @@ func _test_export_multichart_package() -> void:
 		str(valid_manifest.get("type", "")) == ServiceType.PACKAGE_TYPE
 		and int(valid_manifest.get("format_version", 0))
 		== ServiceType.FORMAT_VERSION
+		and str(valid_manifest.get("package_version", "")) == "1.0.0"
 		and charts.size() == 3,
-		"El manifiesto versionado conserva charts 4K, 6K y 8K"
+		"El manifiesto separa versión de contenido y conserva charts 4K, 6K y 8K"
 	)
 	_expect(
 		_descriptor_has_integrity(
@@ -77,6 +79,17 @@ func _test_export_multichart_package() -> void:
 		== "destination_exists"
 		and _read_bytes(valid_package_path) == archive_before,
 		"Exportar nunca sobrescribe un paquete existente"
+	)
+
+
+func _test_content_version_helpers() -> void:
+	_expect(
+		ServiceType.is_valid_package_version("2.10.3")
+		and not ServiceType.is_valid_package_version("2.10")
+		and ServiceType.normalize_package_version("01.002.0003") == "1.2.3"
+		and ServiceType.compare_package_versions("1.10.0", "1.2.9") > 0
+		and ServiceType.increment_patch_version("1.2.9") == "1.2.10",
+		"Valida, normaliza, compara e incrementa versiones MAYOR.MENOR.PARCHE"
 	)
 
 
@@ -150,7 +163,50 @@ func _test_import_is_transactional_and_never_overwrites() -> void:
 		== "destination_exists"
 		and _read_bytes(sentinel_path).get_string_from_utf8()
 		== "keep",
-		"Importar nunca sobrescribe un destino existente"
+		"La misma versión nunca sobrescribe un destino existente"
+	)
+
+	var update_manifest := _manifest_draft()
+	update_manifest["package_version"] = "1.1.0"
+	var update_path := TEST_ROOT.path_join("update.aurora")
+	var update_export: Dictionary = service.export_package(
+		TEST_ROOT.path_join("export_staging"),
+		update_manifest,
+		update_path
+	)
+	var update_result: Dictionary = service.import_package(
+		update_path,
+		destination
+	)
+	var installed_check: Dictionary = service.validate_staging(destination, true)
+	var installed_manifest: Dictionary = installed_check.get("manifest", {})
+	_expect(
+		bool(update_export.get("ok", false))
+		and bool(update_result.get("ok", false))
+		and bool(update_result.get("updated", false))
+		and str(update_result.get("previous_package_version", "")) == "1.0.0"
+		and str(installed_manifest.get("package_version", "")) == "1.1.0"
+		and not FileAccess.file_exists(sentinel_path),
+		"Una versión posterior reemplaza la instalación completa tras validarla"
+	)
+	_expect(
+		not DirAccess.dir_exists_absolute(
+			ProjectSettings.globalize_path(destination + ServiceType.UPDATE_TEMP_SUFFIX)
+		)
+		and not DirAccess.dir_exists_absolute(
+			ProjectSettings.globalize_path(destination + ServiceType.UPDATE_BACKUP_SUFFIX)
+		),
+		"La actualización válida no deja temporales ni respaldos pendientes"
+	)
+	var downgrade_result: Dictionary = service.import_package(
+		valid_package_path,
+		destination
+	)
+	_expect(
+		not bool(downgrade_result.get("ok", true))
+		and str(downgrade_result.get("error_code", "")) == "destination_exists"
+		and str(downgrade_result.get("installed_version", "")) == "1.1.0",
+		"Rechaza paquetes iguales o anteriores después de actualizar"
 	)
 
 
@@ -471,6 +527,7 @@ func _manifest_draft() -> Dictionary:
 	return {
 		"type": ServiceType.PACKAGE_TYPE,
 		"format_version": ServiceType.FORMAT_VERSION,
+		"package_version": "1.0.0",
 		"package_id": "123e4567-e89b-12d3-a456-426614174000",
 		"song": {
 			"song_id": "fixture-song",

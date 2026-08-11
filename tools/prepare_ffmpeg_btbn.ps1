@@ -15,15 +15,16 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 # Pinned release snapshot selected only after Aurora's real-media visual gate
-# passed. "latest" is used by the upstream asset URL, so the archive and both
-# executables are protected by fixed SHA-256 values.
-$assetName = "ffmpeg-n8.1-latest-win64-lgpl-8.1.zip"
+# passed. The dated BtbN release keeps the download immutable; the archive and
+# both executables are additionally protected by fixed SHA-256 values.
+$assetName = "ffmpeg-n8.1.2-31-g8c9502e9b0-win64-lgpl-8.1.zip"
 $assetUri = (
-    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/" +
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/" +
+    "autobuild-2026-07-29-13-36/" +
     $assetName
 )
 $expectedArchiveSha256 = (
-    "fce9c9c569425ec509bc90b361119ece81ee11fb7b557552c52187b497dba982"
+    "dc1caf47ae4fbbf33dcd39d30e7c7af2c63d417e872f0e948b5d68ae5a106794"
 )
 $expectedFfmpegSha256 = (
     "3f6613d4f28335e76b7c2bd6c27d2c28656e32c551f7236ff484ac7cf2ebd1c0"
@@ -35,7 +36,7 @@ $expectedLicenseSha256 = (
     "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
 )
 $expectedVersion = "n8.1.2-31-g8c9502e9b0-20260729"
-$distributionDirectoryName = "ffmpeg-n8.1-latest-win64-lgpl-8.1"
+$distributionDirectoryName = "ffmpeg-n8.1.2-31-g8c9502e9b0-win64-lgpl-8.1"
 
 function Assert-FileHash {
     param(

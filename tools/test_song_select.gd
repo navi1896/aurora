@@ -45,6 +45,58 @@ func _run() -> void:
 	if screen == null:
 		_finish()
 		return
+	_expect(
+		screen.share_package_button != null
+		and screen.share_package_button.get_parent().name == "ActionButtons"
+		and screen.share_package_button.get_global_rect().end.x <= float(
+			ProjectSettings.get_setting("display/window/size/viewport_width", 1920)
+		),
+		"COMPARTIR NIVEL queda visible en la biblioteca a 1280x720"
+	)
+	_expect(
+		screen.import_package_button.text == AuroraLocale.text("INSTALAR NIVEL")
+		and "USB" in screen.import_package_button.tooltip_text
+		and screen.share_package_button.text == AuroraLocale.text("COMPARTIR NIVEL"),
+		"La biblioteca separa con claridad instalar y compartir archivos .aurora"
+	)
+	screen._open_local_package_share()
+	await process_frame
+	_expect(
+		screen.share_panel != null
+		and screen.share_panel.song_selector != null
+		and screen.share_panel.export_button != null
+		and screen.share_panel.save_dialog.use_native_dialog,
+		"COMPARTIR NIVEL abre el flujo local dentro del juego"
+	)
+	screen._close_local_package_share()
+	await process_frame
+	var package_preview := {
+		"package_id": "123e4567-e89b-12d3-a456-426614174000",
+		"package_version": "1.2.0",
+		"song": {
+			"title": "Nivel recibido",
+			"artist": "Amistad Aurora",
+			"duration_seconds": 75.0,
+			"charts": [{
+				"key_count": 4,
+				"difficulty": "NORMAL",
+				"difficulty_level": 5,
+			}],
+		},
+	}
+	screen._open_package_install_confirmation(
+		"C:/nivel_recibido.aurora",
+		package_preview
+	)
+	await process_frame
+	_expect(
+		screen.package_install_panel != null
+		and screen.package_install_panel.install_button.text
+		== AuroraLocale.text("INSTALAR NIVEL"),
+		"Instalar muestra una confirmación con los datos del paquete antes de escribir"
+	)
+	screen._close_package_install_confirmation()
+	await process_frame
 	_expect(screen.songs.size() == 3, "Muestra toda la biblioteca por defecto")
 	_expect(
 		screen.search_field != null
@@ -57,6 +109,32 @@ func _run() -> void:
 		screen.preview_audio.bus == &"Music",
 		"La preescucha de audio usa el volumen de música"
 	)
+	screen.preview_request_token += 1
+	screen._start_preview(alpha)
+	await process_frame
+	_expect(
+		screen.preview_loop_song == alpha
+		and screen.preview_finish_timer.time_left > 0.0
+		and screen.preview_status.text == AuroraLocale.text("PREESCUCHA EN BUCLE")
+		and screen.preview_audio.volume_db < -20.0,
+		"La preescucha inicia en bucle desde silencio sin cortar la selección"
+	)
+	await create_timer(0.55).timeout
+	_expect(
+		screen.preview_cover.modulate.r > 0.9
+		and screen.preview_audio.volume_db > -1.0,
+		"La entrada de la preescucha sube imagen y audio suavemente"
+	)
+	screen.preview_fade_timer.stop()
+	screen.preview_finish_timer.stop()
+	screen._begin_preview_fade_out()
+	await create_timer(0.55).timeout
+	_expect(
+		screen.preview_cover.modulate.r < 0.1
+		and screen.preview_audio.volume_db < -40.0,
+		"La salida de la preescucha oscurece y baja el audio antes de repetir"
+	)
+	screen._stop_preview()
 	_expect(
 		"ENTER" in screen.controls_label.text
 		and "ESC" in screen.controls_label.text,
@@ -214,8 +292,21 @@ func _make_song(song_id: String, title: String, artist: String) -> SongData:
 	song.artist = artist
 	song.duration_seconds = 90.0
 	song.bpm = 128.0
+	song.preview_duration_seconds = 1.2
+	song.audio = _make_preview_audio()
 	song.charts = [chart]
 	return song
+
+
+func _make_preview_audio() -> AudioStreamWAV:
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = 22050
+	stream.stereo = false
+	var silence := PackedByteArray()
+	silence.resize(22050 * 2 * 2)
+	stream.data = silence
+	return stream
 
 
 func _expect(condition: bool, description: String) -> void:

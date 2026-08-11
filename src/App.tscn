@@ -7,6 +7,7 @@
 [ext_resource type="Script" uid="uid://m01aus8uxtoj" path="res://src/managers/SettingsManager.gd" id="5_settings"]
 [ext_resource type="Script" uid="uid://c57vmtxcvds2j" path="res://src/managers/InputManager.gd" id="6_input"]
 [ext_resource type="Script" path="res://src/managers/MenuMusicManager.gd" id="7_menu_music"]
+[ext_resource type="Script" path="res://src/managers/OnlineContentManager.gd" id="8_online"]
 
 [node name="App" type="Control" unique_id=1718485473]
 layout_mode = 3
@@ -49,3 +50,6 @@ script = ExtResource("6_input")
 
 [node name="MenuMusicManager" type="Node" parent="Managers"]
 script = ExtResource("7_menu_music")
+
+[node name="OnlineContentManager" type="Node" parent="Managers"]
+script = ExtResource("8_online")

@@ -1,16 +1,97 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="FontFile" path="res://assets/menu/fonts/PressStart2P-Regular.ttf" id="1_font"]
 
-[node name="Footer" type="CenterContainer"]
+[sub_resource type="StyleBoxFlat" id="Style_update_normal"]
+bg_color = Color(0.025, 0.03, 0.075, 0.86)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.34, 0.24, 0.68, 0.72)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[sub_resource type="StyleBoxFlat" id="Style_update_focus"]
+bg_color = Color(0.025, 0.03, 0.075, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.05, 0.88, 1, 1)
+corner_radius_top_left = 3
+corner_radius_top_right = 3
+corner_radius_bottom_right = 3
+corner_radius_bottom_left = 3
+
+[node name="Footer" type="Control"]
 custom_minimum_size = Vector2(0, 58)
 layout_mode = 2
-mouse_filter = 2
 
 [node name="VersionLabel" type="Label" parent="."]
-layout_mode = 2
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -120.0
+offset_top = -12.0
+offset_right = 120.0
+offset_bottom = 12.0
+grow_horizontal = 2
+grow_vertical = 2
 theme_override_colors/font_color = Color(0.68, 0.68, 0.76, 1)
 theme_override_fonts/font = ExtResource("1_font")
 theme_override_font_sizes/font_size = 15
-text = "- -  v1.0.0  - -"
+text = "- -  v1.0.2  - -"
 horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="UpdateStatus" type="Label" parent="."]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -550.0
+offset_top = -10.0
+offset_right = -260.0
+offset_bottom = 10.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.4, 0.78, 0.84, 0.9)
+theme_override_fonts/font = ExtResource("1_font")
+theme_override_font_sizes/font_size = 9
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="UpdateButton" type="Button" parent="."]
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_left = -248.0
+offset_top = -19.0
+offset_right = 0.0
+offset_bottom = 19.0
+grow_horizontal = 0
+grow_vertical = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme_override_colors/font_color = Color(0.76, 0.78, 0.9, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
+theme_override_colors/font_focus_color = Color(1, 1, 1, 1)
+theme_override_colors/font_pressed_color = Color(1, 1, 1, 1)
+theme_override_fonts/font = ExtResource("1_font")
+theme_override_font_sizes/font_size = 9
+theme_override_styles/normal = SubResource("Style_update_normal")
+theme_override_styles/hover = SubResource("Style_update_focus")
+theme_override_styles/focus = SubResource("Style_update_focus")
+theme_override_styles/pressed = SubResource("Style_update_focus")
+text = "BUSCAR ACTUALIZACIÓN"

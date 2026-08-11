@@ -195,19 +195,32 @@ theme_override_font_sizes/font_size = 13
 text = "ELIGE UNA PISTA Y UN MODO DE TECLAS"
 
 [node name="HeaderActions" type="VBoxContainer" parent="LibraryMargins/PageLayout/Header"]
-custom_minimum_size = Vector2(230, 0)
+custom_minimum_size = Vector2(430, 0)
 layout_mode = 2
 alignment = 1
 theme_override_constants/separation = 6
 
-[node name="ImportPackageButton" type="Button" parent="LibraryMargins/PageLayout/Header/HeaderActions"]
-custom_minimum_size = Vector2(230, 46)
+[node name="ActionButtons" type="HBoxContainer" parent="LibraryMargins/PageLayout/Header/HeaderActions"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="SharePackageButton" type="Button" parent="LibraryMargins/PageLayout/Header/HeaderActions/ActionButtons"]
+custom_minimum_size = Vector2(210, 46)
 layout_mode = 2
 focus_mode = 2
 mouse_default_cursor_shape = 2
 theme = SubResource("Theme_action_buttons")
 theme_override_font_sizes/font_size = 11
-text = "IMPORTAR .AURORA"
+text = "COMPARTIR NIVEL"
+
+[node name="ImportPackageButton" type="Button" parent="LibraryMargins/PageLayout/Header/HeaderActions/ActionButtons"]
+custom_minimum_size = Vector2(210, 46)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme = SubResource("Theme_action_buttons")
+theme_override_font_sizes/font_size = 11
+text = "INSTALAR NIVEL"
 
 [node name="SongCountLabel" type="Label" parent="LibraryMargins/PageLayout/Header/HeaderActions"]
 layout_mode = 2
@@ -408,6 +421,14 @@ theme_override_fonts/font = ExtResource("6_font")
 theme_override_font_sizes/font_size = 14
 text = "DIFICULTAD: -"
 
+[node name="PersonalBestLabel" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.76, 0.28, 1)
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 10
+text = "MEJOR: SIN REGISTRO"
+text_overrun_behavior = 3
+
 [node name="PreviewStatus" type="Label" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.56, 0.58, 0.7, 1)
@@ -447,7 +468,7 @@ focus_mode = 2
 mouse_default_cursor_shape = 2
 theme = SubResource("Theme_mode_buttons")
 theme_override_font_sizes/font_size = 9
-text = "EDITAR"
+text = "EDITAR CANCION"
 
 [node name="DeleteButton" type="Button" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions"]
 custom_minimum_size = Vector2(0, 48)
@@ -496,7 +517,7 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.5, 0.52, 0.64, 1)
 theme_override_fonts/font = ExtResource("6_font")
 theme_override_font_sizes/font_size = 11
-text = "v1.0.0"
+text = "v1.0.2"
 horizontal_alignment = 2
 
 [node name="PreviewAudio" type="AudioStreamPlayer" parent="."]

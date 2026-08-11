@@ -56,19 +56,31 @@ script = ExtResource("1_script")
 custom_minimum_size = Vector2(620, 96)
 layout_mode = 2
 focus_neighbor_top = NodePath("../BtnExit")
+focus_neighbor_bottom = NodePath("../BtnLevelEditor")
+focus_mode = 2
+mouse_default_cursor_shape = 2
+icon = ExtResource("4_selector")
+expand_icon = true
+icon_max_width = 42
+text = "JUGAR"
+
+[node name="BtnLevelEditor" type="Button" parent="."]
+custom_minimum_size = Vector2(620, 96)
+layout_mode = 2
+focus_neighbor_top = NodePath("../BtnStart")
 focus_neighbor_bottom = NodePath("../BtnOptions")
 focus_mode = 2
 mouse_default_cursor_shape = 2
 icon = ExtResource("4_selector")
 expand_icon = true
 icon_max_width = 42
-text = "INICIAR"
+text = "CREAR"
 
 [node name="BtnOptions" type="Button" parent="."]
 custom_minimum_size = Vector2(620, 96)
 layout_mode = 2
-focus_neighbor_top = NodePath("../BtnStart")
-focus_neighbor_bottom = NodePath("../BtnLevelEditor")
+focus_neighbor_top = NodePath("../BtnLevelEditor")
+focus_neighbor_bottom = NodePath("../BtnExit")
 focus_mode = 2
 mouse_default_cursor_shape = 2
 icon = ExtResource("4_selector")
@@ -76,22 +88,10 @@ expand_icon = true
 icon_max_width = 42
 text = "OPCIONES"
 
-[node name="BtnLevelEditor" type="Button" parent="."]
-custom_minimum_size = Vector2(620, 96)
-layout_mode = 2
-focus_neighbor_top = NodePath("../BtnOptions")
-focus_neighbor_bottom = NodePath("../BtnExit")
-focus_mode = 2
-mouse_default_cursor_shape = 2
-icon = ExtResource("4_selector")
-expand_icon = true
-icon_max_width = 42
-text = "EDITOR DE NIVELES"
-
 [node name="BtnExit" type="Button" parent="."]
 custom_minimum_size = Vector2(620, 96)
 layout_mode = 2
-focus_neighbor_top = NodePath("../BtnLevelEditor")
+focus_neighbor_top = NodePath("../BtnOptions")
 focus_neighbor_bottom = NodePath("../BtnStart")
 focus_mode = 2
 mouse_default_cursor_shape = 2

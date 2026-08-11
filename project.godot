@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Aurora"
-config/version="1.0.0"
+config/version="1.0.2"
 run/main_scene="res://src/App.tscn"
 config/features=PackedStringArray("4.8", "Forward Plus")
 config/icon="res://icon.svg"

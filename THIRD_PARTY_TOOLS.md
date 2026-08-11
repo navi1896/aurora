@@ -5,7 +5,8 @@
 - Uso: convertir videos elegidos por el creador desde MP4, MOV, M4V, MKV,
   WebM y AVI al formato Ogg Theora que Godot reproduce directamente.
 - Distribución seleccionada: BtbN FFmpeg Windows 64-bit LGPL, snapshot
-  `2026-07-29`, asset `ffmpeg-n8.1-latest-win64-lgpl-8.1.zip`.
+  `2026-07-29`, asset inmutable
+  `ffmpeg-n8.1.2-31-g8c9502e9b0-win64-lgpl-8.1.zip`.
 - Versión informada por los ejecutables:
   `n8.1.2-31-g8c9502e9b0-20260729`.
 - Perfil legal informado por los ejecutables: GNU LGPL versión 3 o posterior.
@@ -15,7 +16,7 @@
   separados. No se enlazan con `Aurora.exe`, no se renombran y el usuario
   puede reemplazarlos por una distribución compatible.
 - SHA-256 del ZIP:
-  `fce9c9c569425ec509bc90b361119ece81ee11fb7b557552c52187b497dba982`.
+  `dc1caf47ae4fbbf33dcd39d30e7c7af2c63d417e872f0e948b5d68ae5a106794`.
 - SHA-256 de `ffmpeg.exe`:
   `3f6613d4f28335e76b7c2bd6c27d2c28656e32c551f7236ff484ac7cf2ebd1c0`.
 - SHA-256 de `ffprobe.exe`:

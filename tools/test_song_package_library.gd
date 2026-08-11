@@ -3,6 +3,9 @@ extends SceneTree
 const ServiceType := preload(
 	"res://src/packages/SongPackageService.gd"
 )
+const ProjectStoreType := preload(
+	"res://src/screens/editor/EditorProjectStore.gd"
+)
 
 const TEST_ROOT := "user://song_package_library_tests"
 const TEST_PACKAGE_ID := "aurora-library-integration-test"
@@ -19,6 +22,7 @@ var song_manager: SongManager
 var settings_manager: SettingsManager
 var original_last_package_directory := ""
 var package_path := ""
+var editor_copy_root := ""
 
 
 func _initialize() -> void:
@@ -79,6 +83,7 @@ func _run() -> void:
 
 	_test_import_button_and_native_dialog(screen)
 	await _test_import_and_multichart_selection(screen)
+	screen = await _test_edit_selected_song(screen)
 	await _test_safe_rejection_and_authorized_deletion(screen)
 	_finish()
 
@@ -128,10 +133,20 @@ func _test_import_and_multichart_selection(
 		ProjectSettings.globalize_path(package_path)
 	)
 	_expect(
+		screen.package_install_panel != null
+		and not screen._is_package_import_active()
+		and screen.package_install_panel.install_button.text
+		== AuroraLocale.text("INSTALAR NIVEL"),
+		"Muestra título y contenido antes de instalar el paquete"
+	)
+	screen._confirm_package_install(
+		ProjectSettings.globalize_path(package_path)
+	)
+	_expect(
 		screen._is_package_import_active()
 		and screen.import_package_button.disabled
 		and screen.import_package_button.text
-		== AuroraLocale.text("IMPORTANDO..."),
+		== AuroraLocale.text("INSTALANDO..."),
 		"La importación se ejecuta sin bloquear la interfaz"
 	)
 	await _wait_for_package_import(screen)
@@ -192,6 +207,103 @@ func _test_import_and_multichart_selection(
 	)
 
 
+func _test_edit_selected_song(screen: SongSelect) -> SongSelect:
+	var package_song := _find_song(TEST_SONG_ID)
+	var package_index := _screen_song_index(screen, TEST_SONG_ID)
+	if package_song == null or package_index < 0:
+		_expect(false, "La canción importada existe antes de editarla")
+		return screen
+	screen._select_song(package_index, false)
+	screen._select_chart(1)
+	var source_chart := package_song.charts[1]
+	var source_chart_path := source_chart.chart_path
+	var source_chart_file := FileAccess.open(source_chart_path, FileAccess.READ)
+	var source_chart_text := (
+		source_chart_file.get_as_text()
+		if source_chart_file != null
+		else ""
+	)
+	_expect(
+		not screen.edit_button.disabled
+		and screen.edit_button.text
+		== AuroraLocale.text("EDITAR CANCION"),
+		"Una canción importada ofrece EDITAR CANCIÓN para el chart elegido"
+	)
+	screen._edit_selected_song()
+	await process_frame
+	await process_frame
+	await process_frame
+	var editor := scene_manager.current_scene as Editor
+	_expect(editor != null, "EDITAR CANCIÓN abre directamente el editor")
+	if editor == null:
+		return screen
+	editor_copy_root = editor.current_project_path.get_base_dir()
+	_expect(
+		editor.title_edit.text == package_song.title
+		and editor.artist_edit.text == package_song.artist
+		and editor.key_count == 4
+		and int(editor.difficulty_level_spin.value) == 8
+		and editor._get_difficulty_id() == "DIFICIL",
+		"El editor conserva nombre, creador, modo y dificultad seleccionada"
+	)
+	var timeline_ids: Array[int] = editor.timeline_state.get_note_ids()
+	var first_id: int = timeline_ids[0]
+	var original_first_time := float(editor.notes[0].get("time", 0.0))
+	editor._on_timeline_selection_requested(first_id, false, false)
+	editor._on_timeline_move_requested(0.25, 0)
+	editor.title_edit.text = "Biblioteca Editable"
+	editor.artist_edit.text = "Aurora Tester"
+	editor._select_difficulty("MAXIMA")
+	editor.difficulty_level_spin.value = 11.0
+	_expect(editor._save_project(), "La copia modificada se guarda desde el editor")
+	var saved: Dictionary = ProjectStoreType.load_bundle(
+		editor.current_project_path
+	)
+	var saved_project: Dictionary = saved.get("project", {})
+	var saved_media: Dictionary = saved_project.get("media", {})
+	var saved_notes: Array = saved.get("notes", [])
+	_expect(
+		bool(saved.get("ok", false))
+		and str(saved_project.get("package_id", "")) == TEST_PACKAGE_ID
+		and str(saved_project.get("package_version", "")) == "1.0.1"
+		and str(saved_project.get("source_song_id", ""))
+		== TEST_SONG_ID
+		and not str(
+			saved_project.get("source_chart_signature", "")
+		).is_empty()
+		and float(saved_notes[0].get("time", 0.0))
+		!= original_first_time,
+		"Guardar conserva el origen y prepara la siguiente versión del paquete"
+	)
+	var copied_audio_path := str(saved_media.get("audio_path", ""))
+	_expect(
+		copied_audio_path.begins_with(editor_copy_root + "/")
+		and FileAccess.file_exists(copied_audio_path)
+		and not copied_audio_path.begins_with(INSTALLED_PACKAGE_ROOT + "/"),
+		"La copia editable conserva su propio medio independiente"
+	)
+	var source_after := FileAccess.open(source_chart_path, FileAccess.READ)
+	_expect(
+		source_after != null
+		and source_after.get_as_text() == source_chart_text,
+		"Editar la copia no modifica el chart importado original"
+	)
+	scene_manager.load_scene("song_select")
+	await process_frame
+	await process_frame
+	var returned_screen := scene_manager.current_scene as SongSelect
+	_expect(
+		returned_screen != null
+		and returned_screen._get_selected_song() != null
+		and returned_screen._get_selected_song().title
+		== "Biblioteca Editable"
+		and returned_screen._get_selected_song().artist
+		== "Aurora Tester",
+		"Al volver, la biblioteca muestra inmediatamente el nombre y creador nuevos"
+	)
+	return returned_screen if returned_screen != null else screen
+
+
 func _test_safe_rejection_and_authorized_deletion(
 	screen: SongSelect
 ) -> void:
@@ -199,15 +311,17 @@ func _test_safe_rejection_and_authorized_deletion(
 	screen._on_package_file_selected(
 		ProjectSettings.globalize_path(package_path)
 	)
-	await _wait_for_package_import(screen)
 	_expect(
 		song_manager.get_all_songs().size() == duplicate_count
-		and screen.preview_status.text
-		== AuroraLocale.text(
-			"ESTE PAQUETE YA ESTA INSTALADO"
-		),
-		"Rechaza una importación duplicada sin reemplazar contenido"
+		and screen.package_install_panel != null
+		and screen.package_install_panel.install_button.disabled
+		and screen.package_install_panel.install_button.text
+		== AuroraLocale.text("YA INSTALADO")
+		and not screen._is_package_import_active(),
+		"Rechaza una importación duplicada antes de reemplazar contenido"
 	)
+	screen._close_package_install_confirmation()
+	await process_frame
 
 	var integrated_song := SongData.new()
 	integrated_song.song_id = &"integrated-protected-probe"
@@ -330,6 +444,7 @@ func _create_test_package() -> bool:
 	var manifest := {
 		"type": ServiceType.PACKAGE_TYPE,
 		"format_version": ServiceType.FORMAT_VERSION,
+		"package_version": "1.0.0",
 		"package_id": TEST_PACKAGE_ID,
 		"song": {
 			"song_id": "library-integration-song",
@@ -519,6 +634,13 @@ func _finish() -> void:
 			INSTALLED_PACKAGE_ROOT,
 			INSTALLED_PACKAGE_ROOT
 		)
+	if (
+		not editor_copy_root.is_empty()
+		and DirAccess.dir_exists_absolute(
+			ProjectSettings.globalize_path(editor_copy_root)
+		)
+	):
+		_remove_owned_tree(editor_copy_root, editor_copy_root)
 	_remove_owned_tree(TEST_ROOT, TEST_ROOT)
 	if failures.is_empty():
 		print("SONG PACKAGE LIBRARY TESTS PASSED")

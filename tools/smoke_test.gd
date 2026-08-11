@@ -50,10 +50,23 @@ func _run() -> void:
 
 	var original_locale := TranslationServer.get_locale()
 	TranslationServer.set_locale("en")
-	_expect(AuroraLocale.text("INICIAR") == "START", "La interfaz ofrece traducción al inglés")
+	_expect(
+		AuroraLocale.text("JUGAR") == "PLAY"
+		and AuroraLocale.text("CREAR") == "CREATE",
+		"El menú claro ofrece traducción al inglés"
+	)
 	TranslationServer.set_locale("es")
-	_expect(AuroraLocale.text("INICIAR") == "INICIAR", "La interfaz conserva los textos en español")
+	_expect(
+		AuroraLocale.text("JUGAR") == "JUGAR"
+		and AuroraLocale.text("CREAR") == "CREAR",
+		"El menú claro conserva los textos en español"
+	)
 	TranslationServer.set_locale(original_locale)
+	_expect(
+		str(ProjectSettings.get_setting("application/config/version", ""))
+		== "1.0.2",
+		"La compilación declara la versión 1.0.2"
+	)
 
 	var swapped_keys: Array = input_manager._assign_unique_keycode(
 		[KEY_D, KEY_F, KEY_J, KEY_K],
@@ -64,13 +77,16 @@ func _run() -> void:
 		swapped_keys == [KEY_F, KEY_D, KEY_J, KEY_K],
 		"Reasignar una tecla usada intercambia los carriles"
 	)
+	var default_controller_bindings: Dictionary = (
+		settings_manager.DEFAULT_SETTINGS["controller_bindings"]
+	)
 	_expect(
-		input_manager.get_mode_joy_buttons(4)
+		default_controller_bindings["4"]
 		== [JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT, JOY_BUTTON_X, JOY_BUTTON_B],
 		"El mando usa una distribución simétrica de cuatro carriles"
 	)
 	_expect(
-		input_manager.get_mode_joy_buttons(6)
+		default_controller_bindings["6"]
 		== [
 			JOY_BUTTON_DPAD_LEFT,
 			JOY_BUTTON_DPAD_UP,
@@ -81,7 +97,7 @@ func _run() -> void:
 		],
 		"El mando amplía la distribución correctamente a 6K"
 	)
-	var controller_8k: Array[int] = input_manager.get_mode_joy_buttons(8)
+	var controller_8k: Array = default_controller_bindings["8"]
 	_expect(
 		controller_8k.size() == 8
 		and controller_8k.front() == JOY_BUTTON_LEFT_SHOULDER
@@ -89,8 +105,8 @@ func _run() -> void:
 		"El modo 8K reserva los botones superiores para los carriles exteriores"
 	)
 	_expect(
-		input_manager.get_controller_action_button("confirm") == JOY_BUTTON_A
-		and input_manager.get_controller_action_button("pause") == JOY_BUTTON_START,
+		int(default_controller_bindings["actions"]["confirm"]) == JOY_BUTTON_A
+		and int(default_controller_bindings["actions"]["pause"]) == JOY_BUTTON_START,
 		"Las acciones generales del mando tienen una asignación configurable"
 	)
 	_expect(
@@ -150,10 +166,14 @@ func _run() -> void:
 			has_controller_event,
 			"El carril 4K %d acepta una entrada de mando" % (lane_index + 1)
 		)
+	var configured_4k_buttons: Array[int] = input_manager.get_mode_joy_buttons(4)
+	var configured_lane_label: String = input_manager.get_controller_button_label(
+		configured_4k_buttons[2]
+	)
 	input_manager._set_input_device(true, 0)
 	_expect(
-		input_manager.get_lane_input_label(4, 2, KEY_J) == "X",
-		"Gameplay muestra botones cuando se usa un mando Xbox"
+		input_manager.get_lane_input_label(4, 2, KEY_J) == configured_lane_label,
+		"Gameplay muestra la asignación configurada cuando se usa un mando"
 	)
 	input_manager._set_input_device(false)
 	_expect(
@@ -196,6 +216,7 @@ func _run() -> void:
 	demo_chart.difficulty_name = "NORMAL"
 	demo_chart.difficulty_level = 4
 	var demo_song := SongData.new()
+	demo_song.song_id = &"aurora_smoke_personal_record"
 	demo_song.title = "Prueba interna"
 	demo_song.artist = "Aurora"
 	demo_song.duration_seconds = 30.0
@@ -293,6 +314,37 @@ func _run() -> void:
 	await _check_screen(scene_manager, "main_menu", "MainMenu")
 	var main_menu = scene_manager.current_scene
 	if main_menu != null and main_menu.name == "MainMenu":
+		var menu_version_label: Label = main_menu.get_node_or_null(
+			"MenuMargins/PageLayout/Footer/VersionLabel"
+		)
+		_expect(
+			menu_version_label != null
+			and "v1.0.2" in menu_version_label.text,
+			"El menú principal muestra la versión 1.0.2"
+		)
+		_expect(
+			main_menu.main_buttons.menu_buttons.size() == 4
+			and main_menu.main_buttons.menu_buttons[0].text
+			== AuroraLocale.text("JUGAR")
+			and main_menu.main_buttons.menu_buttons[1].text
+			== AuroraLocale.text("CREAR")
+			and main_menu.main_buttons.menu_buttons[2].text
+			== AuroraLocale.text("OPCIONES"),
+			"El menú prioriza Jugar, Crear y después Opciones"
+		)
+		MainMenuButtons.remembered_action = &"editor"
+		main_menu.main_buttons.focus_default_button()
+		_expect(
+			root.gui_get_focus_owner()
+			== main_menu.main_buttons.menu_buttons[1],
+			"El menú recuerda la última opción enfocada al regresar"
+		)
+		MainMenuButtons.remembered_action = &"play"
+		_expect(
+			main_menu.update_button != null
+			and main_menu.update_status != null,
+			"El menú incluye un comprobador discreto de actualizaciones"
+		)
 		var character_idle = main_menu.get_node_or_null(
 			"MenuMargins/PageLayout/MenuBody/CharacterShowcase/IdleRig"
 		)
@@ -335,6 +387,30 @@ func _run() -> void:
 	await _check_screen(scene_manager, "song_select", "SongSelect")
 	var song_select = scene_manager.current_scene
 	if song_select != null and song_select.name == "SongSelect":
+		_expect(
+			song_select.share_package_button != null
+			and song_select.import_package_button != null,
+			"La biblioteca incluye intercambio local de niveles .aurora"
+		)
+		_expect(
+			song_select.share_package_button.get_parent().name == "ActionButtons"
+			and song_select.import_package_button.text
+			== AuroraLocale.text("INSTALAR NIVEL")
+			and song_select.share_package_button.text
+			== AuroraLocale.text("COMPARTIR NIVEL"),
+			"Instalar y Compartir quedan juntos y explican acciones diferentes"
+		)
+		song_select._open_local_package_share()
+		await process_frame
+		if song_select.share_panel != null:
+			_expect(
+				song_select.share_panel.song_selector != null
+				and song_select.share_panel.export_button != null
+				and song_select.share_panel.save_dialog.use_native_dialog,
+				"Compartir abre el flujo local dentro de Aurora"
+			)
+			song_select._close_local_package_share()
+			await process_frame
 		_expect(song_select.preview_video != null, "La biblioteca incluye vista previa de video")
 		_expect(song_select.preview_button != null, "La vista previa tiene un control visible")
 		_expect(song_select.delete_button != null, "La biblioteca incluye el botón de borrar")
@@ -628,7 +704,7 @@ func _run() -> void:
 				"El modo %dK mantiene los receptores bajo la línea" % chart.key_count
 			)
 
-	game_manager.complete_song({
+	var result_probe := {
 		"score": 123456,
 		"accuracy": 96.42,
 		"max_combo": 54,
@@ -643,7 +719,40 @@ func _run() -> void:
 		"early_hits": 31,
 		"late_hits": 14,
 		"on_time_hits": 8,
-	})
+	}
+	var original_personal_records: Dictionary = game_manager.personal_records.duplicate(true)
+	game_manager.personal_records.clear()
+	var first_record_update: Dictionary = game_manager.record_personal_result(
+		demo_song,
+		demo_song.charts[0],
+		result_probe,
+		false
+	)
+	var lower_record_probe := result_probe.duplicate(true)
+	lower_record_probe["score"] = 100000
+	lower_record_probe["accuracy"] = 92.0
+	lower_record_probe["max_combo"] = 40
+	var lower_record_update: Dictionary = game_manager.record_personal_result(
+		demo_song,
+		demo_song.charts[0],
+		lower_record_probe,
+		false
+	)
+	var stored_record: Dictionary = game_manager.get_personal_record(
+		demo_song,
+		demo_song.charts[0]
+	)
+	_expect(
+		bool(first_record_update.get("is_new_record", false))
+		and not bool(lower_record_update.get("is_new_record", true))
+		and int(stored_record.get("best_score", 0)) == 123456
+		and is_equal_approx(float(stored_record.get("best_accuracy", 0.0)), 96.42)
+		and int(stored_record.get("play_count", 0)) == 2,
+		"Los récords personales conservan las mejores métricas y cuentan partidas"
+	)
+	game_manager.personal_records = original_personal_records
+	game_manager.complete_song(result_probe, false)
+	game_manager.last_record_update = first_record_update
 	scene_manager.load_scene("results")
 	await process_frame
 	await process_frame
@@ -651,6 +760,12 @@ func _run() -> void:
 	_expect(results != null and results.name == "Results", "Resultados abre")
 	if results != null:
 		_expect(results.buttons.size() == 3, "Resultados ofrece tres acciones")
+		_expect(
+			results.new_record_label != null
+			and results.new_record_label.text
+			== AuroraLocale.text("NUEVO RÉCORD PERSONAL"),
+			"Resultados celebra un nuevo récord personal"
+		)
 		_expect(
 			results._get_clear_status({"total_notes": 60, "perfect": 60, "miss": 0})
 			== AuroraLocale.text("PARTIDA PERFECTA"),
@@ -840,6 +955,66 @@ func _run() -> void:
 		editor._refresh_editor_state()
 		_expect(editor._has_media(), "El editor acepta proyectos que solo usan audio")
 		_expect(not editor.record_button.disabled, "Un MP3 permite grabar notas sin video")
+		_expect(
+			editor.preview_audio_button != null
+			and editor.preview_audio_button.button_pressed,
+			"La vista previa ofrece un control de audio compacto y accesible"
+		)
+		editor._set_preview_audio_enabled(false)
+		_expect(
+			editor.audio_player.volume_db <= -79.0
+			and editor.preview_audio_button.text
+			== AuroraLocale.text("AUDIO: SILENCIO"),
+			"Silenciar la vista previa no depende del mezclador general"
+		)
+		editor._set_preview_audio_enabled(true)
+		_expect(
+			is_equal_approx(editor.audio_player.volume_db, 0.0),
+			"El audio de la vista previa se puede reactivar al instante"
+		)
+		editor.notes.clear()
+		editor.duration_seconds = 20.0
+		editor.preview_time = 2.12
+		editor._reset_editor_history()
+		editor._refresh_editor_state()
+		editor.quick_lane_option.select(2)
+		editor._add_quick_note(false)
+		editor.preview_time = 4.0
+		editor._add_quick_note(true)
+		_expect(
+			editor.notes.size() == 2
+			and float(editor.notes[1].get("duration", 0.0))
+			>= editor.timeline.get_snap_seconds()
+			and not editor.delete_selection_button.disabled,
+			"Manual añade notas y holds ajustables en el cursor aunque el medio esté pausado"
+		)
+		editor._timeline_delete_selection()
+		_expect(
+			editor.notes.size() == 1,
+			"El botón visible borra solo la nota seleccionada"
+		)
+		editor._undo_chart_action()
+		_expect(
+			editor.notes.size() == 2,
+			"Borrar una selección se puede deshacer"
+		)
+		editor.notes.clear()
+		editor._reset_editor_history()
+		editor.recording_snap_enabled = true
+		editor.preview_time = 2.13
+		editor._record_lane_pressed(1)
+		editor.preview_time = 2.39
+		editor._record_lane_released(1)
+		var recording_snap_seconds: float = editor.timeline.get_snap_seconds()
+		_expect(
+			editor.notes.size() == 1
+			and is_equal_approx(
+				float(editor.notes[0].get("time", -1.0)),
+				snappedf(snappedf(2.13, recording_snap_seconds), 0.001)
+			),
+			"La grabación manual ajusta las notas a la cuadrícula activa"
+		)
+		editor.notes.clear()
 		editor.audio_player.stream = null
 		editor._set_creation_mode("automatic")
 		editor._refresh_editor_state()
@@ -851,6 +1026,16 @@ func _run() -> void:
 			< editor.duration_seconds,
 			"El timeline ofrece ajuste, zoom y un viewport desplazable"
 		)
+		editor.timeline.set_scroll_time(0.0)
+		editor._seek_preview(18.0)
+		_expect(
+			editor.timeline.viewport_model.get_visible_start() > 0.0
+			and editor.timeline.viewport_model.is_note_visible({
+				"time": editor.preview_time,
+				"duration": 0.0,
+			}),
+			"Buscar en el medio también desplaza la línea de tiempo al cursor amarillo"
+		)
 		_expect(editor.record_button != null, "El editor ofrece grabación manual de notas")
 		_expect(
 			editor.creation_mode_switch != null
@@ -860,12 +1045,30 @@ func _run() -> void:
 		)
 		_expect(
 			editor.manual_tools_container != null
+			and editor.manual_quick_tools_container != null
 			and editor.automatic_tools_container != null
 			and editor.shared_tools_container != null
 			and editor.record_button.get_parent() == editor.manual_tools_container
 			and editor.generate_button.get_parent() == editor.automatic_tools_container
 			and editor.test_button.get_parent() == editor.shared_tools_container,
 			"El editor separa herramientas manuales, automáticas y compartidas"
+		)
+		_expect(
+			editor.quick_lane_option.get_parent() == editor.manual_quick_tools_container
+			and editor.quick_add_hold_button.text == AuroraLocale.text("+ MANTENER")
+			and editor.test_button.text == AuroraLocale.text("▶ PROBAR NIVEL")
+			and editor.package_version_edit.text == "1.0.0",
+			"Creación reúne las acciones rápidas y usa nombres claros"
+		)
+		_expect(
+			editor.generate_button.text == AuroraLocale.text("CREAR PLANTILLA")
+			and editor.generate_button.tooltip_text
+			== AuroraLocale.text(
+				"CREA UNA BASE EDITABLE; NO ANALIZA AUTOMÁTICAMENTE LA CANCIÓN"
+			)
+			and editor.bpm_spin.get_parent()
+			!= editor.automatic_properties_container,
+			"Automático se presenta como plantilla editable y BPM sigue visible en Manual"
 		)
 		_expect(
 			editor.automatic_tools_container.visible
@@ -989,6 +1192,21 @@ func _run() -> void:
 		editor._reset_editor_history()
 		editor._refresh_editor_state()
 		editor._set_properties_collapsed(false)
+		await process_frame
+		await process_frame
+		editor._set_preview_collapsed(true)
+		editor._set_creation_collapsed(true)
+		await process_frame
+		await process_frame
+		_expect(
+			not editor.preview_panel.visible
+			and not editor.creation_tools_container.visible
+			and editor.preview_toggle_button.visible
+			and editor.creation_toggle_button.visible,
+			"Video y Creación se pueden contraer sin ocultar sus controles de retorno"
+		)
+		editor._set_preview_collapsed(false)
+		editor._set_creation_collapsed(false)
 		await process_frame
 		await process_frame
 		var expanded_timeline_width: float = editor.timeline.size.x

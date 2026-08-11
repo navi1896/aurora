@@ -13,9 +13,9 @@ const ACTION_BY_BUTTON := {
 }
 
 const LABEL_BY_BUTTON := {
-	&"BtnStart": "INICIAR",
+	&"BtnStart": "JUGAR",
 	&"BtnOptions": "OPCIONES",
-	&"BtnLevelEditor": "EDITOR DE NIVELES",
+	&"BtnLevelEditor": "CREAR",
 	&"BtnExit": "SALIR",
 }
 
@@ -30,6 +30,7 @@ const LABEL_BY_BUTTON := {
 @export var selected_text_color := Color.WHITE
 
 var menu_buttons: Array[Button] = []
+static var remembered_action: StringName = &"play"
 
 
 func _ready() -> void:
@@ -43,6 +44,10 @@ func focus_default_button() -> void:
 	# Selects the configured starting option without activating it.
 	if menu_buttons.is_empty():
 		return
+	for button in menu_buttons:
+		if ACTION_BY_BUTTON.get(button.name, StringName()) == remembered_action:
+			button.grab_focus()
+			return
 	var safe_index := clampi(default_button_index, 0, menu_buttons.size() - 1)
 	menu_buttons[safe_index].grab_focus()
 
@@ -78,6 +83,7 @@ func _connect_button_behavior() -> void:
 func _emit_focus_change(button: Button) -> void:
 	var action: StringName = ACTION_BY_BUTTON.get(button.name, StringName())
 	if action != &"":
+		remembered_action = action
 		focus_changed.emit(action)
 
 

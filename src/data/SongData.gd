@@ -3,6 +3,7 @@ extends Resource
 class_name SongData
 
 @export var song_id: StringName
+@export var package_version := "1.0.0"
 @export var title := ""
 @export var artist := ""
 @export var cover: Texture2D

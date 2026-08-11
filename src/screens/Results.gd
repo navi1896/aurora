@@ -8,6 +8,7 @@ var input_manager: InputManager
 var buttons: Array[Button] = []
 var actions: Array[String] = []
 var selected_button := 0
+var new_record_label: Label
 
 
 func _ready() -> void:
@@ -24,6 +25,7 @@ func setup_ui() -> void:
 	AuroraUi.clear(self)
 	buttons.clear()
 	actions.clear()
+	new_record_label = null
 	_build_background()
 	_build_header()
 	_build_result_card()
@@ -148,6 +150,14 @@ func _build_result_card() -> void:
 	)
 	complete.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rank_box.add_child(complete)
+	if bool(game_manager.last_record_update.get("is_new_record", false)):
+		new_record_label = AuroraUi.make_pixel_label(
+			AuroraLocale.text("NUEVO RÉCORD PERSONAL"),
+			10,
+			AuroraUi.GOLD
+		)
+		new_record_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		rank_box.add_child(new_record_label)
 
 	var rank_label := AuroraUi.make_pixel_label(rank, 128, rank_color)
 	rank_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -372,17 +382,7 @@ func _add_stat_cell(parent: GridContainer, stat_name: String, value: String, col
 
 
 func _get_rank(accuracy: float, misses: int) -> String:
-	if accuracy >= 99.0 and misses == 0:
-		return "S+"
-	if accuracy >= 95.0:
-		return "S"
-	if accuracy >= 88.0:
-		return "A"
-	if accuracy >= 78.0:
-		return "B"
-	if accuracy >= 65.0:
-		return "C"
-	return "D"
+	return GameManager.get_rank(accuracy, misses)
 
 
 func _get_rank_color(rank: String) -> Color:
