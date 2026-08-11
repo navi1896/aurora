@@ -211,6 +211,82 @@ func move_selection(
 	return commit_result
 
 
+func snap_selection(
+	state: EditorChartState,
+	snap_seconds: float,
+	minimum_duration_seconds: float = DEFAULT_MIN_HOLD_DURATION
+) -> Dictionary:
+	var readiness := _validate_operation_state(state, true)
+	if not bool(readiness.get("ok", false)):
+		return readiness
+	if (
+		not _is_finite_number(snap_seconds)
+		or not _is_finite_number(minimum_duration_seconds)
+		or snap_seconds <= TIME_EPSILON
+		or minimum_duration_seconds <= 0.0
+	):
+		return _error(
+			"invalid_snap",
+			"El intervalo de ajuste no es válido."
+		)
+
+	var selected_lookup := _make_id_lookup(state.selected_note_ids)
+	var next_notes: Array[Dictionary] = []
+	var snapped_count := 0
+	for source in state.notes:
+		var note: Dictionary = source.duplicate(true)
+		var note_id := int(note.get(EditorChartState.EDITOR_ID_KEY, 0))
+		if selected_lookup.has(note_id):
+			var source_time := float(note.get("time", 0.0))
+			var source_duration := float(note.get("duration", 0.0))
+			var next_time := clampf(
+				snappedf(source_time, snap_seconds),
+				0.0,
+				state.duration_seconds
+			)
+			if source_duration > TIME_EPSILON:
+				if state.duration_seconds + TIME_EPSILON < minimum_duration_seconds:
+					return _error(
+						"duration_out_of_bounds",
+						"El chart es demasiado corto para ajustar una nota sostenida.",
+						{"note_id": note_id}
+					)
+				next_time = minf(
+					next_time,
+					state.duration_seconds - minimum_duration_seconds
+				)
+				var source_end := source_time + source_duration
+				var next_end := clampf(
+					snappedf(source_end, snap_seconds),
+					0.0,
+					state.duration_seconds
+				)
+				if next_end < next_time + minimum_duration_seconds:
+					next_end = minf(
+						state.duration_seconds,
+						next_time + maxf(minimum_duration_seconds, snap_seconds)
+					)
+				note["duration"] = next_end - next_time
+			note["time"] = next_time
+			if (
+				absf(next_time - source_time) > TIME_EPSILON
+				or absf(float(note.get("duration", 0.0)) - source_duration) > TIME_EPSILON
+			):
+				snapped_count += 1
+		next_notes.append(note)
+
+	var next_selection: Array[int] = []
+	next_selection.assign(state.selected_note_ids)
+	var commit_result := _commit_candidate(
+		state,
+		next_notes,
+		next_selection
+	)
+	if bool(commit_result.get("ok", false)):
+		commit_result["snapped_count"] = snapped_count
+	return commit_result
+
+
 func resize_hold(
 	state: EditorChartState,
 	note_id: int,

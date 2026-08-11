@@ -20,6 +20,8 @@ func _run() -> void:
 	_test_delete_selection()
 	_test_move_with_snapping_and_bounds()
 	_test_move_rejects_overlap_transactionally()
+	_test_snap_selection_to_active_grid()
+	_test_snap_selection_rejects_collision_transactionally()
 	_test_hold_resize_and_minimum_duration()
 	_test_copy_paste_and_duplicate_ids()
 	_test_duplicate_and_overlap_detection()
@@ -181,6 +183,64 @@ func _test_move_rejects_overlap_transactionally() -> void:
 	_expect(
 		state.state_equals(before),
 		"Un movimiento rechazado no altera notas, IDs ni selección"
+	)
+
+
+func _test_snap_selection_to_active_grid() -> void:
+	var state = EditorChartStateType.new(
+		[
+			{"time": 1.12, "lane": 0, "duration": 0.0},
+			{"time": 2.13, "lane": 1, "duration": 0.0},
+			{"time": 3.11, "lane": 2, "duration": 0.64},
+			{"time": 5.10, "lane": 3, "duration": 0.0},
+		],
+		4,
+		10.0
+	)
+	var operations = TimelineEditOperationsType.new()
+	var ids: Array[int] = state.get_note_ids()
+	var selected_ids: Array[int] = [ids[0], ids[1], ids[2]]
+	operations.select_notes(state, selected_ids)
+	var result: Dictionary = operations.snap_selection(state, 0.25, 0.18)
+	var snapped_hold: Dictionary = state.get_note_by_id(ids[2])
+
+	_expect(
+		bool(result.get("ok", false))
+		and bool(result.get("changed", false))
+		and int(result.get("snapped_count", 0)) == 3,
+		"Ajustar selección modifica únicamente las notas fuera de la cuadrícula"
+	)
+	_expect(
+		_has_note(state, ids[0], 1.0, 0)
+		and _has_note(state, ids[1], 2.25, 1)
+		and _has_note(state, ids[2], 3.0, 2)
+		and is_equal_approx(float(snapped_hold.get("duration", 0.0)), 0.75)
+		and _has_note(state, ids[3], 5.10, 3)
+		and state.selected_note_ids == selected_ids,
+		"Ajustar selección alinea inicios y final de holds sin tocar notas ajenas"
+	)
+
+
+func _test_snap_selection_rejects_collision_transactionally() -> void:
+	var state = EditorChartStateType.new(
+		[
+			{"time": 1.14, "lane": 0, "duration": 0.0},
+			{"time": 1.25, "lane": 0, "duration": 0.0},
+		],
+		4,
+		10.0
+	)
+	var operations = TimelineEditOperationsType.new()
+	var ids: Array[int] = state.get_note_ids()
+	operations.select_note(state, ids[0])
+	var before = state.duplicate_state()
+	var result: Dictionary = operations.snap_selection(state, 0.25, 0.18)
+
+	_expect(
+		not bool(result.get("ok", true))
+		and str(result.get("error_code", "")) == "duplicate_note"
+		and state.state_equals(before),
+		"Ajustar selección rechaza colisiones sin alterar el chart"
 	)
 
 

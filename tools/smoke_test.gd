@@ -1038,10 +1038,13 @@ func _run() -> void:
 		)
 		_expect(editor.record_button != null, "El editor ofrece grabación manual de notas")
 		_expect(
-			editor.creation_mode_switch != null
-			and editor.manual_mode_label != null
-			and editor.automatic_mode_label != null,
-			"Manual y Automática se distinguen con un interruptor"
+			editor.automatic_mode_button != null
+			and editor.manual_mode_button != null
+			and editor.automatic_mode_button.button_pressed
+			and not editor.manual_mode_button.button_pressed
+			and editor.automatic_mode_button.focus_mode == Control.FOCUS_ALL
+			and editor.manual_mode_button.focus_mode == Control.FOCUS_ALL,
+			"Manual y Automático se distinguen con tarjetas grandes y navegables"
 		)
 		_expect(
 			editor.manual_tools_container != null
@@ -1049,8 +1052,9 @@ func _run() -> void:
 			and editor.automatic_tools_container != null
 			and editor.shared_tools_container != null
 			and editor.record_button.get_parent() == editor.manual_tools_container
-			and editor.generate_button.get_parent() == editor.automatic_tools_container
-			and editor.test_button.get_parent() == editor.shared_tools_container,
+			and editor.automatic_tools_container.is_ancestor_of(editor.generate_button)
+			and editor.test_button.name == "TestLevelButton"
+			and not editor.shared_tools_container.is_ancestor_of(editor.test_button),
 			"El editor separa herramientas manuales, automáticas y compartidas"
 		)
 		_expect(
@@ -1061,31 +1065,79 @@ func _run() -> void:
 			"Creación reúne las acciones rápidas y usa nombres claros"
 		)
 		_expect(
-			editor.generate_button.text == AuroraLocale.text("CREAR PLANTILLA")
+			editor.generate_button.text == AuroraLocale.text("GENERAR NIVEL")
 			and editor.generate_button.tooltip_text
 			== AuroraLocale.text(
 				"CREA UNA BASE EDITABLE; NO ANALIZA AUTOMÁTICAMENTE LA CANCIÓN"
 			)
 			and editor.bpm_spin.get_parent()
-			!= editor.automatic_properties_container,
-			"Automático se presenta como plantilla editable y BPM sigue visible en Manual"
+			!= editor.automatic_properties_container
+			and editor.automatic_tools_container.is_ancestor_of(editor.key_count_option)
+			and editor.automatic_tools_container.is_ancestor_of(editor.difficulty_option),
+			"Automático presenta un flujo corto y mantiene los ajustes técnicos separados"
 		)
 		_expect(
 			editor.automatic_tools_container.visible
-			and editor.automatic_properties_container.visible
+			and editor.generate_button.visible
+			and editor.automatic_summary_stats_container.visible
+			and editor.properties_scroll.visible
+			and editor.bpm_spin.is_visible_in_tree()
+			and editor.density_option.is_visible_in_tree()
+			and editor.automatic_holds_toggle.is_visible_in_tree()
+			and not editor.automatic_properties_container.visible
 			and not editor.manual_tools_container.visible
 			and not editor.manual_properties_container.visible,
-			"El modo Automático solo muestra sus controles relevantes"
+			"El modo Automático ofrece decisiones esenciales editables en un resumen compacto"
 		)
+		editor._toggle_advanced_settings()
+		_expect(
+			editor.advanced_settings_visible
+			and editor.properties_scroll.visible
+			and editor.automatic_properties_container.visible,
+			"Los ajustes técnicos de Automático aparecen solo al solicitarlos"
+		)
+		editor._toggle_advanced_settings()
 		editor._set_creation_mode("manual")
 		_expect(
 			editor.manual_tools_container.visible
-			and editor.manual_properties_container.visible
+			and not editor.manual_properties_container.visible
 			and not editor.automatic_tools_container.visible
-			and not editor.automatic_properties_container.visible,
-			"El modo Manual solo muestra grabación y ayuda manual"
+			and not editor.automatic_generate_step.visible
+			and not editor.generate_button.visible
+			and editor.properties_scroll.visible
+			and editor.manual_gameplay_summary_container.visible
+			and editor.manual_gameplay_summary_container.is_ancestor_of(
+				editor.key_count_option
+			)
+			and editor.manual_gameplay_summary_container.is_ancestor_of(
+				editor.difficulty_option
+			)
+			and editor.manual_gameplay_summary_container.is_ancestor_of(
+				editor.difficulty_level_spin
+			)
+			and not editor.automatic_properties_container.visible
+			and not editor.automatic_summary_stats_container.visible
+			and not editor.advanced_settings_button.visible
+			and editor.manual_mode_button.button_pressed,
+			"Manual mueve teclas, categoría y nivel al resumen sin duplicarlos en el centro"
 		)
 		editor._set_creation_mode("automatic")
+		_expect(
+			editor.automatic_tools_container.visible
+			and not editor.manual_gameplay_summary_container.visible
+			and editor.automatic_tools_container.is_ancestor_of(editor.key_count_option)
+			and editor.automatic_tools_container.is_ancestor_of(editor.difficulty_option)
+			and editor.automatic_tools_container.is_ancestor_of(
+				editor.difficulty_level_spin
+			),
+			"Automático recupera los tres pasos en el flujo central"
+		)
+		_expect(
+			editor.snap_selection_button != null
+			and editor.snap_selection_button.text
+			== AuroraLocale.text("AJUSTAR SELECCIÓN"),
+			"Manual ofrece una acción explícita para ajustar solo la selección"
+		)
 		editor._select_difficulty("hard")
 		_expect(
 			editor._get_difficulty_id() == "DIFICIL",
@@ -1099,10 +1151,11 @@ func _run() -> void:
 		editor._select_difficulty("normal")
 		_expect(
 			editor.duration_value_label != null
-			and editor.duration_value_label.visible
 			and editor.duration_spin != null
-			and not editor.duration_spin.visible,
-			"La duración detectada se muestra sin permitir edición manual"
+			and not editor.duration_value_label.is_visible_in_tree()
+			and not editor.duration_spin.is_visible_in_tree()
+			and not editor.package_version_edit.editable,
+			"Duración y versión del paquete se administran internamente sin contaminar la interfaz"
 		)
 		_expect(
 			editor.tap_bpm_button != null
@@ -1202,13 +1255,20 @@ func _run() -> void:
 			not editor.preview_panel.visible
 			and not editor.creation_tools_container.visible
 			and editor.preview_toggle_button.visible
-			and editor.creation_toggle_button.visible,
+			and editor.creation_toggle_button.visible
+			and editor.creation_toggle_button.text == AuroraLocale.text("MOSTRAR"),
 			"Video y Creación se pueden contraer sin ocultar sus controles de retorno"
 		)
 		editor._set_preview_collapsed(false)
 		editor._set_creation_collapsed(false)
 		await process_frame
 		await process_frame
+		_expect(
+			editor.creation_tools_container.visible
+			and editor.creation_toggle_button.visible
+			and editor.creation_toggle_button.text == AuroraLocale.text("OCULTAR"),
+			"El panel de Creación puede mostrarse de nuevo después de ocultarlo"
+		)
 		var expanded_timeline_width: float = editor.timeline.size.x
 		editor._set_properties_collapsed(true)
 		await process_frame
@@ -1277,6 +1337,21 @@ func _run() -> void:
 			),
 			"La generación automática también crea notas sostenidas"
 		)
+		var generated_without_holds: Array[Dictionary] = editor._build_automatic_notes(
+			128.0,
+			20.0,
+			4,
+			1,
+			false
+		)
+		_expect(
+			generated_without_holds.all(
+				func(note: Dictionary) -> bool: return is_zero_approx(
+					float(note.get("duration", 0.0))
+				)
+			),
+			"Automático permite desactivar los holds sin afectar las notas normales"
+		)
 		_expect(
 			editor.size.y <= 1080.0 and editor.timeline.global_position.y < 1080.0,
 			"El editor mantiene sus controles principales dentro de 1920x1080"
@@ -1287,8 +1362,14 @@ func _run() -> void:
 		_expect(
 			int(editor_project_document.get("version", 0))
 			== PROJECT_STORE.PROJECT_VERSION
+			and bool(
+				editor_project_document.get("metadata", {}).get(
+					"automatic_holds_enabled",
+					false
+				)
+			)
 			and not editor_project_document.has("notes"),
-			"El editor usa chart.json como única fuente de notas"
+			"El editor guarda opciones automáticas y usa chart.json como única fuente de notas"
 		)
 		var smoke_timeline_notes: Array[Dictionary] = [
 			{"time": 1.0, "lane": 0, "duration": 0.0},
