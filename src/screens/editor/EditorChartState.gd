@@ -4,6 +4,7 @@ class_name EditorChartState
 
 const EDITOR_ID_KEY := "_editor_id"
 
+var cinematic_sections: Array[Dictionary] = []
 var notes: Array[Dictionary] = []
 var key_count := 4
 var duration_seconds := 120.0
@@ -31,6 +32,7 @@ func duplicate_state() -> EditorChartState:
 		duration_seconds,
 		selected_note_ids
 	)
+	copy.cinematic_sections = cinematic_sections.duplicate(true)
 	copy._next_note_id = _next_note_id
 	return copy
 
@@ -123,6 +125,7 @@ func document_equals(other: EditorChartState) -> bool:
 		key_count == other.key_count
 		and is_equal_approx(duration_seconds, other.duration_seconds)
 		and notes == other.notes
+		and cinematic_sections == other.cinematic_sections
 	)
 
 

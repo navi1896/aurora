@@ -45,7 +45,13 @@ static func save_bundle(
 	if chart_path == normalized_project_path:
 		return _failure(ERR_INVALID_PARAMETER, "El proyecto y el chart no pueden usar el mismo archivo.")
 
+	if not ChartData.CINEMATICS.is_valid(chart_document.get("cinematic_sections", [])):
+		return _failure(ERR_INVALID_DATA, "Los tramos de cinemática no son válidos.")
 	var normalized_chart := _normalize_chart_document(chart_document)
+	if chart_document.has("side_notes") and not ChartData.is_valid_side_notes(chart_document["side_notes"]):
+		return _failure(ERR_INVALID_DATA, "Las notas laterales contienen datos no válidos.")
+	if ChartData.normalize_side_notes(chart_document.get("side_notes", [])).size() != (chart_document.get("side_notes", []) as Array).size():
+		return _failure(ERR_INVALID_DATA, "Convierte las notas laterales a segundos antes de guardarlas.")
 	if not _is_well_formed_chart_document(normalized_chart):
 		return _failure(ERR_INVALID_DATA, "El chart contiene datos no válidos.")
 
@@ -191,6 +197,12 @@ static func load_bundle(project_path: String) -> Dictionary:
 		"project": project,
 		"chart": chart,
 		"notes": normalized_notes,
+		"side_notes": ChartData.normalize_side_notes(chart.get("side_notes", [])),
+		"shift_notes": ChartData.normalize_shift_notes(
+			chart.get("shift_notes", []),
+			int(metadata.get("key_count", chart.get("key_count", 4)))
+		),
+		"cinematic_sections": ChartData.CINEMATICS.normalize(chart.get("cinematic_sections", [])),
 		"needs_migration": (
 			int(project.get("version", 1)) < PROJECT_VERSION
 			or project.has("notes")
@@ -204,7 +216,10 @@ static func _normalize_chart_document(chart_document: Dictionary) -> Dictionary:
 	return ChartData.make_chart_document(
 		chart_document.get("notes", []),
 		key_count,
-		float(chart_document.get("offset_seconds", 0.0))
+		float(chart_document.get("offset_seconds", 0.0)),
+		chart_document.get("side_notes", []),
+		chart_document.get("cinematic_sections", []),
+		chart_document.get("shift_notes", [])
 	)
 
 

@@ -557,8 +557,9 @@ func _build_gameplay_settings() -> void:
 
 	var notes := _add_section("LECTURA DE NOTAS", "Estos cambios también estarán disponibles desde la pausa.")
 	_add_slider_row(notes, "Velocidad de notas", "note_speed", 1.0, 10.0, 0.1, "speed")
-	_add_slider_row(notes, "Opacidad de la pista", "lane_opacity", 0.25, 1.0, 0.05, "percent")
-	_add_slider_row(notes, "Oscurecer fondo", "background_dim", 0.0, 0.9, 0.05, "percent")
+	_add_slider_row(notes, "Opacidad de la pista", "lane_opacity", 0.0, 1.0, 0.01, "percent")
+	_add_slider_row(notes, "Oscurecer fondo", "background_dim", 0.0, 1.0, 0.01, "percent")
+	_add_toggle_row(notes, "Tramos de cinemática", "cinematic_sections_enabled", "Oculta brevemente la pista en los tramos del nivel. Reaparece antes de las notas.")
 	_add_toggle_row(notes, "Mostrar teclas de carril", "show_lane_labels", "Muestra la tecla asignada dentro de cada receptor.")
 	_add_toggle_row(notes, "Efectos de impacto", "show_hit_effects", "Destello breve al pulsar una nota.")
 
@@ -814,6 +815,11 @@ func _build_credits_settings() -> void:
 	var project := _add_section(
 		"AURORA",
 		"Juego de ritmo, biblioteca local y editor de niveles."
+	)
+	_add_credit_entry(
+		project, "EFECTO PERFECT PLAY", "DJMAX // referencia local",
+		"Audio de terceros; animación recreada en Aurora. Ver avisos de terceros.",
+		AuroraUi.TEAL
 	)
 	_add_credit_entry(
 		project,

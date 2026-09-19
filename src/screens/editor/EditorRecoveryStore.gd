@@ -12,8 +12,13 @@ static func save_snapshot(
 	recovery_path: String,
 	project_document: Dictionary,
 	raw_notes: Array,
-	source_project_path: String
+	source_project_path: String,
+	raw_side_notes: Array = [],
+	raw_cinematic_sections: Array = [],
+	raw_shift_notes: Array = []
 ) -> Dictionary:
+	if not ChartData.CINEMATICS.is_valid(raw_cinematic_sections):
+		return _failure(ERR_INVALID_DATA, "Los tramos de cinemática no son válidos.")
 	var normalized_path := recovery_path.simplify_path()
 	if normalized_path.is_empty() or normalized_path.get_extension().to_lower() != "json":
 		return _failure(ERR_INVALID_PARAMETER, "La ruta de recuperación no es válida.")
@@ -25,6 +30,8 @@ static func save_snapshot(
 	var metadata: Dictionary = metadata_value
 	var key_count := clampi(int(metadata.get("key_count", 4)), 1, 16)
 	var normalized_notes := ChartData.normalize_notes(raw_notes, key_count)
+	if not ChartData.is_valid_side_notes(raw_side_notes):
+		return _failure(ERR_INVALID_DATA, "Las notas laterales no se pueden recuperar.")
 	if normalized_notes.size() != raw_notes.size():
 		return _failure(ERR_INVALID_DATA, "El chart contiene notas que no se pueden recuperar.")
 
@@ -34,7 +41,7 @@ static func save_snapshot(
 		"saved_unix": Time.get_unix_time_from_system(),
 		"source_project_path": source_project_path.simplify_path(),
 		"project": project_document.duplicate(true),
-		"chart": ChartData.make_chart_document(normalized_notes, key_count),
+		"chart": ChartData.make_chart_document(normalized_notes, key_count, 0.0, raw_side_notes, raw_cinematic_sections, raw_shift_notes),
 	}
 	var directory_error := DirAccess.make_dir_recursive_absolute(
 		ProjectSettings.globalize_path(normalized_path.get_base_dir())
@@ -90,6 +97,12 @@ static func load_snapshot(recovery_path: String) -> Dictionary:
 		"saved_unix": float(snapshot.get("saved_unix", 0.0)),
 		"project": (snapshot["project"] as Dictionary).duplicate(true),
 		"chart": chart.duplicate(true),
+		"side_notes": ChartData.normalize_side_notes(chart.get("side_notes", [])),
+		"shift_notes": ChartData.normalize_shift_notes(
+			chart.get("shift_notes", []),
+			int(chart.get("key_count", 4))
+		),
+		"cinematic_sections": ChartData.CINEMATICS.normalize(chart.get("cinematic_sections", [])),
 		"notes": ChartData.normalize_notes(
 			chart.get("notes", []),
 			int(chart.get("key_count", 4))
@@ -138,7 +151,12 @@ static func _is_valid_snapshot(value: Variant) -> bool:
 	if key_count < 1 or key_count > 16:
 		return false
 	var notes: Array = chart["notes"]
-	return ChartData.normalize_notes(notes, key_count).size() == notes.size()
+	return (
+		ChartData.normalize_notes(notes, key_count).size() == notes.size()
+		and ChartData.is_valid_side_notes(chart.get("side_notes", []))
+		and ChartData.is_valid_shift_notes(chart.get("shift_notes", []), key_count)
+		and ChartData.CINEMATICS.is_valid(chart.get("cinematic_sections", []))
+	)
 
 
 static func _write_json(path: String, data: Dictionary) -> Error:

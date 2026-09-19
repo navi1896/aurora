@@ -2,6 +2,7 @@ extends Control
 
 class_name Editor
 
+const CINEMATIC_SECTION_EDITOR := preload("res://src/screens/editor/CinematicSectionEditor.gd")
 const PROJECT_STORE = preload("res://src/screens/editor/EditorProjectStore.gd")
 const RECOVERY_STORE = preload("res://src/screens/editor/EditorRecoveryStore.gd")
 const CHART_STATE_MODEL = preload("res://src/screens/editor/EditorChartState.gd")
@@ -38,6 +39,7 @@ const MIN_HOLD_DURATION := 0.18
 const DEFAULT_PACKAGE_VERSION := "1.0.0"
 const SUPPORTED_KEY_COUNTS: Array[int] = [4, 6, 8]
 const DIRECT_VIDEO_EXTENSIONS: Array[String] = ["ogv"]
+const COVER_EXTENSIONS: Array[String] = ["png", "jpg", "jpeg", "webp"]
 const CONVERTIBLE_VIDEO_EXTENSIONS: Array[String] = [
 	"mp4",
 	"mov",
@@ -73,10 +75,15 @@ var song_manager: SongManager
 var settings_manager: SettingsManager
 
 var notes: Array[Dictionary] = []
+var shift_notes: Array[Dictionary] = []
+var cinematic_sections: Array[Dictionary] = []
+var cinematic_section_editor: VBoxContainer
+var side_notes: Array[Dictionary] = [] # Imported automatic tracks; preserve when editing the four-key chart.
 var active_recording_holds: Dictionary = {}
 var video_path := ""
 var video_source_path := ""
 var audio_path := ""
+var cover_path := ""
 var current_project_path := ""
 var package_id := ""
 var package_version := DEFAULT_PACKAGE_VERSION
@@ -101,6 +108,7 @@ var package_exporter: EditorPackageExporter
 var latest_tap_bpm_estimate: Dictionary = {}
 var latest_chart_difficulty_estimate: Dictionary = {}
 var saved_metadata_signature := ""
+var saved_shift_notes_signature := ""
 var suppress_dirty_tracking := true
 var pending_confirmation_action := Callable()
 var recovery_timer: Timer
@@ -160,6 +168,8 @@ var key_legend: HBoxContainer
 var quick_lane_option: OptionButton
 var quick_add_tap_button: Button
 var quick_add_hold_button: Button
+var quick_shift_pair_option: OptionButton
+var quick_add_shift_button: Button
 var recording_snap_toggle: CheckButton
 var tap_bpm_button: Button
 var tap_bpm_use_button: Button
@@ -196,10 +206,12 @@ var waveform_toggle_button: Button
 var waveform_status_label: Label
 var video_dialog: FileDialog
 var audio_dialog: FileDialog
+var cover_dialog: FileDialog
 var project_dialog: FileDialog
 var package_export_dialog: FileDialog
 var video_select_button: Button
 var audio_select_button: Button
+var cover_select_button: Button
 var back_button: Button
 var new_project_button: Button
 var open_project_button: Button
@@ -515,6 +527,14 @@ func _build_preview(workspace: VBoxContainer) -> void:
 	)
 	audio_select_button.pressed.connect(_open_audio_dialog)
 	preview_badge_row.add_child(audio_select_button)
+	cover_select_button = _make_tool_button(AuroraLocale.text("PORTADA CARGA"), 126.0)
+	cover_select_button.name = "LoadingCoverButton"
+	cover_select_button.custom_minimum_size.y = 34.0
+	cover_select_button.tooltip_text = AuroraLocale.text(
+		"IMAGEN OPCIONAL PARA LA PANTALLA DE CARGA. SIN ELLA SE USA UNA FICHA AUTOMÁTICA."
+	)
+	cover_select_button.pressed.connect(_open_cover_dialog)
+	preview_badge_row.add_child(cover_select_button)
 	preview_audio_button = _make_tool_button(
 		AuroraLocale.text("AUDIO: ACTIVO"),
 		126.0
@@ -743,6 +763,22 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	)
 	quick_add_hold_button.pressed.connect(_add_quick_note.bind(true))
 	manual_quick_tools_container.add_child(quick_add_hold_button)
+	quick_shift_pair_option = OptionButton.new()
+	quick_shift_pair_option.name = "QuickShiftPair"
+	quick_shift_pair_option.custom_minimum_size = Vector2(152.0, 34.0)
+	quick_shift_pair_option.tooltip_text = AuroraLocale.text(
+		"ELIGE DOS CARRILES QUE SE DEBEN PULSAR AL MISMO TIEMPO"
+	)
+	AuroraUi.apply_pixel_font(quick_shift_pair_option, 7)
+	manual_quick_tools_container.add_child(quick_shift_pair_option)
+	quick_add_shift_button = _make_tool_button(AuroraLocale.text("+ SHIFT HOLD"), 142.0)
+	quick_add_shift_button.custom_minimum_size.y = 34.0
+	quick_add_shift_button.name = "QuickAddShift"
+	quick_add_shift_button.tooltip_text = AuroraLocale.text(
+		"CREA UNA NOTA ESPECIAL PARA DOS TECLAS A LA VEZ"
+	)
+	quick_add_shift_button.pressed.connect(_add_quick_shift_note)
+	manual_quick_tools_container.add_child(quick_add_shift_button)
 	manual_quick_tools_container.add_child(AuroraUi.spacer(1))
 
 	shared_tools_container = HBoxContainer.new()
@@ -956,6 +992,20 @@ func _refresh_quick_lane_options() -> void:
 			]
 		)
 	quick_lane_option.select(clampi(previous_lane, 0, key_count - 1))
+	_refresh_quick_shift_options()
+
+
+func _refresh_quick_shift_options() -> void:
+	if quick_shift_pair_option == null:
+		return
+	var previous_pair := maxi(quick_shift_pair_option.selected, 0)
+	quick_shift_pair_option.clear()
+	for lane_a in range(key_count):
+		for lane_b in range(lane_a + 1, key_count):
+			quick_shift_pair_option.add_item("SHIFT %d + %d" % [lane_a + 1, lane_b + 1])
+	quick_shift_pair_option.select(
+		clampi(previous_pair, 0, maxi(quick_shift_pair_option.item_count - 1, 0))
+	)
 
 
 func _refresh_note_edit_controls() -> void:
@@ -984,6 +1034,8 @@ func _refresh_note_edit_controls() -> void:
 		quick_lane_option,
 		quick_add_tap_button,
 		quick_add_hold_button,
+		quick_shift_pair_option,
+		quick_add_shift_button,
 		recording_snap_toggle,
 	]:
 		if control != null:
@@ -1029,6 +1081,39 @@ func _add_quick_note(create_hold: bool) -> void:
 				"HOLD CREADO // ARRASTRA SU FINAL PARA AJUSTARLO"
 			)
 		)
+
+
+func _add_quick_shift_note() -> void:
+	if creation_mode != "manual" or not _has_media():
+		_set_status(AuroraLocale.text("USA MODO MANUAL CON UN MEDIO CARGADO"), true)
+		return
+	if quick_shift_pair_option == null or quick_shift_pair_option.item_count <= 0:
+		return
+	var pair_index := quick_shift_pair_option.selected
+	var pair_count := 0
+	var lanes: Array = []
+	for lane_a in range(key_count):
+		for lane_b in range(lane_a + 1, key_count):
+			if pair_count == pair_index:
+				lanes = [lane_a, lane_b]
+				break
+			pair_count += 1
+		if not lanes.is_empty():
+			break
+	if lanes.size() != 2:
+		return
+	var shift_duration := maxf(timeline.get_snap_seconds(), MIN_HOLD_DURATION)
+	if preview_time >= duration_seconds - shift_duration:
+		_set_status(AuroraLocale.text("MUEVE EL CURSOR ANTES DEL FINAL DEL MEDIO"), true)
+		return
+	shift_notes.append({
+		"time": snappedf(preview_time, 0.001),
+		"lanes": lanes,
+		"duration": snappedf(shift_duration, 0.001),
+	})
+	shift_notes = ChartData.normalize_shift_notes(shift_notes, key_count)
+	_refresh_editor_state()
+	_set_status(AuroraLocale.text("SHIFT HOLD AÑADIDO // PULSA AMBOS CARRILES"))
 
 
 func _on_timeline_marquee_requested(
@@ -1197,6 +1282,16 @@ func _show_timeline_operation_error(result: Dictionary) -> void:
 	)
 
 
+func _on_cinematic_sections_changed(value: Array) -> void:
+	cinematic_sections = ChartData.CINEMATICS.normalize(value)
+	_commit_chart_state(null, "Editar tramos de cinemática")
+	_refresh_editor_state()
+
+
+func _on_cinematic_seek(seconds: float) -> void:
+	_seek_preview(seconds)
+
+
 func _build_properties(body: HBoxContainer) -> void:
 	properties_panel = AuroraUi.make_panel(Color(0.025, 0.030, 0.065, 0.98))
 	properties_panel.name = "PropertiesPanel"
@@ -1241,6 +1336,12 @@ func _build_properties(body: HBoxContainer) -> void:
 	controls.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	controls.add_theme_constant_override("separation", 10)
 	properties_scroll.add_child(controls)
+
+	cinematic_section_editor = CINEMATIC_SECTION_EDITOR.new()
+	cinematic_section_editor.name = "CinematicSections"
+	cinematic_section_editor.sections_changed.connect(_on_cinematic_sections_changed)
+	cinematic_section_editor.seek_requested.connect(_on_cinematic_seek)
+	controls.add_child(cinematic_section_editor)
 
 	automatic_summary_container = VBoxContainer.new()
 	automatic_summary_container.name = "AutomaticSummary"
@@ -1683,6 +1784,15 @@ func _setup_file_dialogs() -> void:
 	audio_dialog.file_selected.connect(_load_audio)
 	add_child(audio_dialog)
 
+	cover_dialog = FileDialog.new()
+	cover_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	cover_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	cover_dialog.use_native_dialog = true
+	cover_dialog.filters = PackedStringArray(["*.png,*.jpg,*.jpeg,*.webp ; Imagen de portada"])
+	cover_dialog.title = AuroraLocale.text("Seleccionar portada de carga")
+	cover_dialog.file_selected.connect(_load_cover)
+	add_child(cover_dialog)
+
 	project_dialog = FileDialog.new()
 	project_dialog.access = FileDialog.ACCESS_USERDATA
 	project_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
@@ -1922,6 +2032,39 @@ func _get_video_import_mode(path: String) -> String:
 	if extension in CONVERTIBLE_VIDEO_EXTENSIONS:
 		return "convert"
 	return "unsupported"
+
+
+func _open_cover_dialog() -> void:
+	if cover_dialog == null:
+		return
+	var last_directory := str(settings_manager.get_setting("last_cover_directory", ""))
+	if not last_directory.is_empty() and DirAccess.dir_exists_absolute(last_directory):
+		cover_dialog.current_dir = last_directory
+	cover_dialog.popup_centered_ratio(0.72)
+
+
+func _load_cover(path: String) -> void:
+	_remember_media_directory("last_cover_directory", path)
+	var imported_path := _import_media_file(path, COVER_EXTENSIONS)
+	if imported_path.is_empty():
+		_set_status(AuroraLocale.text("LA PORTADA DEBE SER PNG, JPG O WEBP"), true)
+		return
+	var image := Image.load_from_file(ProjectSettings.globalize_path(imported_path))
+	if image == null or image.is_empty():
+		_set_status(AuroraLocale.text("NO SE PUDO LEER LA IMAGEN DE PORTADA"), true)
+		return
+	cover_path = imported_path
+	_refresh_cover_button()
+	_refresh_dirty_state()
+	_set_status(AuroraLocale.text("PORTADA DE CARGA LISTA"))
+
+
+func _refresh_cover_button() -> void:
+	if cover_select_button == null:
+		return
+	cover_select_button.text = AuroraLocale.text(
+		"PORTADA: LISTA" if not cover_path.is_empty() else "PORTADA CARGA"
+	)
 
 
 func _is_untrusted_legacy_video_cache(path: String) -> bool:
@@ -3372,6 +3515,7 @@ func _update_playhead_ui() -> void:
 	if seek_slider != null:
 		seek_slider.set_value_no_signal(preview_time)
 	if timeline != null:
+		timeline.cinematic_sections = cinematic_sections.duplicate(true)
 		timeline.set_playhead(preview_time)
 		if preview_running:
 			timeline.reveal_time(preview_time)
@@ -3936,6 +4080,7 @@ func _on_duration_changed(value: float) -> void:
 
 func _capture_chart_state():
 	_ensure_timeline_state()
+	timeline_state.cinematic_sections = cinematic_sections.duplicate(true)
 	return timeline_state.duplicate_state()
 
 
@@ -3969,6 +4114,7 @@ func _apply_chart_state(state) -> void:
 		return
 	timeline_state = state.duplicate_state()
 	notes = state.export_notes()
+	cinematic_sections = state.cinematic_sections.duplicate(true)
 	key_count = state.key_count
 	duration_seconds = state.duration_seconds
 	if key_count_option != null:
@@ -3985,6 +4131,7 @@ func _reset_editor_history() -> void:
 		return
 	chart_history.initialize(_capture_chart_state())
 	saved_metadata_signature = _metadata_signature()
+	saved_shift_notes_signature = JSON.stringify(shift_notes)
 	_refresh_dirty_state()
 
 
@@ -3992,6 +4139,7 @@ func _mark_editor_saved() -> void:
 	if chart_history != null:
 		chart_history.mark_saved()
 	saved_metadata_signature = _metadata_signature()
+	saved_shift_notes_signature = JSON.stringify(shift_notes)
 	_discard_recovery_snapshot()
 	_refresh_dirty_state()
 
@@ -4003,7 +4151,10 @@ func _autosave_recovery_if_needed() -> void:
 		RECOVERY_PATH,
 		_make_project_document("chart.json"),
 		notes,
-		current_project_path
+		current_project_path,
+		side_notes,
+		cinematic_sections,
+		shift_notes
 	)
 	if not bool(recovery_result.get("ok", false)):
 		_append_media_import_log(
@@ -4029,7 +4180,11 @@ func _is_editor_dirty() -> bool:
 	if suppress_dirty_tracking:
 		return false
 	var chart_dirty: bool = chart_history != null and bool(chart_history.is_dirty())
-	return chart_dirty or _metadata_signature() != saved_metadata_signature
+	return (
+		chart_dirty
+		or _metadata_signature() != saved_metadata_signature
+		or JSON.stringify(shift_notes) != saved_shift_notes_signature
+	)
 
 
 func _refresh_dirty_state() -> void:
@@ -4271,6 +4426,7 @@ func _set_package_export_controls_disabled(
 		package_export_button,
 		video_select_button,
 		audio_select_button,
+		cover_select_button,
 		record_button,
 		generate_button,
 		test_button,
@@ -4286,6 +4442,8 @@ func _set_package_export_controls_disabled(
 
 
 func _refresh_editor_state() -> void:
+	if cinematic_section_editor != null:
+		cinematic_section_editor.set_sections(cinematic_sections, duration_seconds)
 	_refresh_duration_display()
 	_ensure_timeline_state()
 	if timeline != null:
@@ -4296,6 +4454,8 @@ func _refresh_editor_state() -> void:
 			key_count,
 			timeline_state.selected_note_ids
 		)
+		timeline.set_shift_notes(shift_notes)
+		timeline.cinematic_sections = cinematic_sections.duplicate(true)
 		timeline.set_playhead(preview_time)
 		_on_timeline_zoom_changed(timeline.viewport_model.pixels_per_second)
 	if note_count_label != null:
@@ -4303,7 +4463,15 @@ func _refresh_editor_state() -> void:
 		for note in notes:
 			if float(note.get("duration", 0.0)) >= MIN_HOLD_DURATION:
 				hold_count += 1
-		note_count_label.text = "%03d NOTAS // %02d HOLD" % [notes.size(), hold_count]
+		note_count_label.text = "%03d NOTAS // %02d HOLD // %02d SHIFT" % [
+			notes.size(),
+			hold_count,
+			shift_notes.size(),
+		]
+		note_count_label.tooltip_text = (
+			"%d notas laterales importadas: automáticas, conservadas al guardar y exportar."
+			% side_notes.size() if not side_notes.is_empty() else ""
+		)
 	if key_legend != null:
 		for child in key_legend.get_children():
 			child.queue_free()
@@ -4374,17 +4542,61 @@ func _save_project() -> bool:
 	var save_result := PROJECT_STORE.save_bundle(
 		next_project_path,
 		project_data,
-		ChartData.make_chart_document(notes, key_count)
+		ChartData.make_chart_document(notes, key_count, 0.0, side_notes, cinematic_sections, shift_notes)
 	)
 	if not bool(save_result.get("ok", false)):
 		_set_status(AuroraLocale.text(str(save_result.get("message", ""))), true)
 		return false
 
 	current_project_path = str(save_result.get("project_path", next_project_path))
+	var updated_base := false
+	if source_song_id.begins_with("package_"):
+		var base_update: Dictionary = song_manager.update_package_from_editor_project(
+			current_project_path
+		)
+		if not bool(base_update.get("ok", false)):
+			_set_status(
+				AuroraLocale.text(
+					"BORRADOR GUARDADO // NO SE PUDO ACTUALIZAR LA CANCION BASE: %s"
+					% str(base_update.get("message", ""))
+				),
+				true
+			)
+			return false
+		updated_base = bool(base_update.get("updated_base", false))
+		if updated_base:
+			package_version = str(base_update.get("package_version", package_version))
+			package_version_edit.text = package_version
+			var version_save := PROJECT_STORE.save_bundle(
+				current_project_path,
+				_make_project_document(chart_path),
+				ChartData.make_chart_document(
+					notes,
+					key_count,
+					0.0,
+					side_notes,
+					cinematic_sections,
+					shift_notes
+				)
+			)
+			if not bool(version_save.get("ok", false)):
+				_set_status(
+					AuroraLocale.text(
+						"LA CANCION BASE SE ACTUALIZO, PERO NO SE PUDO GUARDAR SU VERSION EN EL BORRADOR"
+					),
+					true
+				)
+				return false
 	_mark_editor_saved()
 	song_manager.load_songs()
 
-	if not _has_media():
+	if updated_base:
+		_set_status(
+			AuroraLocale.text(
+				"CANCION BASE ACTUALIZADA // v%s" % package_version
+			)
+		)
+	elif not _has_media():
 		_set_status(AuroraLocale.text("BORRADOR GUARDADO // FALTA VIDEO O AUDIO"), true)
 	elif notes.is_empty():
 		_set_status(AuroraLocale.text("BORRADOR GUARDADO // FALTAN NOTAS"), true)
@@ -4417,6 +4629,7 @@ func _make_project_document(chart_path: String = "") -> Dictionary:
 			"video_path": video_path,
 			"video_source_path": video_source_path,
 			"audio_path": audio_path,
+			"cover_path": cover_path,
 		},
 		"chart_path": chart_path,
 	}
@@ -4456,7 +4669,10 @@ func _load_project(path: String) -> void:
 		load_result.get("project", {}),
 		load_result.get("notes", []),
 		str(load_result.get("project_path", path)),
-		false
+		false,
+		load_result.get("side_notes", []),
+		load_result.get("cinematic_sections", []),
+		load_result.get("shift_notes", [])
 	)
 	_discard_recovery_snapshot()
 	if bool(load_result.get("needs_migration", false)):
@@ -4468,6 +4684,12 @@ func _load_project(path: String) -> void:
 			),
 			true
 		)
+	elif source_song_id.begins_with("package_"):
+		_set_status(
+			AuroraLocale.text(
+				"EDITANDO CANCION BASE // GUARDAR ACTUALIZA LA BIBLIOTECA"
+			)
+		)
 	else:
 		_set_status(AuroraLocale.text("PROYECTO ABIERTO"))
 
@@ -4476,7 +4698,10 @@ func _apply_project_snapshot(
 	parsed: Dictionary,
 	loaded_notes: Array,
 	effective_project_path: String,
-	recovered: bool
+	recovered: bool,
+	loaded_side_notes: Array = [],
+	loaded_cinematic_sections: Array = [],
+	loaded_shift_notes: Array = []
 ) -> bool:
 	_stop_preview()
 	_cancel_waveform_extraction(true)
@@ -4509,10 +4734,17 @@ func _apply_project_snapshot(
 	automatic_holds_enabled = bool(metadata.get("automatic_holds_enabled", true))
 	automatic_holds_toggle.set_pressed_no_signal(automatic_holds_enabled)
 	notes = ChartData.normalize_notes(loaded_notes, key_count)
+	side_notes = ChartData.normalize_side_notes(loaded_side_notes)
+	shift_notes = ChartData.normalize_shift_notes(loaded_shift_notes, key_count)
+	cinematic_sections = ChartData.CINEMATICS.normalize(loaded_cinematic_sections)
 	var media: Dictionary = parsed.get("media", {})
 	video_path = str(media.get("video_path", ""))
 	video_source_path = str(media.get("video_source_path", ""))
 	audio_path = str(media.get("audio_path", ""))
+	cover_path = str(media.get("cover_path", ""))
+	if not cover_path.is_empty() and not FileAccess.file_exists(cover_path):
+		cover_path = ""
+	_refresh_cover_button()
 	var legacy_video_needs_source := false
 	if not video_source_path.is_empty() and FileAccess.file_exists(video_source_path):
 		_load_video(video_source_path)
@@ -4548,7 +4780,10 @@ func _restore_recovery_if_available() -> bool:
 		recovery_result.get("project", {}),
 		recovery_result.get("notes", []),
 		str(recovery_result.get("source_project_path", "")),
-		true
+		true,
+		recovery_result.get("side_notes", []),
+		recovery_result.get("cinematic_sections", []),
+		recovery_result.get("shift_notes", [])
 	)
 	_set_status(
 		AuroraLocale.text(
@@ -4565,10 +4800,14 @@ func _new_project() -> void:
 	_reset_tap_bpm_assistant()
 	suppress_dirty_tracking = true
 	notes.clear()
+	side_notes.clear()
+	shift_notes.clear()
+	cinematic_sections.clear()
 	active_recording_holds.clear()
 	video_path = ""
 	video_source_path = ""
 	audio_path = ""
+	cover_path = ""
 	current_project_path = ""
 	package_id = ""
 	package_version = DEFAULT_PACKAGE_VERSION
@@ -4592,6 +4831,7 @@ func _new_project() -> void:
 	automatic_holds_enabled = true
 	automatic_holds_toggle.set_pressed_no_signal(true)
 	preview_placeholder.show()
+	_refresh_cover_button()
 	preview_placeholder.text = AuroraLocale.text("SELECCIONA VIDEO O AUDIO")
 	media_status_label.text = AuroraLocale.text("MEDIO REQUERIDO")
 	media_status_label.add_theme_color_override("font_color", AuroraUi.CORAL)
@@ -4658,6 +4898,10 @@ func _test_chart() -> void:
 	song.duration_seconds = duration_seconds
 	song.background_video = video_player.stream
 	song.audio = audio_player.stream
+	if not cover_path.is_empty():
+		var cover_image := Image.load_from_file(ProjectSettings.globalize_path(cover_path))
+		if cover_image != null and not cover_image.is_empty():
+			song.cover = ImageTexture.create_from_image(cover_image)
 	song.charts = [chart]
 	game_manager.start_editor_test(song, chart, current_project_path)
 	scene_manager.load_scene("gameplay")

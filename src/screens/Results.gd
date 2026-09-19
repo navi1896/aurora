@@ -5,6 +5,7 @@ class_name Results
 var scene_manager: SceneManager
 var game_manager: GameManager
 var input_manager: InputManager
+var ui_feedback
 var buttons: Array[Button] = []
 var actions: Array[String] = []
 var selected_button := 0
@@ -17,8 +18,23 @@ func _ready() -> void:
 	scene_manager = managers.get_node("SceneManager") as SceneManager
 	game_manager = managers.get_node("GameManager") as GameManager
 	input_manager = managers.get_node("InputManager") as InputManager
+	ui_feedback = managers.get_node_or_null("UiFeedbackManager")
 	setup_ui()
 	update_button_selection()
+	call_deferred("_play_result_feedback")
+
+
+func _play_result_feedback() -> void:
+	if ui_feedback == null:
+		return
+	var result := game_manager.last_result
+	if bool(result.get("clear_celebration_played", false)):
+		return
+	var total_notes := int(result.get("total_notes", 0))
+	if total_notes > 0 and int(result.get("max_combo", 0)) >= total_notes:
+		ui_feedback.play_clear()
+	else:
+		ui_feedback.play_confirm()
 
 
 func setup_ui() -> void:
@@ -472,6 +488,8 @@ func _on_result_button_focused(index: int) -> void:
 
 
 func _on_button_pressed(action: String) -> void:
+	if ui_feedback != null:
+		ui_feedback.play_confirm()
 	match action:
 		"retry":
 			game_manager.last_result.clear()

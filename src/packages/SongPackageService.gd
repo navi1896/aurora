@@ -9,6 +9,8 @@ const MANIFEST_PATH := "manifest.json"
 const IMPORT_TEMP_SUFFIX := ".aurora-importing"
 const UPDATE_TEMP_SUFFIX := ".aurora-updating"
 const UPDATE_BACKUP_SUFFIX := ".aurora-backup"
+const PAYLOAD_UPDATE_TEMP_SUFFIX := ".aurora-payload-updating"
+const PAYLOAD_UPDATE_BACKUP_SUFFIX := ".aurora-payload-backup"
 const ZIP_LOCAL_FILE_SIGNATURE := 0x04034b50
 const ZIP_CENTRAL_FILE_SIGNATURE := 0x02014b50
 const ZIP_END_SIGNATURE := 0x06054b50
@@ -254,6 +256,241 @@ func export_package(
 		"manifest": manifest,
 		"file_count": payloads.size() + 1,
 		"payload_bytes": total_payload_bytes,
+	})
+
+
+func update_installed_payloads(
+	staging_root: String,
+	manifest_draft: Dictionary,
+	payload_overrides: Dictionary
+) -> Dictionary:
+	# Actualiza únicamente contenido editable del paquete, sin renombrar su
+	# carpeta. Esto mantiene seguros también los paquetes instalados por enlace
+	# a un HDD. Los charts siempre se pueden actualizar; una portada puede
+	# reemplazarse o añadirse desde el editor.
+	if payload_overrides.is_empty():
+		return _failure(
+			"missing_payload_update",
+			ERR_INVALID_PARAMETER,
+			"No hay cambios de contenido para aplicar al paquete."
+		)
+	var installed_check := validate_staging(staging_root, true)
+	if not bool(installed_check.get("ok", false)):
+		return _failure(
+			"installed_package_invalid",
+			ERR_INVALID_DATA,
+			"La canción base está dañada; no se modificó.",
+			{"cause": installed_check}
+		)
+	var manifest: Dictionary = manifest_draft.duplicate(true)
+	manifest["type"] = PACKAGE_TYPE
+	manifest["format_version"] = FORMAT_VERSION
+	manifest["package_version"] = normalize_package_version(
+		str(manifest.get("package_version", DEFAULT_PACKAGE_VERSION))
+	)
+	var structure_check := validate_manifest(manifest, false)
+	if not bool(structure_check.get("ok", false)):
+		return structure_check
+
+	var records_by_path: Dictionary = {}
+	for record_value in _get_manifest_file_records(manifest):
+		var record: Dictionary = record_value
+		records_by_path[str(record.get("path", ""))] = record
+	var installed_records_by_path: Dictionary = {}
+	var installed_manifest: Dictionary = installed_check.get("manifest", {})
+	for record_value in _get_manifest_file_records(installed_manifest):
+		var installed_record: Dictionary = record_value
+		installed_records_by_path[str(installed_record.get("path", ""))] = installed_record
+	var update_paths := PackedStringArray(payload_overrides.keys())
+	update_paths.sort()
+	for relative_path in update_paths:
+		var path_check := _validate_relative_file_path(relative_path)
+		if not bool(path_check.get("ok", false)):
+			return path_check
+		if not records_by_path.has(relative_path):
+			return _failure(
+				"payload_not_declared",
+				ERR_INVALID_PARAMETER,
+				"El archivo %s no está declarado por el paquete."
+				% relative_path
+			)
+		var bytes_value: Variant = payload_overrides[relative_path]
+		if not (bytes_value is PackedByteArray):
+			return _failure(
+				"invalid_payload_update",
+				ERR_INVALID_PARAMETER,
+				"El contenido nuevo de %s no es válido."
+				% relative_path
+			)
+		var bytes: PackedByteArray = bytes_value
+		if bytes.is_empty() or bytes.size() > _limit("max_entry_bytes"):
+			return _failure(
+				"invalid_payload_size",
+				ERR_INVALID_DATA,
+				"El tamaño nuevo de %s no es válido."
+				% relative_path
+			)
+		var record: Dictionary = records_by_path[relative_path]
+		var record_kind := str(record.get("kind", ""))
+		if record_kind == "chart":
+			var chart_check := _validate_chart_bytes(
+				bytes,
+				int(record.get("key_count", 0)),
+				relative_path
+			)
+			if not bool(chart_check.get("ok", false)):
+				return chart_check
+		elif record_kind == "cover":
+			if not _is_extension_allowed_for_kind(relative_path, "cover"):
+				return _failure(
+					"invalid_cover_extension",
+					ERR_INVALID_DATA,
+					"La portada usa una extensión no admitida."
+				)
+			# Una portada nueva está permitida, pero no se permite crear otros
+			# tipos de archivos desde esta ruta de actualización.
+		elif not installed_records_by_path.has(relative_path):
+			return _failure(
+				"payload_update_not_supported",
+				ERR_UNAVAILABLE,
+				"Solo se pueden añadir portadas nuevas desde el editor."
+			)
+		else:
+			return _failure(
+				"payload_update_not_supported",
+				ERR_UNAVAILABLE,
+				"Ese contenido no se puede actualizar desde el editor."
+			)
+		_set_record_integrity(
+			manifest,
+			record,
+			compute_sha256(bytes),
+			bytes.size()
+		)
+
+	var strict_check := validate_manifest(manifest, true)
+	if not bool(strict_check.get("ok", false)):
+		return strict_check
+	var manifest_bytes := JSON.stringify(manifest, "\t", true).to_utf8_buffer()
+	if manifest_bytes.is_empty() or manifest_bytes.size() > _limit("max_manifest_bytes"):
+		return _failure(
+			"manifest_too_large",
+			ERR_OUT_OF_MEMORY,
+			"El manifiesto actualizado no es válido."
+		)
+
+	var staging_absolute := _absolute_path(staging_root)
+	var writes: Array[Dictionary] = [{
+		"relative_path": MANIFEST_PATH,
+		"bytes": manifest_bytes,
+		"allow_create": false,
+	}]
+	for relative_path in update_paths:
+		var payload_record: Dictionary = records_by_path[relative_path]
+		writes.append({
+			"relative_path": relative_path,
+			"bytes": payload_overrides[relative_path],
+			"allow_create": (
+				str(payload_record.get("kind", "")) == "cover"
+				and not installed_records_by_path.has(relative_path)
+			),
+		})
+	for write_value in writes:
+		var write: Dictionary = write_value
+		var original_absolute := staging_absolute.path_join(
+			str(write.get("relative_path", ""))
+		).simplify_path()
+		var original_exists := FileAccess.file_exists(original_absolute)
+		if not original_exists and not bool(write.get("allow_create", false)):
+			return _failure(
+				"installed_payload_missing",
+				ERR_FILE_NOT_FOUND,
+				"Falta %s en la canción base."
+				% str(write.get("relative_path", ""))
+			)
+		var temporary_absolute := original_absolute + PAYLOAD_UPDATE_TEMP_SUFFIX
+		var backup_absolute := original_absolute + PAYLOAD_UPDATE_BACKUP_SUFFIX
+		if FileAccess.file_exists(temporary_absolute) or FileAccess.file_exists(backup_absolute):
+			return _failure(
+				"payload_update_pending",
+				ERR_ALREADY_EXISTS,
+				"Hay una actualización pendiente; no se reemplazó nada."
+			)
+		var write_error := _write_staged_file(
+			staging_absolute,
+			str(write.get("relative_path", "")) + PAYLOAD_UPDATE_TEMP_SUFFIX,
+			write.get("bytes", PackedByteArray())
+		)
+		if write_error != OK:
+			_cleanup_payload_update_temps(writes, staging_absolute)
+			return _failure(
+				"payload_update_write_failed",
+				write_error,
+				"No se pudo preparar la actualización del paquete."
+			)
+
+	var moved_backups: Array[Dictionary] = []
+	for write_value in writes:
+		var write: Dictionary = write_value
+		var original_absolute := staging_absolute.path_join(str(write["relative_path"])).simplify_path()
+		if not FileAccess.file_exists(original_absolute):
+			continue
+		var backup_absolute := original_absolute + PAYLOAD_UPDATE_BACKUP_SUFFIX
+		var backup_error := DirAccess.rename_absolute(original_absolute, backup_absolute)
+		if backup_error != OK:
+			_restore_payload_update_backups(moved_backups)
+			_cleanup_payload_update_temps(writes, staging_absolute)
+			return _failure(
+				"payload_update_backup_failed",
+				backup_error,
+				"No se pudo proteger el contenido anterior."
+			)
+		moved_backups.append({
+			"original": original_absolute,
+			"backup": backup_absolute,
+		})
+
+	var swapped_files: Array[Dictionary] = []
+	for write_value in writes:
+		var write: Dictionary = write_value
+		var original_absolute := staging_absolute.path_join(str(write["relative_path"])).simplify_path()
+		var temporary_absolute := original_absolute + PAYLOAD_UPDATE_TEMP_SUFFIX
+		var swap_error := DirAccess.rename_absolute(temporary_absolute, original_absolute)
+		if swap_error != OK:
+			for swapped_value in swapped_files:
+				var swapped: Dictionary = swapped_value
+				if FileAccess.file_exists(str(swapped["original"])):
+					DirAccess.remove_absolute(str(swapped["original"]))
+			_restore_payload_update_backups(moved_backups)
+			_cleanup_payload_update_temps(writes, staging_absolute)
+			return _failure(
+				"payload_update_swap_failed",
+				swap_error,
+				"No se pudo aplicar el cambio; se restauró la versión anterior."
+			)
+		swapped_files.append({"original": original_absolute})
+
+	var validation_after_update := validate_staging(staging_root, true)
+	if not bool(validation_after_update.get("ok", false)):
+		for swapped_value in swapped_files:
+			var swapped: Dictionary = swapped_value
+			if FileAccess.file_exists(str(swapped["original"])):
+				DirAccess.remove_absolute(str(swapped["original"]))
+		_restore_payload_update_backups(moved_backups)
+		return _failure(
+			"payload_update_validation_failed",
+			ERR_INVALID_DATA,
+			"El paquete actualizado no superó la validación; se restauró la base.",
+			{"cause": validation_after_update}
+		)
+	for backup_value in moved_backups:
+		var backup: Dictionary = backup_value
+		if FileAccess.file_exists(str(backup["backup"])):
+			DirAccess.remove_absolute(str(backup["backup"]))
+	return _success({
+		"manifest": manifest,
+		"package_version": str(manifest.get("package_version", "")),
+		"updated_payloads": update_paths,
 	})
 
 
@@ -1818,6 +2055,33 @@ func _write_staged_file(
 	file.store_buffer(bytes)
 	file.flush()
 	return file.get_error()
+
+
+func _cleanup_payload_update_temps(
+	writes: Array[Dictionary],
+	staging_absolute: String
+) -> void:
+	for write_value in writes:
+		var write: Dictionary = write_value
+		var temporary_absolute := staging_absolute.path_join(
+			str(write.get("relative_path", ""))
+		).simplify_path() + PAYLOAD_UPDATE_TEMP_SUFFIX
+		if FileAccess.file_exists(temporary_absolute):
+			DirAccess.remove_absolute(temporary_absolute)
+
+
+func _restore_payload_update_backups(
+	moved_backups: Array[Dictionary]
+) -> void:
+	for backup_value in moved_backups:
+		var backup: Dictionary = backup_value
+		var original_absolute := str(backup.get("original", ""))
+		var backup_absolute := str(backup.get("backup", ""))
+		if (
+			not original_absolute.is_empty()
+			and FileAccess.file_exists(backup_absolute)
+		):
+			DirAccess.rename_absolute(backup_absolute, original_absolute)
 
 
 func _validate_package_file_path(

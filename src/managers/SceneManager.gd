@@ -16,18 +16,44 @@ const SCENES = {
 var current_scene: Node = null
 var scene_container: Node = null
 var current_scene_name := ""
+var loading_transition = null
+# The normal game always shows the presentation loading screen.  Headless
+# verification keeps direct scene changes so existing isolated tests stay fast.
+var loading_transitions_enabled := true
 
 
 func _ready() -> void:
+	loading_transitions_enabled = DisplayServer.get_name().to_lower() != "headless"
 	var app := get_tree().current_scene
 	if app and app.has_node("CanvasLayer/ScreenContainer"):
 		scene_container = app.get_node("CanvasLayer/ScreenContainer")
 	else:
 		scene_container = get_parent()
+	loading_transition = get_parent().get_node_or_null("LoadingTransitionManager")
 	call_deferred("load_scene", "main_menu")
 
 
 func load_scene(scene_name: String) -> void:
+	if _should_show_loading(scene_name):
+		if loading_transition != null and loading_transition.request_transition(
+			scene_name,
+			Callable(self, "_load_scene_immediately")
+		):
+			return
+	_load_scene_immediately(scene_name)
+
+
+func _should_show_loading(scene_name: String) -> bool:
+	return (
+		loading_transitions_enabled
+		and
+		not current_scene_name.is_empty()
+		and current_scene_name != scene_name
+		and scene_name in ["gameplay", "editor", "settings"]
+	)
+
+
+func _load_scene_immediately(scene_name: String) -> void:
 	if not SCENES.has(scene_name):
 		push_error("Escena no encontrada: %s" % scene_name)
 		return

@@ -56,6 +56,7 @@ var game_manager: GameManager
 var song_manager: SongManager
 var settings_manager: SettingsManager
 var input_manager: InputManager
+var ui_feedback
 var all_songs: Array[SongData] = []
 var songs: Array[SongData] = []
 var song_buttons: Array[Button] = []
@@ -92,6 +93,7 @@ func _ready() -> void:
 	song_manager = app.get_node("Managers/SongManager")
 	settings_manager = app.get_node("Managers/SettingsManager")
 	input_manager = app.get_node("Managers/InputManager")
+	ui_feedback = app.get_node_or_null("Managers/UiFeedbackManager")
 	input_manager.input_device_changed.connect(_on_input_device_changed)
 	input_manager.controller_bindings_changed.connect(
 		_on_controller_bindings_changed
@@ -629,6 +631,8 @@ func _select_song(index: int, focus_button: bool) -> void:
 	var song_changed := index != selected_song_index
 	selected_song_index = index
 	if song_changed:
+		if ui_feedback != null:
+			ui_feedback.play_navigation()
 		selected_chart_index = 0
 	_refresh_selection()
 	if focus_button and index < song_buttons.size():
@@ -701,6 +705,8 @@ func _select_chart(index: int) -> void:
 	if song == null or index < 0 or index >= song.charts.size():
 		return
 	selected_chart_index = index
+	if ui_feedback != null:
+		ui_feedback.play_navigation()
 	_update_chart_selection()
 	_remember_library_state()
 
@@ -810,6 +816,8 @@ func _start_selected_song() -> void:
 	if not game_manager.start_song(song, chart):
 		preview_status.text = AuroraLocale.text("NO SE PUDO INICIAR EL CHART")
 		return
+	if ui_feedback != null:
+		ui_feedback.play_confirm()
 	scene_manager.load_scene("gameplay")
 
 
@@ -907,6 +915,8 @@ func _start_preview(song: SongData) -> void:
 
 
 func _toggle_preview() -> void:
+	if ui_feedback != null:
+		ui_feedback.play_confirm()
 	preview_request_token += 1
 	if _is_preview_playing():
 		_stop_preview()
@@ -1096,7 +1106,7 @@ func _edit_selected_song() -> void:
 	if not song_manager.is_editor_song(song):
 		edit_button.disabled = true
 		preview_status.text = AuroraLocale.text(
-			"PREPARANDO COPIA EDITABLE..."
+			"ABRIENDO EDICION..."
 		)
 		await get_tree().process_frame
 	var edit_result: Dictionary = song_manager.prepare_song_for_editor(
@@ -1115,9 +1125,11 @@ func _edit_selected_song() -> void:
 		)
 		return
 	_remember_library_state()
-	var editor_song_id := str(edit_result.get("editor_song_id", ""))
-	if not editor_song_id.is_empty():
-		remembered_song_id = editor_song_id
+	var return_song_id := str(
+		edit_result.get("return_song_id", edit_result.get("editor_song_id", ""))
+	)
+	if not return_song_id.is_empty():
+		remembered_song_id = return_song_id
 		remembered_chart_signature = _chart_signature(chart)
 	preserve_remembered_selection_on_exit = true
 	preview_request_token += 1

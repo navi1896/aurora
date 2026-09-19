@@ -30,16 +30,20 @@ signal main_menu_requested
 
 var settings_manager: SettingsManager
 var input_manager: InputManager
+var ui_feedback
 var resume_countdown_label: Label
 var resume_countdown_step_seconds := 0.45
 var resume_in_progress := false
 var editor_test_mode := false
+var visual_sliders: Dictionary = {}
+var visual_values: Dictionary = {}
 
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	settings_manager = get_tree().current_scene.get_node("Managers/SettingsManager")
 	input_manager = get_tree().current_scene.get_node("Managers/InputManager")
+	ui_feedback = get_tree().current_scene.get_node_or_null("Managers/UiFeedbackManager")
 
 	continue_button.pressed.connect(close_menu)
 	restart_button.pressed.connect(_request_restart)
@@ -59,6 +63,7 @@ func _ready() -> void:
 	speed_module.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	background_module.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	background_module.size_flags_stretch_ratio = 1.35
+	_build_visual_controls()
 
 	_apply_localized_texts()
 	_build_resume_countdown()
@@ -138,6 +143,8 @@ func open_menu() -> void:
 func close_menu() -> void:
 	if resume_in_progress or not visible:
 		return
+	if ui_feedback != null:
+		ui_feedback.play_confirm()
 	resume_in_progress = true
 	pause_margins.hide()
 	resume_countdown_label.show()
@@ -223,6 +230,10 @@ func _set_background_intensity(value: float) -> void:
 
 
 func _refresh_controls() -> void:
+	for key in visual_sliders:
+		var value := float(settings_manager.get_setting(key, 0.0))
+		(visual_sliders[key] as HSlider).set_value_no_signal(value * 100.0)
+		(visual_values[key] as Label).text = "%d%%" % roundi(value * 100.0)
 	var note_speed := float(settings_manager.get_setting("note_speed", 5.5))
 	var background_enabled := bool(settings_manager.get_setting("background_animation_enabled", true))
 	var intensity := float(settings_manager.get_setting("background_animation_intensity", 3))
@@ -237,17 +248,57 @@ func _refresh_controls() -> void:
 	background_intensity.editable = background_enabled
 
 
+func _build_visual_controls() -> void:
+	var row := $PauseMargins/Page/SettingsPanel/SettingsMargins/SettingsRow
+	var module := VBoxContainer.new()
+	module.name = "VisibilityModule"
+	module.custom_minimum_size.x = 310.0
+	module.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	module.add_theme_constant_override("separation", 8)
+	row.add_child(module)
+	for entry in [["lane_opacity", "Opacidad de la pista"], ["background_dim", "Oscurecer fondo"]]:
+		var key := str(entry[0])
+		var title := AuroraUi.make_pixel_label(AuroraLocale.text(str(entry[1])), 9, AuroraUi.TEXT)
+		module.add_child(title)
+		var controls := HBoxContainer.new()
+		controls.add_theme_constant_override("separation", 12)
+		module.add_child(controls)
+		var slider := HSlider.new()
+		slider.name = key
+		slider.max_value = 100.0
+		slider.step = 1.0
+		slider.custom_minimum_size = Vector2(190, 28)
+		slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		controls.add_child(slider)
+		var value_label := AuroraUi.make_pixel_label("", 9, AuroraUi.TEAL)
+		value_label.custom_minimum_size.x = 46.0
+		value_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		controls.add_child(value_label)
+		visual_sliders[key] = slider
+		visual_values[key] = value_label
+		slider.value_changed.connect(func(value: float) -> void:
+			settings_manager.set_setting(key, value / 100.0)
+			value_label.text = "%d%%" % roundi(value)
+		)
+
+
 func _request_restart() -> void:
+	if ui_feedback != null:
+		ui_feedback.play_confirm()
 	_leave_pause_for_navigation()
 	restart_requested.emit()
 
 
 func _request_song_select() -> void:
+	if ui_feedback != null:
+		ui_feedback.play_confirm()
 	_leave_pause_for_navigation()
 	song_select_requested.emit()
 
 
 func _request_main_menu() -> void:
+	if ui_feedback != null:
+		ui_feedback.play_confirm()
 	_leave_pause_for_navigation()
 	main_menu_requested.emit()
 

@@ -30,6 +30,7 @@ func _run() -> void:
 	var input_manager := app.get_node_or_null("Managers/InputManager")
 	var settings_manager := app.get_node_or_null("Managers/SettingsManager")
 	var menu_music_manager := app.get_node_or_null("Managers/MenuMusicManager")
+	var ui_feedback_manager := app.get_node_or_null("Managers/UiFeedbackManager")
 	_expect(managers != null, "Los managers existen")
 	_expect(scene_manager != null, "SceneManager existe")
 	_expect(game_manager != null, "GameManager existe")
@@ -37,6 +38,7 @@ func _run() -> void:
 	_expect(input_manager != null, "InputManager existe")
 	_expect(settings_manager != null, "SettingsManager existe")
 	_expect(menu_music_manager != null, "MenuMusicManager existe")
+	_expect(ui_feedback_manager != null, "UiFeedbackManager existe")
 	if (
 		scene_manager == null
 		or game_manager == null
@@ -44,6 +46,7 @@ func _run() -> void:
 		or input_manager == null
 		or settings_manager == null
 		or menu_music_manager == null
+		or ui_feedback_manager == null
 	):
 		_finish()
 		return
@@ -64,8 +67,8 @@ func _run() -> void:
 	TranslationServer.set_locale(original_locale)
 	_expect(
 		str(ProjectSettings.get_setting("application/config/version", ""))
-		== "1.0.2",
-		"La compilación declara la versión 1.0.2"
+		== "1.0.3",
+		"La compilación declara la versión 1.0.3"
 	)
 
 	var swapped_keys: Array = input_manager._assign_unique_keycode(
@@ -124,6 +127,14 @@ func _run() -> void:
 		and menu_music_manager.player.bus == "MenuMusic"
 		and AudioServer.get_bus_index("MenuMusic") >= 0,
 		"El menú usa una pieza original con volumen independiente"
+	)
+	_expect(
+		ui_feedback_manager.feedback_player != null
+		and ui_feedback_manager.feedback_streams.size() == 5
+		and ui_feedback_manager.feedback_player.bus == "SFX"
+		and ui_feedback_manager.feedback_streams.get("confirm", null) is AudioStreamWAV
+		and ui_feedback_manager.feedback_streams.get("loading", null) is AudioStreamWAV,
+		"La interfaz genera confirmaciones originales en el bus de efectos"
 	)
 	var original_menu_volume := float(
 		settings_manager.get_setting("menu_music_volume", 0.72)
@@ -319,8 +330,8 @@ func _run() -> void:
 		)
 		_expect(
 			menu_version_label != null
-			and "v1.0.2" in menu_version_label.text,
-			"El menú principal muestra la versión 1.0.2"
+			and "v1.0.3" in menu_version_label.text,
+			"El menú principal muestra la versión 1.0.3"
 		)
 		_expect(
 			main_menu.main_buttons.menu_buttons.size() == 4
@@ -350,6 +361,7 @@ func _run() -> void:
 		)
 		_expect(character_idle != null, "El personaje del menú incluye una animación idle")
 		if character_idle != null:
+			settings_manager.settings["reduced_motion"] = false
 			_expect(
 				character_idle.has_blink_frame(),
 				"El parpadeo conserva el tamaño del sprite aprobado"
@@ -465,14 +477,18 @@ func _run() -> void:
 			gameplay._apply_visual_settings()
 		_expect(gameplay.get_node_or_null("PlayfieldFrame") != null, "Gameplay crea el playfield central")
 		_expect(
-			gameplay.start_gate_active
-			and gameplay.start_countdown_active
-			and gameplay.start_gate_panel.visible,
-			"Una partida normal prepara cinco segundos sin pedir confirmación"
+			not gameplay.start_gate_active
+			and not gameplay.start_countdown_active
+			and not gameplay.start_gate_panel.visible
+			and gameplay.gameplay_time < 0.0,
+			"Una partida normal inicia automáticamente con preparación sin conteo"
 		)
 		_expect(
-			gameplay.START_COUNTDOWN_SECONDS == 5
-			and gameplay.preparation_blackout != null
+			gameplay.gameplay_time <= -gameplay._get_note_travel_time() - Gameplay.EXTRA_PREPARATION_SECONDS,
+			"La preparación negra añade 2.5 segundos antes de la canción"
+		)
+		_expect(
+			gameplay.preparation_blackout != null
 			and gameplay.preparation_blackout.visible,
 			"La preparación conserva el playfield sobre un fondo negro"
 		)
@@ -960,6 +976,15 @@ func _run() -> void:
 			and editor.preview_audio_button.button_pressed,
 			"La vista previa ofrece un control de audio compacto y accesible"
 		)
+		_expect(
+			editor.cover_select_button != null
+			and editor.cover_dialog != null
+			and editor.cover_select_button.text == AuroraLocale.text("PORTADA CARGA")
+			and editor.cover_select_button.tooltip_text == AuroraLocale.text(
+				"IMAGEN OPCIONAL PARA LA PANTALLA DE CARGA. SIN ELLA SE USA UNA FICHA AUTOMÁTICA."
+			),
+			"El editor permite elegir una portada opcional para la pantalla de carga"
+		)
 		editor._set_preview_audio_enabled(false)
 		_expect(
 			editor.audio_player.volume_db <= -79.0
@@ -1060,8 +1085,11 @@ func _run() -> void:
 		_expect(
 			editor.quick_lane_option.get_parent() == editor.manual_quick_tools_container
 			and editor.quick_add_hold_button.text == AuroraLocale.text("+ MANTENER")
+			and editor.quick_shift_pair_option.get_parent() == editor.manual_quick_tools_container
+			and editor.quick_add_shift_button.text == AuroraLocale.text("+ SHIFT HOLD")
 			and editor.test_button.text == AuroraLocale.text("▶ PROBAR NIVEL")
-			and editor.package_version_edit.text == "1.0.0",
+			and editor.package_version_edit != null
+			and not editor.package_version_edit.editable,
 			"Creación reúne las acciones rápidas y usa nombres claros"
 		)
 		_expect(
@@ -1491,19 +1519,19 @@ func _run() -> void:
 		var editor_test_gameplay = scene_manager.current_scene
 		_expect(
 			editor_test_gameplay != null
-			and editor_test_gameplay.start_gate_active
-			and editor_test_gameplay.start_gate_panel.visible,
-			"Solo las pruebas del editor esperan la orden de inicio"
+			and not editor_test_gameplay.start_gate_active
+			and not editor_test_gameplay.start_gate_panel.visible
+			and editor_test_gameplay.gameplay_time < 0.0,
+			"Las pruebas del editor usan la misma entrada negra sin conteo"
 		)
 		if editor_test_gameplay != null:
-			editor_test_gameplay.start_countdown_step_seconds = 0.01
 			var controller_start := InputEventJoypadButton.new()
 			controller_start.button_index = input_manager.get_controller_action_button("confirm")
 			controller_start.pressed = true
 			editor_test_gameplay._input(controller_start)
 			_expect(
-				editor_test_gameplay.start_countdown_active,
-				"El botón Confirmar configurado inicia la prueba del editor"
+				not editor_test_gameplay.start_countdown_active,
+				"Confirmar no agrega un conteo a la prueba del editor"
 			)
 			await create_timer(0.32, true).timeout
 			_expect(

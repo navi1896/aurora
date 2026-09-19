@@ -8,6 +8,8 @@
 [ext_resource type="Script" uid="uid://c57vmtxcvds2j" path="res://src/managers/InputManager.gd" id="6_input"]
 [ext_resource type="Script" path="res://src/managers/MenuMusicManager.gd" id="7_menu_music"]
 [ext_resource type="Script" path="res://src/managers/OnlineContentManager.gd" id="8_online"]
+[ext_resource type="Script" path="res://src/managers/UiFeedbackManager.gd" id="9_ui_feedback"]
+[ext_resource type="Script" path="res://src/managers/LoadingTransitionManager.gd" id="10_loading_transition"]
 
 [node name="App" type="Control" unique_id=1718485473]
 layout_mode = 3
@@ -50,6 +52,12 @@ script = ExtResource("6_input")
 
 [node name="MenuMusicManager" type="Node" parent="Managers"]
 script = ExtResource("7_menu_music")
+
+[node name="UiFeedbackManager" type="Node" parent="Managers"]
+script = ExtResource("9_ui_feedback")
+
+[node name="LoadingTransitionManager" type="Node" parent="Managers"]
+script = ExtResource("10_loading_transition")
 
 [node name="OnlineContentManager" type="Node" parent="Managers"]
 script = ExtResource("8_online")

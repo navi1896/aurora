@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS := {
 	"background_animation_intensity": 3,
 	"background_dim": 0.46,
 	"lane_opacity": 0.82,
+	"cinematic_sections_enabled": true,
 	"show_lane_labels": true,
 	"show_hit_effects": true,
 	"timing_offset_ms": 0,
@@ -267,9 +268,9 @@ func _validate_setting(key: String) -> void:
 		"background_animation_intensity":
 			settings[key] = clampi(int(settings[key]), 1, 5)
 		"background_dim":
-			settings[key] = clampf(float(settings[key]), 0.0, 0.9)
+			settings[key] = clampf(float(settings[key]), 0.0, 1.0)
 		"lane_opacity":
-			settings[key] = clampf(float(settings[key]), 0.25, 1.0)
+			settings[key] = clampf(float(settings[key]), 0.0, 1.0)
 		"timing_offset_ms":
 			settings[key] = clampi(int(settings[key]), -200, 200)
 		"fps_limit":

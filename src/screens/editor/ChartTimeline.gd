@@ -30,7 +30,9 @@ const LANE_COLORS: Array[Color] = [
 	Color(0.08, 0.86, 1.0),
 ]
 
+var cinematic_sections: Array[Dictionary] = []
 var notes: Array[Dictionary] = []
+var shift_notes: Array[Dictionary] = []
 var selected_note_ids: Array[int] = []
 var duration_seconds := 120.0
 var current_time := 0.0
@@ -99,6 +101,11 @@ func set_chart(
 	viewport_model.set_key_count(key_count)
 	_update_viewport_geometry()
 	_invalidate_waveform_segment_cache()
+	queue_redraw()
+
+
+func set_shift_notes(raw_shift_notes: Array) -> void:
+	shift_notes = ChartData.normalize_shift_notes(raw_shift_notes, key_count)
 	queue_redraw()
 
 
@@ -393,7 +400,9 @@ func _draw() -> void:
 	_draw_lanes()
 	_draw_waveform()
 	_draw_grid()
+	_draw_cinematic_sections()
 	_draw_notes()
+	_draw_shift_notes()
 	_draw_playhead()
 	_draw_header()
 	if drag_mode == "marquee":
@@ -633,6 +642,16 @@ func _draw_grid_line(step: int, step_seconds: float) -> void:
 		)
 
 
+func _draw_cinematic_sections() -> void:
+	for section in cinematic_sections:
+		var left := clampf(viewport_model.time_to_x(float(section.start)), 0.0, size.x)
+		var right := clampf(viewport_model.time_to_x(float(section.end)), 0.0, size.x)
+		if right <= left:
+			continue
+		draw_rect(Rect2(left, HEADER_HEIGHT, right - left, size.y - HEADER_HEIGHT), Color(1.0, 0.74, 0.30, 0.10))
+		draw_rect(Rect2(left, HEADER_HEIGHT, right - left, 3.0), Color(1.0, 0.74, 0.30, 0.9))
+
+
 func _draw_notes() -> void:
 	for source_note in viewport_model.get_visible_notes(
 		notes,
@@ -678,6 +697,54 @@ func _draw_notes() -> void:
 				else Color(0.94, 0.99, 1.0, 0.84),
 				true
 			)
+
+
+func _draw_shift_notes() -> void:
+	# A Shift is deliberately drawn as one joined gold gesture, not as two
+	# independent notes.  This makes it clear in the editor that both lanes
+	# must be pressed together during play.
+	for shift in shift_notes:
+		var lanes: Array = shift.get("lanes", [])
+		if lanes.size() != 2:
+			continue
+		var start_time := float(shift.get("time", 0.0))
+		var duration := maxf(float(shift.get("duration", 0.0)), 0.0)
+		var end_time := start_time + duration
+		if end_time < viewport_model.get_visible_start() or start_time > viewport_model.get_visible_end():
+			continue
+		var rect_a := viewport_model.get_note_rect({
+			"time": start_time,
+			"lane": int(lanes[0]),
+			"duration": duration,
+		})
+		var rect_b := viewport_model.get_note_rect({
+			"time": start_time,
+			"lane": int(lanes[1]),
+			"duration": duration,
+		})
+		var fill := Color(1.0, 0.66, 0.10, 0.84)
+		var outline := Color(1.0, 0.92, 0.54, 1.0)
+		draw_rect(rect_a, fill, true)
+		draw_rect(rect_b, fill, true)
+		draw_rect(rect_a, outline, false, 2.0)
+		draw_rect(rect_b, outline, false, 2.0)
+		var connector_x := rect_a.position.x + minf(rect_a.size.x, rect_b.size.x) * 0.5
+		draw_line(
+			Vector2(connector_x, rect_a.get_center().y),
+			Vector2(connector_x, rect_b.get_center().y),
+			outline,
+			2.0
+		)
+		var label_y := minf(rect_a.position.y, rect_b.position.y) + 11.0
+		draw_string(
+			PIXEL_FONT,
+			Vector2(connector_x + 5.0, label_y),
+			"SHIFT",
+			HORIZONTAL_ALIGNMENT_LEFT,
+			-1.0,
+			7,
+			outline
+		)
 
 
 func _draw_playhead() -> void:

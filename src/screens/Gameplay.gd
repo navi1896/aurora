@@ -2,7 +2,10 @@ extends Control
 
 class_name Gameplay
 
+const CINEMATICS := preload("res://src/data/CinematicSections.gd")
 const PAUSE_MENU_SCENE := preload("res://src/screens/pause/PauseMenu.tscn")
+const AUTO_SIDE_TRACK := preload("res://src/screens/gameplay/AutoSideTrack.gd")
+const PERFECT_PLAY := preload("res://src/screens/gameplay/PerfectPlayCelebration.gd")
 const PERFECT_WINDOW := 0.065
 const GREAT_WINDOW := 0.115
 const GOOD_WINDOW := 0.170
@@ -15,7 +18,8 @@ const HOLD_NOTE_MIN_DURATION := 0.18
 const HIT_ZONE_HEIGHT := 40.0
 const HIT_LINE_GAP := NOTE_HALF_HEIGHT * 3.0
 const HIT_LINE_BOTTOM_OFFSET := CONTROL_DECK_HEIGHT + RECEPTOR_TOP_OFFSET + HIT_LINE_GAP
-const START_COUNTDOWN_SECONDS := 5
+const EXTRA_PREPARATION_SECONDS := 2.5
+const CLEAR_CELEBRATION_DELAY := 0.25
 const LANE_COLORS: Array[Color] = [
 	Color(0.08, 0.86, 1.0),
 	Color(0.42, 0.24, 1.0),
@@ -32,6 +36,7 @@ var game_manager: GameManager
 var settings_manager: SettingsManager
 var input_manager: InputManager
 var pause_menu: PauseMenu
+var ui_feedback
 
 var lane_mode := 4
 var lane_panels: Array[PanelContainer] = []
@@ -59,15 +64,22 @@ var gameplay_time := 0.0
 var chart_end_time := 0.0
 var level_end_time := 0.0
 var next_note_index := 0
+var next_shift_note_index := 0
 var next_beat_time := 0.0
 var gameplay_finished := false
+var clear_celebration
+var clear_ready_time := -1.0
 var start_gate_active := true
 var start_countdown_active := false
 var start_countdown_token := 0
-var start_countdown_step_seconds := 1.0
+var media_started := false
+var intro_hidden_controls: Array[Control] = []
 
 var chart_notes: Array[Dictionary] = []
+var chart_shift_notes: Array[Dictionary] = []
 var active_notes: Array[Dictionary] = []
+var active_shift_pairs: Dictionary = {}
+var side_tracks: Array[Control] = []
 var song_player: AudioStreamPlayer
 var background_video_player: VideoStreamPlayer
 var beat_player: AudioStreamPlayer
@@ -82,6 +94,9 @@ var timing_feedback_label: Label
 var speed_label: Label
 var progress_label: Label
 var progress_fill: ColorRect
+var cinematic_sections: Array[Dictionary] = []
+var safe_cinematic_sections: Array[Dictionary] = []
+var track_rails: Array[ColorRect] = []
 var frame_panel: PanelContainer
 var hit_line: ColorRect
 var control_deck: PanelContainer
@@ -101,13 +116,13 @@ func _ready() -> void:
 	game_manager = managers.get_node("GameManager") as GameManager
 	settings_manager = managers.get_node("SettingsManager") as SettingsManager
 	input_manager = managers.get_node("InputManager") as InputManager
+	ui_feedback = managers.get_node_or_null("UiFeedbackManager")
 	start_gate_active = true
 	lane_mode = _get_lane_mode()
 	setup_ui()
 	_setup_pause_menu()
 	_initialize_gameplay()
-	if not game_manager.editor_test_active:
-		call_deferred("_begin_start_countdown")
+	call_deferred("_begin_start_countdown")
 	settings_manager.setting_changed.connect(_on_setting_changed)
 	input_manager.input_device_changed.connect(_on_input_device_changed)
 
@@ -121,6 +136,10 @@ func setup_ui() -> void:
 	lane_pressed.clear()
 	lane_miss_feedback_tweens.clear()
 	active_notes.clear()
+	active_shift_pairs.clear()
+	side_tracks.clear()
+	track_rails.clear()
+	intro_hidden_controls.clear()
 
 	AuroraUi.add_background(self)
 	_add_stage_background()
@@ -129,6 +148,7 @@ func setup_ui() -> void:
 	_build_floating_screen_hud()
 	_apply_visual_settings()
 	_build_start_gate()
+	_apply_intro_visibility()
 
 
 func _add_stage_background() -> void:
@@ -153,21 +173,6 @@ func _add_stage_background() -> void:
 	dim_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(dim_overlay)
 
-	var top_shade := ColorRect.new()
-	top_shade.anchor_right = 1.0
-	top_shade.offset_bottom = 118.0
-	top_shade.color = Color(0.0, 0.005, 0.025, 0.54)
-	top_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(top_shade)
-
-	var bottom_shade := ColorRect.new()
-	bottom_shade.anchor_top = 1.0
-	bottom_shade.anchor_right = 1.0
-	bottom_shade.anchor_bottom = 1.0
-	bottom_shade.offset_top = -170.0
-	bottom_shade.color = Color(0.0, 0.005, 0.025, 0.58)
-	bottom_shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(bottom_shade)
 
 
 func _build_preparation_blackout() -> void:
@@ -195,6 +200,7 @@ func _build_compact_playfield() -> void:
 	var stage := Control.new()
 	stage.name = "PlayfieldStage"
 	frame_panel.add_child(stage)
+	_build_auto_side_tracks(stage)
 
 	var left_rail := ColorRect.new()
 	left_rail.anchor_bottom = 1.0
@@ -211,6 +217,7 @@ func _build_compact_playfield() -> void:
 	right_rail.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.94)
 	right_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(right_rail)
+	track_rails.assign([left_rail, right_rail])
 
 	var lanes := GridContainer.new()
 	lanes.name = "Lanes"
@@ -239,6 +246,7 @@ func _build_compact_playfield() -> void:
 	progress_track.color = Color(1.0, 1.0, 1.0, 0.18)
 	progress_track.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(progress_track)
+	intro_hidden_controls.append(progress_track)
 
 	progress_fill = ColorRect.new()
 	progress_fill.anchor_right = 0.0
@@ -256,6 +264,7 @@ func _build_compact_playfield() -> void:
 	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	progress_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(progress_label)
+	intro_hidden_controls.append(progress_label)
 
 	var sync_glow := ColorRect.new()
 	sync_glow.anchor_left = 0.025
@@ -316,6 +325,7 @@ func _build_center_performance_hud(stage: Control) -> void:
 	hud.add_theme_constant_override("separation", 3)
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(hud)
+	intro_hidden_controls.append(hud)
 
 	combo_caption_label = AuroraUi.make_pixel_label("COMBO", 9, AuroraUi.TEAL)
 	combo_caption_label.custom_minimum_size.y = 20.0
@@ -381,6 +391,7 @@ func _build_playfield_deck(stage: Control) -> void:
 	deck_style.content_margin_bottom = 14.0
 	control_deck.add_theme_stylebox_override("panel", deck_style)
 	stage.add_child(control_deck)
+	intro_hidden_controls.append(control_deck)
 
 	var content := VBoxContainer.new()
 	content.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -456,6 +467,7 @@ func _build_floating_screen_hud() -> void:
 	song_info.anchor_bottom = 0.14
 	song_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(song_info)
+	intro_hidden_controls.append(song_info)
 
 	var title := "AURORA DEMO"
 	var artist := "AURORA PROJECT"
@@ -476,6 +488,7 @@ func _build_floating_screen_hud() -> void:
 	right_hud.anchor_bottom = 0.16
 	right_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(right_hud)
+	intro_hidden_controls.append(right_hud)
 
 	var score_caption := AuroraUi.make_pixel_label("SCORE", 8, Color(0.82, 0.88, 0.98, 0.70))
 	score_caption.autowrap_mode = TextServer.AUTOWRAP_OFF
@@ -494,12 +507,41 @@ func _build_floating_screen_hud() -> void:
 	pause_hint.autowrap_mode = TextServer.AUTOWRAP_OFF
 	pause_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right_hud.add_child(pause_hint)
+	if not side_tracks.is_empty():
+		var automatic_hint := AuroraUi.make_pixel_label("LATERALES: AUTO // %d TECLAS" % lane_mode, 7, AuroraUi.MUTED)
+		automatic_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		right_hud.add_child(automatic_hint)
+
+
+func _build_auto_side_tracks(stage: Control) -> void:
+	if game_manager.current_chart == null or game_manager.current_song == null:
+		return
+	var side_notes := game_manager.current_chart.load_side_notes(
+		game_manager.current_song.bpm, game_manager.current_song.duration_seconds
+	)
+	if side_notes.is_empty():
+		return
+	for side in range(2):
+		var track = AUTO_SIDE_TRACK.new()
+		track.name = "AutoSideTrack%d" % side
+		track.anchor_left = float(side)
+		track.anchor_right = float(side)
+		track.anchor_bottom = 1.0
+		track.offset_left = -28.0 if side == 0 else 10.0
+		track.offset_right = -10.0 if side == 0 else 28.0
+		track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		track.deck_height = CONTROL_DECK_HEIGHT
+		track.hit_offset = RECEPTOR_TOP_OFFSET + HIT_LINE_GAP
+		track.notes = side_notes.filter(func(note: Dictionary) -> bool: return int(note["side"]) == side)
+		track.tint = AuroraUi.VIOLET if side == 0 else AuroraUi.TEAL
+		stage.add_child(track)
+		side_tracks.append(track)
 
 
 func _make_playfield_frame_style() -> StyleBoxFlat:
 	var style := AuroraUi.make_style(
-		Color(0.006, 0.009, 0.026, 0.70),
-		Color(0.70, 0.60, 1.0, 0.92),
+		Color(0.006, 0.009, 0.026, float(settings_manager.get_setting("lane_opacity", 0.82))),
+		Color(0.70, 0.60, 1.0, 0.92 * float(settings_manager.get_setting("lane_opacity", 0.82))),
 		0
 	)
 	style.border_width_left = 2
@@ -530,6 +572,7 @@ func _add_lane(parent: GridContainer, lane_index: int, key_name: String) -> void
 	var note_layer := Control.new()
 	note_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	note_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	note_layer.clip_contents = true
 	content.add_child(note_layer)
 	lane_note_layers.append(note_layer)
 
@@ -575,8 +618,8 @@ func _make_badge(text: String, color: Color) -> PanelContainer:
 
 func _make_lane_style(tint: Color, active: bool) -> StyleBoxFlat:
 	var opacity := float(settings_manager.get_setting("lane_opacity", 0.82))
-	var lane_alpha := opacity * 0.64
-	var border_alpha := 0.18 if active else 0.08
+	var lane_alpha := 0.0 # The frame is the single opacity layer; avoid stacked darkness.
+	var border_alpha := (0.18 if active else 0.08) * opacity
 	var style := AuroraUi.make_style(
 		Color(0.008, 0.012, 0.028, lane_alpha),
 		Color(tint.r, tint.g, tint.b, border_alpha),
@@ -608,13 +651,16 @@ func _make_receptor_style(tint: Color, active: bool) -> StyleBoxFlat:
 
 func _process(delta: float) -> void:
 	ambient_time += delta
-	_update_ambient_frame()
 	if start_gate_active:
+		_update_ambient_frame()
 		return
 	if not gameplay_finished:
 		_update_song_clock(delta)
+		_update_ambient_frame()
 		_spawn_upcoming_notes()
 		_update_active_notes()
+		for track in side_tracks:
+			track.set_playback_time(gameplay_time, _get_note_travel_time())
 		_update_practice_beat()
 		_check_level_finished()
 
@@ -657,6 +703,12 @@ func _register_lane_input(lane_index: int) -> void:
 
 	if closest_note.is_empty() or closest_error > MISS_WINDOW:
 		return
+	if not str(closest_note.get("shift_id", "")).is_empty():
+		_try_start_shift_pair(
+			str(closest_note["shift_id"]),
+			judgment_time
+		)
+		return
 
 	var signed_error := judgment_time - float(closest_note["time"])
 	if float(closest_note.get("duration", 0.0)) >= HOLD_NOTE_MIN_DURATION:
@@ -689,9 +741,106 @@ func _register_lane_release(lane_index: int) -> void:
 			held_note = note_entry
 	if held_note.is_empty():
 		return
+	if not str(held_note.get("shift_id", "")).is_empty():
+		var pair_id := str(held_note["shift_id"])
+		if _are_shift_lanes_pressed(pair_id):
+			return
+		_finish_shift_hold(pair_id, gameplay_time + float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0)
+		return
 
 	var timing_offset := float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0
 	_finish_hold_note(held_note, gameplay_time + timing_offset)
+
+
+func _are_shift_lanes_pressed(pair_id: String) -> bool:
+	var pair_value = active_shift_pairs.get(pair_id, null)
+	if not (pair_value is Dictionary):
+		return false
+	var pair: Dictionary = pair_value
+	for lane_value in pair.get("lanes", []):
+		var lane := int(lane_value)
+		if lane < 0 or lane >= lane_mode:
+			return false
+		if not Input.is_action_pressed(input_manager.get_lane_action(lane_mode, lane)):
+			return false
+	return true
+
+
+func _try_start_shift_pair(pair_id: String, judgment_time: float) -> void:
+	var pair_value = active_shift_pairs.get(pair_id, null)
+	if not (pair_value is Dictionary) or not _are_shift_lanes_pressed(pair_id):
+		return
+	var pair: Dictionary = pair_value
+	if bool(pair.get("holding", false)):
+		return
+	var entries: Array = pair.get("entries", [])
+	if entries.size() != 2 or not active_notes.has(entries[0]) or not active_notes.has(entries[1]):
+		return
+	var primary: Dictionary = entries[0]
+	var signed_error := judgment_time - float(primary["time"])
+	if absf(signed_error) > MISS_WINDOW:
+		return
+	var duration := float(primary.get("duration", 0.0))
+	if duration >= HOLD_NOTE_MIN_DURATION:
+		pair["holding"] = true
+		active_shift_pairs[pair_id] = pair
+		for entry_value in entries:
+			var entry: Dictionary = entry_value
+			entry["holding"] = true
+			var node := entry.get("node", null) as PanelContainer
+			if node != null and is_instance_valid(node):
+				node.modulate = Color(1.25, 1.20, 1.05, 1.0)
+		_record_timing_sample(signed_error)
+		_show_timing_feedback(signed_error)
+		_show_judgment("SHIFT HOLD", AuroraUi.GOLD)
+		return
+	var judgment := _get_judgment_for_error(signed_error)
+	var accuracy := 1.0 if judgment == "PERFECT" else 0.80 if judgment == "GREAT" else 0.50
+	var score_value := 1000 if judgment == "PERFECT" else 750 if judgment == "GREAT" else 450
+	_record_timing_sample(signed_error)
+	_show_timing_feedback(signed_error)
+	_judge_shift_pair(pair_id, judgment, accuracy, score_value, AuroraUi.GOLD)
+
+
+func _finish_shift_hold(pair_id: String, release_time: float) -> void:
+	var pair_value = active_shift_pairs.get(pair_id, null)
+	if not (pair_value is Dictionary):
+		return
+	var pair: Dictionary = pair_value
+	var entries: Array = pair.get("entries", [])
+	if entries.is_empty() or not active_notes.has(entries[0]):
+		return
+	var primary: Dictionary = entries[0]
+	var start_time := float(primary["time"])
+	var duration := maxf(float(primary.get("duration", 0.0)), HOLD_NOTE_MIN_DURATION)
+	var release_error := release_time - (start_time + duration)
+	var result := _get_hold_release_result((release_time - start_time) / duration, release_error)
+	_record_timing_sample(release_error)
+	_show_timing_feedback(release_error)
+	_judge_shift_pair(
+		pair_id,
+		str(result["judgment"]),
+		float(result["accuracy"]),
+		int(result["score"]),
+		AuroraUi.GOLD
+	)
+
+
+func _judge_shift_pair(
+	pair_id: String,
+	judgment: String,
+	accuracy_value: float,
+	base_score: int,
+	color: Color
+) -> void:
+	var pair_value = active_shift_pairs.get(pair_id, null)
+	if not (pair_value is Dictionary):
+		return
+	var pair: Dictionary = pair_value
+	active_shift_pairs.erase(pair_id)
+	for entry_value in pair.get("entries", []):
+		var entry: Dictionary = entry_value
+		_judge_note(entry, judgment, accuracy_value, base_score, color)
 
 
 func _start_hold_note(note_entry: Dictionary, signed_error: float) -> void:
@@ -769,19 +918,20 @@ func _initialize_gameplay() -> void:
 		chart.difficulty_name = "PRACTICE"
 		chart.difficulty_level = 4
 	chart_notes = chart.load_notes(bpm, duration)
-	chart_end_time = 0.0
-	for note_data in chart_notes:
-		chart_end_time = maxf(
-			chart_end_time,
-			float(note_data.get("time", 0.0)) + float(note_data.get("duration", 0.0))
-		)
+	chart_shift_notes = chart.load_shift_notes(bpm, duration)
+	cinematic_sections = chart.load_cinematic_sections()
+	_rebuild_cinematic_sections()
+	chart_end_time = chart.get_chart_end_time(bpm, duration)
 	# The editor stores the detected media duration in SongData. It is the
 	# authoritative level boundary, so an intentional outro without notes plays
 	# completely. Chart time is only a fallback for legacy data without duration.
 	level_end_time = duration if duration > 0.0 else chart_end_time + 0.65
 
 	next_note_index = 0
-	gameplay_time = 0.0
+	next_shift_note_index = 0
+	# Give even a note at time zero its full approach from above the playfield.
+	gameplay_time = -_get_preparation_duration()
+	media_started = false
 	next_beat_time = 0.0
 	gameplay_finished = false
 	_setup_audio_players()
@@ -854,33 +1004,27 @@ func _build_start_gate() -> void:
 	start_prompt_label.add_theme_constant_override("shadow_offset_x", 5)
 	start_prompt_label.add_theme_constant_override("shadow_offset_y", 5)
 	start_gate_panel.add_child(start_prompt_label)
-	start_gate_panel.visible = start_gate_active
+	start_gate_panel.hide()
 
 
 func _begin_start_countdown() -> void:
-	if not start_gate_active or start_countdown_active:
-		return
-	start_countdown_active = true
-	start_countdown_token += 1
-	var countdown_token := start_countdown_token
-	for value in range(START_COUNTDOWN_SECONDS, 0, -1):
-		if countdown_token != start_countdown_token or not is_inside_tree():
-			return
-		start_prompt_label.text = str(value)
-		start_prompt_label.add_theme_color_override("font_color", AuroraUi.GOLD)
-		await get_tree().create_timer(start_countdown_step_seconds, false).timeout
-	if countdown_token != start_countdown_token or not is_inside_tree():
+	# The initial preparation is silent and black, with no countdown overlay.
+	if not start_gate_active:
 		return
 	start_countdown_active = false
 	start_gate_active = false
 	start_gate_panel.hide()
-	if preparation_blackout != null:
-		preparation_blackout.hide()
+	if ui_feedback != null:
+		ui_feedback.play_confirm()
 	_apply_visual_settings()
-	_start_gameplay_media()
+	_spawn_upcoming_notes()
+	_update_active_notes()
 
 
 func _start_gameplay_media() -> void:
+	if media_started:
+		return
+	media_started = true
 	if background_video_player != null:
 		background_video_player.play()
 		if game_manager.current_song != null:
@@ -889,6 +1033,15 @@ func _start_gameplay_media() -> void:
 			)
 	if song_player != null and song_player.stream != null:
 		song_player.play()
+	_apply_visual_settings()
+
+
+func _apply_intro_visibility() -> void:
+	var preparing := not media_started
+	if preparation_blackout != null:
+		preparation_blackout.visible = preparing
+	for control in intro_hidden_controls:
+		control.visible = not preparing
 
 
 func _create_click_stream(frequency: float, duration: float, amplitude: float) -> AudioStreamWAV:
@@ -912,10 +1065,17 @@ func _create_click_stream(frequency: float, duration: float, amplitude: float) -
 
 
 func _update_song_clock(delta: float) -> void:
+	if not media_started:
+		gameplay_time += delta
+		if gameplay_time >= 0.0:
+			gameplay_time = 0.0
+			_start_gameplay_media()
+		return
 	if song_player != null and song_player.playing:
-		gameplay_time = song_player.get_playback_position()
-		gameplay_time += AudioServer.get_time_since_last_mix()
-		gameplay_time -= AudioServer.get_output_latency()
+		var audio_time := song_player.get_playback_position()
+		audio_time += AudioServer.get_time_since_last_mix()
+		audio_time -= AudioServer.get_output_latency()
+		gameplay_time = maxf(gameplay_time, audio_time)
 	elif background_video_player != null and background_video_player.is_playing():
 		var video_time := background_video_player.stream_position
 		if game_manager.current_song != null:
@@ -931,6 +1091,10 @@ func _get_note_travel_time() -> float:
 	return lerpf(2.65, 0.72, normalized)
 
 
+func _get_preparation_duration() -> float:
+	return _get_note_travel_time() + 0.15 + EXTRA_PREPARATION_SECONDS
+
+
 func _spawn_upcoming_notes() -> void:
 	var travel_time := _get_note_travel_time()
 	while next_note_index < chart_notes.size():
@@ -939,17 +1103,49 @@ func _spawn_upcoming_notes() -> void:
 			break
 		_spawn_note(note_data)
 		next_note_index += 1
+	while next_shift_note_index < chart_shift_notes.size():
+		var shift_data: Dictionary = chart_shift_notes[next_shift_note_index]
+		if float(shift_data["time"]) - gameplay_time > travel_time:
+			break
+		_spawn_shift_pair(shift_data, next_shift_note_index)
+		next_shift_note_index += 1
+
+
+func _spawn_shift_pair(shift_data: Dictionary, sequence: int) -> void:
+	var lanes: Array = shift_data.get("lanes", [])
+	if lanes.size() != 2:
+		return
+	var shift_id := "shift_%d" % sequence
+	var start_index := active_notes.size()
+	for lane_index in range(2):
+		_spawn_note({
+			"time": float(shift_data["time"]),
+			"lane": int(lanes[lane_index]),
+			"duration": float(shift_data.get("duration", 0.0)),
+			"shift_id": shift_id,
+			"shift_secondary": lane_index == 1,
+		})
+	var entries: Array = []
+	for entry_index in range(start_index, active_notes.size()):
+		entries.append(active_notes[entry_index])
+	if entries.size() == 2:
+		active_shift_pairs[shift_id] = {
+			"entries": entries,
+			"lanes": [int(lanes[0]), int(lanes[1])],
+			"holding": false,
+		}
 
 
 func _spawn_note(note_data: Dictionary) -> void:
 	var lane := int(note_data["lane"])
 	if lane < 0 or lane >= lane_note_layers.size():
 		return
-	var tint := LANE_COLORS[lane]
+	var is_shift := note_data.has("shift_id")
+	var tint := AuroraUi.GOLD if is_shift else LANE_COLORS[lane]
 	var duration := float(note_data.get("duration", 0.0))
 	var is_hold := duration >= HOLD_NOTE_MIN_DURATION
 	var note := PanelContainer.new()
-	note.name = "HoldNote" if is_hold else "TapNote"
+	note.name = "ShiftHold" if is_shift and is_hold else "ShiftNote" if is_shift else "HoldNote" if is_hold else "TapNote"
 	note.anchor_left = 0.075
 	note.anchor_right = 0.925
 	note.offset_top = -NOTE_HALF_HEIGHT
@@ -999,6 +1195,8 @@ func _spawn_note(note_data: Dictionary) -> void:
 		"duration": duration,
 		"node": note,
 		"holding": false,
+		"shift_id": str(note_data.get("shift_id", "")),
+		"shift_secondary": bool(note_data.get("shift_secondary", false)),
 	})
 
 
@@ -1022,12 +1220,12 @@ func _update_active_notes() -> void:
 		var duration := float(note_entry.get("duration", 0.0))
 		var is_hold := duration >= HOLD_NOTE_MIN_DURATION
 		var progress := 1.0 - (note_time - gameplay_time) / travel_time
-		var note_y := lerpf(24.0, receptor_y, progress)
+		var note_y := lerpf(-NOTE_HALF_HEIGHT, receptor_y, progress)
 		if bool(note_entry.get("holding", false)):
 			note_y = receptor_y
 		var hold_height := 0.0
 		if is_hold:
-			var travel_distance := maxf(receptor_y - 24.0, 1.0)
+			var travel_distance := maxf(receptor_y + NOTE_HALF_HEIGHT, 1.0)
 			var remaining_duration := duration
 			if bool(note_entry.get("holding", false)):
 				remaining_duration = maxf(note_time + duration - gameplay_time, 0.0)
@@ -1037,6 +1235,18 @@ func _update_active_notes() -> void:
 			)
 		note_node.offset_top = note_y - NOTE_HALF_HEIGHT - hold_height
 		note_node.offset_bottom = note_y + NOTE_HALF_HEIGHT
+
+		var shift_id := str(note_entry.get("shift_id", ""))
+		if not shift_id.is_empty():
+			if bool(note_entry.get("shift_secondary", false)):
+				continue
+			if bool(note_entry.get("holding", false)):
+				var shift_hold_end := note_time + duration
+				if judgment_time - shift_hold_end > GOOD_WINDOW:
+					_finish_shift_hold(shift_id, judgment_time)
+			elif judgment_time - note_time > MISS_WINDOW:
+				_judge_shift_pair(shift_id, "MISS", 0.0, 0, AuroraUi.CORAL)
+			continue
 
 		if bool(note_entry.get("holding", false)):
 			var hold_end_time := note_time + duration
@@ -1068,6 +1278,11 @@ func _judge_note(
 	if note_node != null and is_instance_valid(note_node):
 		note_node.queue_free()
 
+	var counts_as_one := not bool(note_entry.get("shift_secondary", false))
+	if not counts_as_one:
+		if judgment != "MISS":
+			_play_hit_effect(int(note_entry["lane"]), color)
+		return
 	judged_count += 1
 	accuracy_points += accuracy_value
 	if judgment == "MISS":
@@ -1183,11 +1398,16 @@ func _refresh_score_display() -> void:
 
 
 func _refresh_progress() -> void:
+	var total_notes := _get_total_judgment_count()
 	if progress_label != null:
-		progress_label.text = "%03d / %03d" % [judged_count, chart_notes.size()]
+		progress_label.text = "%03d / %03d" % [judged_count, total_notes]
 	if progress_fill != null:
-		var ratio := 0.0 if chart_notes.is_empty() else clampf(float(judged_count) / float(chart_notes.size()), 0.0, 1.0)
+		var ratio := 0.0 if total_notes <= 0 else clampf(float(judged_count) / float(total_notes), 0.0, 1.0)
 		progress_fill.anchor_right = ratio
+
+
+func _get_total_judgment_count() -> int:
+	return chart_notes.size() + chart_shift_notes.size()
 
 
 func _play_hit_effect(lane_index: int, _color: Color) -> void:
@@ -1253,8 +1473,34 @@ func _update_practice_beat() -> void:
 
 
 func _check_level_finished() -> void:
-	if _has_reached_level_end():
+	if gameplay_finished:
+		return
+	_try_start_clear_celebration()
+	# Music/video keep running under the celebration. Neither the last note nor
+	# the effect's completion is allowed to truncate a longer authored outro.
+	var pending_clear := clear_ready_time >= 0.0 and clear_celebration == null
+	var running_clear := clear_celebration != null and bool(clear_celebration.running)
+	if _has_reached_level_end() and not pending_clear and not running_clear:
 		_finish_gameplay()
+
+
+func _try_start_clear_celebration() -> void:
+	if clear_celebration != null or not media_started:
+		return
+	if judged_count != _get_total_judgment_count() or not active_notes.is_empty():
+		return
+	# A hold is judged on release, never on its head. Also wait for the actual
+	# chart tail so an early accepted release cannot show the badge prematurely.
+	if gameplay_time < chart_end_time or not PERFECT_PLAY.qualifies(_build_result_data()):
+		return
+	if clear_ready_time < 0.0:
+		clear_ready_time = gameplay_time + CLEAR_CELEBRATION_DELAY
+	if gameplay_time < clear_ready_time:
+		return
+	clear_celebration = PERFECT_PLAY.new()
+	clear_celebration.name = "PerfectPlayCelebration"
+	add_child(clear_celebration)
+	clear_celebration.play(bool(settings_manager.get_setting("reduced_motion", false)))
 
 
 func _has_reached_level_end() -> bool:
@@ -1268,8 +1514,14 @@ func _finish_gameplay() -> void:
 	if song_player != null:
 		song_player.stop()
 	if background_video_player != null:
-		background_video_player.stop()
-	game_manager.complete_song(_build_result_data())
+		background_video_player.paused = true
+	var result := _build_result_data()
+	result["clear_celebration_played"] = clear_celebration != null
+	game_manager.complete_song(result)
+	_show_finished_results()
+
+
+func _show_finished_results() -> void:
 	scene_manager.load_scene("results")
 
 
@@ -1286,7 +1538,7 @@ func _build_result_data() -> Dictionary:
 		"great": great_count,
 		"good": good_count,
 		"miss": miss_count,
-		"total_notes": chart_notes.size(),
+		"total_notes": _get_total_judgment_count(),
 		"mode": "%dK" % lane_mode,
 		"average_timing_ms": average_timing_ms,
 		"timing_samples": timing_sample_count,
@@ -1301,29 +1553,51 @@ func _update_ambient_frame() -> void:
 		return
 	var enabled := bool(settings_manager.get_setting("background_animation_enabled", true))
 	var reduced := bool(settings_manager.get_setting("reduced_motion", false))
+	var track_alpha := _get_cinematic_opacity()
 	if not enabled or reduced:
-		frame_panel.modulate = Color.WHITE
+		frame_panel.modulate = Color(1.0, 1.0, 1.0, track_alpha)
 		return
 	var intensity := float(settings_manager.get_setting("background_animation_intensity", 3))
 	var pulse := 0.94 + sin(ambient_time * (0.7 + intensity * 0.08)) * 0.06
-	frame_panel.modulate = Color(pulse, pulse, 1.0, 1.0)
+	frame_panel.modulate = Color(pulse, pulse, 1.0, track_alpha)
 
 
 func _apply_visual_settings() -> void:
 	var dim := float(settings_manager.get_setting("background_dim", 0.46))
-	dim_overlay.color = Color(0.0, 0.008, 0.03, clampf(dim * 0.74, 0.0, 0.82))
+	dim_overlay.color = Color(0.0, 0.0, 0.0, clampf(dim, 0.0, 1.0))
 	var show_labels := bool(settings_manager.get_setting("show_lane_labels", true))
 	for label in lane_labels:
 		label.visible = show_labels
 	if background_video_player != null:
 		var background_enabled := bool(settings_manager.get_setting("background_animation_enabled", true))
-		var intensity := float(settings_manager.get_setting("background_animation_intensity", 3))
-		var brightness := 0.72 + intensity * 0.055
-		background_video_player.visible = background_enabled and not start_gate_active
-		background_video_player.modulate = Color(brightness, brightness, brightness, 1.0)
+		background_video_player.visible = background_enabled and media_started
+		background_video_player.modulate = Color.WHITE
+	var opacity := float(settings_manager.get_setting("lane_opacity", 0.82))
+	frame_panel.add_theme_stylebox_override("panel", _make_playfield_frame_style())
+	var deck_style := control_deck.get_theme_stylebox("panel") as StyleBoxFlat
+	deck_style.bg_color.a = opacity
+	deck_style.border_color.a = 0.68 * opacity
+	for rail in track_rails:
+		rail.self_modulate.a = opacity
+	_rebuild_cinematic_sections()
+	_update_ambient_frame()
 	for lane_index in range(lane_panels.size()):
 		_set_lane_pressed(lane_index, lane_pressed[lane_index])
 	_update_speed_label()
+	_apply_intro_visibility()
+
+
+func _rebuild_cinematic_sections() -> void:
+	var timing_guard := absf(float(settings_manager.get_setting("timing_offset_ms", 0))) / 1000.0
+	safe_cinematic_sections = CINEMATICS.safe_sections(
+		cinematic_sections, chart_notes, _get_note_travel_time(), MISS_WINDOW + timing_guard
+	)
+
+
+func _get_cinematic_opacity() -> float:
+	if not media_started or start_gate_active or not bool(settings_manager.get_setting("cinematic_sections_enabled", true)):
+		return 1.0
+	return CINEMATICS.opacity_at(safe_cinematic_sections, gameplay_time)
 
 
 func _update_speed_label() -> void:
@@ -1334,10 +1608,12 @@ func _update_speed_label() -> void:
 func _on_setting_changed(key: String, _value) -> void:
 	if key in [
 		"note_speed",
+		"timing_offset_ms",
 		"background_animation_enabled",
 		"background_animation_intensity",
 		"background_dim",
 		"lane_opacity",
+		"cinematic_sections_enabled",
 		"show_lane_labels",
 		"reduced_motion",
 	]:
@@ -1388,13 +1664,17 @@ func _return_to_main_menu() -> void:
 
 
 func _open_pause_menu() -> void:
-	if pause_menu == null:
+	if pause_menu == null or gameplay_finished:
 		return
+	if ui_feedback != null:
+		ui_feedback.play_pause()
 	pause_menu.set_playback_progress(gameplay_time, level_end_time)
 	pause_menu.open_menu()
 
 
 func _input(event: InputEvent) -> void:
+	if gameplay_finished:
+		return
 	if event is InputEventJoypadButton and event.pressed:
 		if input_manager.controller_event_matches(event, "confirm"):
 			if start_gate_active and not start_countdown_active:

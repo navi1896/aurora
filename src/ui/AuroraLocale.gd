@@ -3,6 +3,19 @@ extends RefCounted
 class_name AuroraLocale
 
 const ENGLISH := {
+	"Tramos de cinemática": "Cinematic sections",
+	"TRAMOS DE CINEMÁTICA": "CINEMATIC SECTIONS",
+	"Oculta brevemente la pista en los tramos del nivel. Reaparece antes de las notas.": "Briefly hides the playfield in the chart's cinematic sections. Returns before notes approach.",
+	"Oculta la pista central entre estos tiempos. El video continúa y la pista vuelve antes de las notas. Los tramos se marcan en dorado en la línea de tiempo.": "Hides the central playfield between these times. Video continues and the playfield returns before notes. Sections appear in gold on the timeline.",
+	"INICIO (s)": "START (s)",
+	"FIN (s)": "END (s)",
+	"AÑADIR": "ADD",
+	"APLICAR": "APPLY",
+	"QUITAR": "REMOVE",
+	"VER INICIO": "VIEW START",
+	"El tramo debe durar al menos 0.7 s y quedar dentro de la canción.": "The section must last at least 0.7 s and stay within the song.",
+	"EDITAR TRAMOS DE CINEMÁTICA": "EDIT CINEMATIC SECTIONS",
+	"Los tramos de cinemática no son válidos.": "The cinematic sections are invalid.",
 	"INICIAR": "START",
 	"CREAR": "CREATE",
 	"OPCIONES": "SETTINGS",
