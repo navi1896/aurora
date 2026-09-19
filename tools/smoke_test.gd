@@ -65,10 +65,14 @@ func _run() -> void:
 		"El menú claro conserva los textos en español"
 	)
 	TranslationServer.set_locale(original_locale)
+	var expected_version := str(ProjectSettings.get_setting("application/config/version", ""))
+	var version_parts := expected_version.split(".")
+	var valid_semantic_version := version_parts.size() == 3
+	for part in version_parts:
+		valid_semantic_version = valid_semantic_version and part.is_valid_int()
 	_expect(
-		str(ProjectSettings.get_setting("application/config/version", ""))
-		== "1.0.3",
-		"La compilación declara la versión 1.0.3"
+		valid_semantic_version,
+		"La compilación declara una versión semántica"
 	)
 
 	var swapped_keys: Array = input_manager._assign_unique_keycode(
@@ -330,8 +334,8 @@ func _run() -> void:
 		)
 		_expect(
 			menu_version_label != null
-			and "v1.0.3" in menu_version_label.text,
-			"El menú principal muestra la versión 1.0.3"
+			and ("v%s" % expected_version) in menu_version_label.text,
+			"El menú principal muestra la versión del proyecto"
 		)
 		_expect(
 			main_menu.main_buttons.menu_buttons.size() == 4

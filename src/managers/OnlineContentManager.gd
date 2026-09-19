@@ -18,6 +18,7 @@ const LATEST_RELEASE_URL := (
 )
 const DOWNLOAD_DIRECTORY := "user://aurora_downloads"
 const UPDATE_DIRECTORY := "user://aurora_updates"
+const LARGE_DOWNLOAD_TIMEOUT_SECONDS := 600.0
 var catalog_request: HTTPRequest
 var package_request: HTTPRequest
 var release_request: HTTPRequest
@@ -29,6 +30,8 @@ var has_checked_latest := false
 var _package_download_entry: Dictionary = {}
 var _package_part_path := ""
 var _update_part_path := ""
+var _package_download_active := false
+var _update_download_active := false
 var request_headers := PackedStringArray([
 	"Accept: application/vnd.github+json",
 	"X-GitHub-Api-Version: 2026-03-10",
@@ -79,6 +82,7 @@ func download_package(entry: Dictionary) -> Error:
 	_remove_file(_package_part_path)
 	package_request.download_file = _package_part_path
 	package_request.body_size_limit = int(_package_download_entry.get("size_bytes", 0)) + 1
+	package_request.timeout = LARGE_DOWNLOAD_TIMEOUT_SECONDS
 	var error := package_request.request(
 		str(_package_download_entry.get("download_url", "")),
 		request_headers
@@ -87,6 +91,8 @@ func download_package(entry: Dictionary) -> Error:
 		package_request.download_file = ""
 		_package_part_path = ""
 		package_download_finished.emit(_failure("download_start", "No se pudo iniciar la descarga."))
+	else:
+		_package_download_active = true
 	return error
 
 
@@ -122,6 +128,7 @@ func download_latest_update() -> Error:
 	_remove_file(_update_part_path)
 	update_request.download_file = _update_part_path
 	update_request.body_size_limit = int(latest_release.get("size_bytes", 0)) + 1
+	update_request.timeout = LARGE_DOWNLOAD_TIMEOUT_SECONDS
 	var error := update_request.request(
 		str(latest_release.get("download_url", "")),
 		request_headers
@@ -130,6 +137,8 @@ func download_latest_update() -> Error:
 		update_request.download_file = ""
 		_update_part_path = ""
 		update_download_finished.emit(_failure("update_start", "No se pudo iniciar la descarga de la actualización."))
+	else:
+		_update_download_active = true
 	return error
 
 
@@ -174,12 +183,12 @@ func apply_downloaded_update() -> Dictionary:
 
 
 func _process(_delta: float) -> void:
-	if package_request != null and package_request.get_downloaded_bytes() > 0:
+	if _package_download_active and package_request != null and package_request.get_downloaded_bytes() > 0:
 		package_download_progress.emit(
 			package_request.get_downloaded_bytes(),
 			int(_package_download_entry.get("size_bytes", 0))
 		)
-	if update_request != null and update_request.get_downloaded_bytes() > 0:
+	if _update_download_active and update_request != null and update_request.get_downloaded_bytes() > 0:
 		update_download_progress.emit(
 			update_request.get_downloaded_bytes(),
 			int(latest_release.get("size_bytes", 0))
@@ -224,6 +233,7 @@ func _on_package_request_completed(
 	_headers: PackedStringArray,
 	_body: PackedByteArray
 ) -> void:
+	_package_download_active = false
 	package_request.download_file = ""
 	var part_path := _package_part_path
 	_package_part_path = ""
@@ -279,6 +289,7 @@ func _on_update_request_completed(
 	_headers: PackedStringArray,
 	_body: PackedByteArray
 ) -> void:
+	_update_download_active = false
 	update_request.download_file = ""
 	var part_path := _update_part_path
 	_update_part_path = ""
