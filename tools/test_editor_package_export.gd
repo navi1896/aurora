@@ -70,8 +70,9 @@ func _test_portable_single_chart_export() -> void:
 		bool(validation.get("ok", false))
 		and str(manifest.get("package_id", "")) == PACKAGE_ID
 		and str(manifest.get("package_version", "")) == "2.3.4"
+		and is_equal_approx(float(song.get("audio_gain_db", 0.0)), -3.5)
 		and charts.size() == 1,
-		"El paquete final supera validación completa y conserva ID y versión"
+		"El paquete final conserva ID, versión y volumen de la canción"
 	)
 	_expect(
 		str((charts[0] as Dictionary).get("path", ""))
@@ -270,6 +271,7 @@ func _create_project_fixture(
 			"key_count": 4,
 			"creation_mode": "automatic",
 			"automatic_density": 1,
+			"audio_gain_db": -3.5,
 		},
 		"media": {
 			"video_path": video_path,

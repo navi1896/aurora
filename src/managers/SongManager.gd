@@ -203,6 +203,11 @@ func _load_package_staging(package_root: String) -> void:
 	)
 	song.title = str(song_document.get("title", "Paquete Aurora"))
 	song.artist = str(song_document.get("artist", "Aurora Creator"))
+	song.audio_gain_db = clampf(
+		float(song_document.get("audio_gain_db", 0.0)),
+		-18.0,
+		12.0
+	)
 	song.bpm = clampf(
 		float(song_document.get("bpm", 128.0)),
 		1.0,
@@ -312,10 +317,7 @@ func ensure_song_media_loaded(song: SongData) -> bool:
 	)
 	if media.is_empty():
 		return song.audio != null or song.background_video != null
-	if song.audio == null:
-		var audio_path := str(media.get("audio_path", ""))
-		if not audio_path.is_empty() and FileAccess.file_exists(audio_path):
-			song.audio = _load_audio_stream(audio_path)
+	ensure_song_audio_loaded(song)
 	if song.background_video == null:
 		var video_path := str(media.get("video_path", ""))
 		if not video_path.is_empty() and FileAccess.file_exists(video_path):
@@ -323,6 +325,22 @@ func ensure_song_media_loaded(song: SongData) -> bool:
 			if loaded_video is VideoStream:
 				song.background_video = loaded_video as VideoStream
 	return song.audio != null or song.background_video != null
+
+
+func ensure_song_audio_loaded(song: SongData) -> bool:
+	if song == null:
+		return false
+	if song.audio != null:
+		return true
+	var media: Dictionary = package_media_by_song_id.get(
+		str(song.song_id),
+		{}
+	)
+	var audio_path := str(media.get("audio_path", ""))
+	if audio_path.is_empty() or not FileAccess.file_exists(audio_path):
+		return false
+	song.audio = _load_audio_stream(audio_path)
+	return song.audio != null
 
 
 func release_unselected_package_media(selected_song: SongData) -> void:
@@ -407,6 +425,11 @@ func _load_editor_project(project_path: String) -> void:
 	song.song_id = StringName("editor_%s" % folder_name)
 	song.title = str(metadata.get("title", "Nuevo nivel"))
 	song.artist = str(metadata.get("artist", "Aurora Creator"))
+	song.audio_gain_db = clampf(
+		float(metadata.get("audio_gain_db", 0.0)),
+		-18.0,
+		12.0
+	)
 	song.bpm = clampf(float(metadata.get("bpm", 128.0)), 1.0, 400.0)
 	song.duration_seconds = maxf(float(metadata.get("duration_seconds", 0.0)), 0.0)
 	song.background_video = video_resource
@@ -529,6 +552,7 @@ func prepare_song_for_editor(song: SongData, chart: ChartData) -> Dictionary:
 		"metadata": {
 			"title": song.title,
 			"artist": song.artist,
+			"audio_gain_db": clampf(song.audio_gain_db, -18.0, 12.0),
 			"difficulty": _editor_difficulty_id(chart.difficulty_name),
 			"difficulty_level": clampi(chart.difficulty_level, 1, 20),
 			"bpm": clampf(song.bpm, 40.0, 300.0),
@@ -635,6 +659,11 @@ func update_package_from_editor_project(project_path: String) -> Dictionary:
 	var metadata: Dictionary = project.get("metadata", {})
 	song_document["title"] = str(metadata.get("title", source_song.title)).strip_edges()
 	song_document["artist"] = str(metadata.get("artist", source_song.artist)).strip_edges()
+	song_document["audio_gain_db"] = clampf(
+		float(metadata.get("audio_gain_db", source_song.audio_gain_db)),
+		-18.0,
+		12.0
+	)
 	song_document["bpm"] = clampf(float(metadata.get("bpm", source_song.bpm)), 1.0, 400.0)
 	song_document["duration_seconds"] = maxf(
 		float(metadata.get("duration_seconds", source_song.duration_seconds)),

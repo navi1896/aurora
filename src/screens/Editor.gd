@@ -200,6 +200,7 @@ var preview_collapsed := false
 var creation_collapsed := false
 var recording_snap_enabled := true
 var preview_audio_enabled := true
+var song_gain_db := 0.0
 var timeline_snap_option: OptionButton
 var timeline_zoom_label: Label
 var waveform_toggle_button: Button
@@ -212,6 +213,9 @@ var package_export_dialog: FileDialog
 var video_select_button: Button
 var audio_select_button: Button
 var cover_select_button: Button
+var audio_gain_slider: HSlider
+var audio_gain_label: Label
+var audio_gain_reset_button: Button
 var back_button: Button
 var new_project_button: Button
 var open_project_button: Button
@@ -562,6 +566,41 @@ func _build_preview(workspace: VBoxContainer) -> void:
 	time_label.custom_minimum_size.x = 210.0
 	time_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	transport.add_child(time_label)
+	var gain_caption := AuroraUi.make_pixel_label(
+		AuroraLocale.text("VOLUMEN"),
+		7,
+		AuroraUi.TEAL
+	)
+	gain_caption.tooltip_text = AuroraLocale.text(
+		"AJUSTE PROPIO DE ESTA CANCION; NO MODIFICA EL ARCHIVO ORIGINAL"
+	)
+	gain_caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	transport.add_child(gain_caption)
+	audio_gain_slider = HSlider.new()
+	audio_gain_slider.name = "SongVolumeSlider"
+	audio_gain_slider.custom_minimum_size.x = 132.0
+	audio_gain_slider.min_value = -18.0
+	audio_gain_slider.max_value = 12.0
+	audio_gain_slider.step = 0.5
+	audio_gain_slider.value = song_gain_db
+	audio_gain_slider.tooltip_text = AuroraLocale.text(
+		"SUBE O BAJA SOLO ESTA CANCION. VALORES ALTOS PUEDEN SATURAR EL AUDIO."
+	)
+	audio_gain_slider.value_changed.connect(_set_song_gain_db)
+	transport.add_child(audio_gain_slider)
+	audio_gain_label = AuroraUi.make_pixel_label("0.0 dB", 8, AuroraUi.GOLD)
+	audio_gain_label.name = "SongVolumeLabel"
+	audio_gain_label.custom_minimum_size.x = 56.0
+	audio_gain_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	audio_gain_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	transport.add_child(audio_gain_label)
+	audio_gain_reset_button = _make_tool_button(AuroraLocale.text("0 dB"), 56.0)
+	audio_gain_reset_button.name = "ResetSongVolume"
+	audio_gain_reset_button.tooltip_text = AuroraLocale.text(
+		"RESTAURA EL VOLUMEN ORIGINAL DE ESTA CANCION"
+	)
+	audio_gain_reset_button.pressed.connect(_reset_song_gain)
+	transport.add_child(audio_gain_reset_button)
 	seek_slider = HSlider.new()
 	seek_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	seek_slider.min_value = 0.0
@@ -3429,8 +3468,23 @@ func _set_preview_audio_enabled(enabled: bool) -> void:
 	)
 
 
+func _set_song_gain_db(value: float) -> void:
+	song_gain_db = clampf(snappedf(value, 0.5), -18.0, 12.0)
+	if audio_gain_slider != null:
+		audio_gain_slider.set_value_no_signal(song_gain_db)
+	if audio_gain_label != null:
+		var sign := "+" if song_gain_db > 0.001 else ""
+		audio_gain_label.text = "%s%.1f dB" % [sign, song_gain_db]
+	_apply_preview_audio_state()
+	_refresh_dirty_state()
+
+
+func _reset_song_gain() -> void:
+	_set_song_gain_db(0.0)
+
+
 func _apply_preview_audio_state() -> void:
-	var audible_db := 0.0 if preview_audio_enabled else -80.0
+	var audible_db := song_gain_db if preview_audio_enabled else -80.0
 	if audio_player != null:
 		audio_player.volume_db = audible_db
 	if video_player != null:
@@ -4427,12 +4481,15 @@ func _set_package_export_controls_disabled(
 		video_select_button,
 		audio_select_button,
 		cover_select_button,
+		audio_gain_reset_button,
 		record_button,
 		generate_button,
 		test_button,
 	]:
 		if button != null:
 			button.disabled = disabled
+	if audio_gain_slider != null:
+		audio_gain_slider.editable = not disabled
 	if package_export_button != null:
 		package_export_button.text = AuroraLocale.text(
 			"EXPORTANDO..." if disabled else "EXPORTAR .AURORA"
@@ -4616,6 +4673,7 @@ func _make_project_document(chart_path: String = "") -> Dictionary:
 		"metadata": {
 			"title": title_edit.text.strip_edges(),
 			"artist": artist_edit.text.strip_edges(),
+			"audio_gain_db": song_gain_db,
 			"difficulty": _get_difficulty_id(),
 			"difficulty_level": int(difficulty_level_spin.value),
 			"bpm": float(bpm_spin.value),
@@ -4720,6 +4778,7 @@ func _apply_project_snapshot(
 	var metadata: Dictionary = parsed.get("metadata", {})
 	title_edit.text = str(metadata.get("title", "Nuevo nivel"))
 	artist_edit.text = str(metadata.get("artist", "Aurora Creator"))
+	_set_song_gain_db(float(metadata.get("audio_gain_db", 0.0)))
 	_select_difficulty(str(metadata.get("difficulty", "NORMAL")))
 	bpm_spin.value = clampf(float(metadata.get("bpm", 128.0)), 40.0, 300.0)
 	duration_seconds = maxf(float(metadata.get("duration_seconds", 120.0)), 1.0)
@@ -4756,7 +4815,14 @@ func _apply_project_snapshot(
 		media_status_label.text = AuroraLocale.text("VIDEO ANTIGUO EN CUARENTENA")
 		media_status_label.add_theme_color_override("font_color", AuroraUi.CORAL)
 	elif not video_path.is_empty():
-		_load_video(video_path)
+		if FileAccess.file_exists(video_path):
+			_load_video(video_path)
+		else:
+			video_player.stream = null
+			preview_placeholder.show()
+			preview_placeholder.text = AuroraLocale.text("NO SE ENCONTRÓ EL VIDEO SELECCIONADO")
+			media_status_label.text = AuroraLocale.text("NO SE ENCONTRÓ EL VIDEO SELECCIONADO")
+			media_status_label.add_theme_color_override("font_color", AuroraUi.CORAL)
 	if not audio_path.is_empty():
 		_load_audio(audio_path)
 	_set_creation_mode(str(metadata.get("creation_mode", "automatic")))
@@ -4813,6 +4879,7 @@ func _new_project() -> void:
 	package_version = DEFAULT_PACKAGE_VERSION
 	source_song_id = ""
 	source_chart_signature = ""
+	_set_song_gain_db(0.0)
 	video_player.stream = null
 	audio_player.stream = null
 	_apply_preview_audio_state()
@@ -4894,6 +4961,7 @@ func _test_chart() -> void:
 	song.song_id = StringName("editor_%s" % project_id)
 	song.title = title_edit.text.strip_edges()
 	song.artist = artist_edit.text.strip_edges()
+	song.audio_gain_db = song_gain_db
 	song.bpm = float(bpm_spin.value)
 	song.duration_seconds = duration_seconds
 	song.background_video = video_player.stream

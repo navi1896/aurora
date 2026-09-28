@@ -13,7 +13,7 @@ border_width_left = 2
 border_width_top = 2
 border_width_right = 2
 border_width_bottom = 2
-border_color = Color(0.32, 0.13, 0.62, 0.9)
+border_color = Color(0.03, 0.78, 0.92, 0.86)
 corner_radius_top_left = 4
 corner_radius_top_right = 4
 corner_radius_bottom_right = 4
@@ -25,7 +25,7 @@ border_width_left = 2
 border_width_top = 2
 border_width_right = 2
 border_width_bottom = 2
-border_color = Color(0.03, 0.78, 0.92, 0.86)
+border_color = Color(0.52, 0.18, 0.82, 0.9)
 corner_radius_top_left = 4
 corner_radius_top_right = 4
 corner_radius_bottom_right = 4
@@ -220,7 +220,7 @@ focus_mode = 2
 mouse_default_cursor_shape = 2
 theme = SubResource("Theme_action_buttons")
 theme_override_font_sizes/font_size = 11
-text = "INSTALAR NIVEL"
+text = "INSTALAR NIVELES"
 
 [node name="SongCountLabel" type="Label" parent="LibraryMargins/PageLayout/Header/HeaderActions"]
 layout_mode = 2
@@ -239,7 +239,7 @@ theme_override_constants/separation = 28
 [node name="SongListPanel" type="PanelContainer" parent="LibraryMargins/PageLayout/LibraryBody"]
 layout_mode = 2
 size_flags_horizontal = 3
-size_flags_stretch_ratio = 1.5
+size_flags_stretch_ratio = 1.15
 size_flags_vertical = 3
 theme_override_styles/panel = SubResource("StyleBox_library")
 
@@ -292,9 +292,10 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 12
 
 [node name="PreviewPanel" type="PanelContainer" parent="LibraryMargins/PageLayout/LibraryBody"]
-custom_minimum_size = Vector2(610, 0)
+custom_minimum_size = Vector2(0, 0)
 layout_mode = 2
 size_flags_horizontal = 3
+size_flags_stretch_ratio = 0.85
 size_flags_vertical = 3
 theme_override_styles/panel = SubResource("StyleBox_preview")
 
@@ -436,7 +437,7 @@ theme_override_fonts/font = ExtResource("6_font")
 theme_override_font_sizes/font_size = 11
 text = "DEMO SIN AUDIO"
 
-[node name="PreviewActions" type="HBoxContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
+[node name="PreviewActions" type="HFlowContainer" parent="LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout"]
 layout_mode = 2
 theme_override_constants/separation = 12
 
@@ -517,7 +518,7 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.5, 0.52, 0.64, 1)
 theme_override_fonts/font = ExtResource("6_font")
 theme_override_font_sizes/font_size = 11
-text = "v1.0.2"
+text = "v1.1.0"
 horizontal_alignment = 2
 
 [node name="PreviewAudio" type="AudioStreamPlayer" parent="."]

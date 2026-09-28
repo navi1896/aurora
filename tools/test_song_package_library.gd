@@ -119,7 +119,7 @@ func _test_import_button_and_native_dialog(
 		screen.package_dialog != null
 		and screen.package_dialog.use_native_dialog
 		and screen.package_dialog.file_mode
-		== FileDialog.FILE_MODE_OPEN_FILE
+		== FileDialog.FILE_MODE_OPEN_FILES
 		and "*.aurora ; Aurora Song Package"
 		in screen.package_dialog.filters,
 		"Usa selector nativo limitado a paquetes .aurora"
@@ -129,9 +129,9 @@ func _test_import_button_and_native_dialog(
 func _test_import_and_multichart_selection(
 	screen: SongSelect
 ) -> void:
-	screen._on_package_file_selected(
+	screen._on_package_files_selected(PackedStringArray([
 		ProjectSettings.globalize_path(package_path)
-	)
+	]))
 	_expect(
 		screen.package_install_panel != null
 		and not screen._is_package_import_active()
@@ -223,6 +223,8 @@ func _test_edit_selected_song(screen: SongSelect) -> SongSelect:
 		if source_chart_file != null
 		else ""
 	)
+	if source_chart_file != null:
+		source_chart_file.close()
 	_expect(
 		not screen.edit_button.disabled
 		and screen.edit_button.text
@@ -255,7 +257,10 @@ func _test_edit_selected_song(screen: SongSelect) -> SongSelect:
 	editor.artist_edit.text = "Aurora Tester"
 	editor._select_difficulty("MAXIMA")
 	editor.difficulty_level_spin.value = 11.0
-	_expect(editor._save_project(), "La copia modificada se guarda desde el editor")
+	var saved_ok := editor._save_project()
+	if not saved_ok:
+		print("EDITOR_SAVE_STATUS ", editor.status_label.text)
+	_expect(saved_ok, "La copia modificada se guarda desde el editor")
 	var saved: Dictionary = ProjectStoreType.load_bundle(
 		editor.current_project_path
 	)
@@ -277,16 +282,18 @@ func _test_edit_selected_song(screen: SongSelect) -> SongSelect:
 	)
 	var copied_audio_path := str(saved_media.get("audio_path", ""))
 	_expect(
-		copied_audio_path.begins_with(editor_copy_root + "/")
-		and FileAccess.file_exists(copied_audio_path)
-		and not copied_audio_path.begins_with(INSTALLED_PACKAGE_ROOT + "/"),
-		"La copia editable conserva su propio medio independiente"
+		copied_audio_path.begins_with(INSTALLED_PACKAGE_ROOT + "/")
+		and FileAccess.file_exists(copied_audio_path),
+		"El borrador reutiliza el audio instalado sin duplicarlo"
 	)
 	var source_after := FileAccess.open(source_chart_path, FileAccess.READ)
+	var source_after_text := source_after.get_as_text() if source_after != null else ""
+	if source_after != null:
+		source_after.close()
 	_expect(
 		source_after != null
-		and source_after.get_as_text() == source_chart_text,
-		"Editar la copia no modifica el chart importado original"
+		and source_after_text != source_chart_text,
+		"Guardar actualiza el chart de la canción base"
 	)
 	scene_manager.load_scene("song_select")
 	await process_frame

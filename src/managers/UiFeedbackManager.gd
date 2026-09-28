@@ -17,6 +17,7 @@ func _ready() -> void:
 	add_child(feedback_player)
 	feedback_streams = {
 		"navigation": _create_sequence([[980.0, 0.022, 0.075], [1280.0, 0.032, 0.045]]),
+		"cabinet_click": _create_sequence([[1600.0, 0.008, 0.18], [220.0, 0.032, 0.16]]),
 		"confirm": _create_sequence([[330.0, 0.022, 0.06], [780.0, 0.045, 0.12], [1180.0, 0.070, 0.11]]),
 		"loading": _create_sequence([[220.0, 0.030, 0.05], [510.0, 0.045, 0.09], [940.0, 0.075, 0.11]]),
 		"pause": _create_sequence([[430.0, 0.060, 0.13], [320.0, 0.070, 0.11]]),
@@ -30,6 +31,10 @@ func _ready() -> void:
 
 func play_navigation() -> void:
 	_play("navigation")
+
+
+func play_cabinet_click() -> void:
+	_play("cabinet_click")
 
 
 func play_confirm() -> void:

@@ -6,10 +6,7 @@ const DEVELOPER_RELEASE_SERVICE_TYPE := preload(
 	"res://src/managers/DeveloperReleaseService.gd"
 )
 
-@onready var main_buttons: MainMenuButtons = $MenuMargins/PageLayout/MenuBody/MainButtons
-@onready var character_idle: CharacterIdleRig = (
-	$MenuMargins/PageLayout/MenuBody/CharacterShowcase/IdleRig
-)
+@onready var cabina_menu: Control = $CabinaMenu
 @onready var update_status: Label = $MenuMargins/PageLayout/Footer/UpdateStatus
 @onready var update_button: Button = $MenuMargins/PageLayout/Footer/UpdateButton
 @onready var developer_publish_button: Button = $MenuMargins/PageLayout/Footer/DeveloperPublishButton
@@ -35,18 +32,21 @@ func _ready() -> void:
 	version_label.text = "- -  v%s  - -" % str(
 		ProjectSettings.get_setting("application/config/version", "")
 	)
-	main_buttons.action_selected.connect(_on_menu_action_selected)
-	main_buttons.focus_changed.connect(character_idle.trigger_selection_pulse)
+	cabina_menu.connect("action_selected", _on_menu_action_selected)
 	update_button.pressed.connect(_on_update_button_pressed)
 	_setup_developer_publish_action()
 	if online_manager != null:
 		online_manager.update_checked.connect(_on_update_checked)
 		online_manager.update_download_progress.connect(_on_update_download_progress)
 		online_manager.update_download_finished.connect(_on_update_download_finished)
+		online_manager.update_install_failed.connect(_on_update_install_failed)
 		_refresh_update_state()
-		if not online_manager.has_checked_latest:
+		if online_manager.auto_update_enabled:
+			update_button.disabled = true
+			update_button.text = AuroraLocale.text("COMPROBANDO...")
+		elif not online_manager.has_checked_latest:
 			call_deferred("_check_for_updates")
-	main_buttons.focus_default_button()
+	cabina_menu.call("focus_default_button")
 
 
 func _process(_delta: float) -> void:
@@ -171,6 +171,9 @@ func _on_update_checked(result: Dictionary) -> void:
 		update_button.text = AuroraLocale.text("BUSCAR ACTUALIZACIÓN")
 		return
 	_refresh_update_state()
+	if online_manager.auto_download_started:
+		update_button.disabled = true
+		update_button.text = AuroraLocale.text("DESCARGANDO...")
 
 
 func _refresh_update_state() -> void:
@@ -210,3 +213,9 @@ func _on_update_download_finished(result: Dictionary) -> void:
 	var version := str(online_manager.latest_release.get("version", ""))
 	update_status.text = AuroraLocale.text("DESCARGA VERIFICADA")
 	update_button.text = AuroraLocale.text("INSTALAR v%s") % version
+
+
+func _on_update_install_failed(message: String) -> void:
+	update_status.text = message
+	update_button.disabled = false
+	update_button.text = AuroraLocale.text("REINTENTAR")

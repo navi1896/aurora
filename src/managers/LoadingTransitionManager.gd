@@ -6,6 +6,8 @@ signal transition_started(target_scene: String)
 signal transition_finished(target_scene: String)
 
 const DISPLAY_SECONDS := 5.0
+const SETTINGS_COVER_SECONDS := 0.18
+const SETTINGS_REVEAL_SECONDS := 0.42
 const GAMEPLAY_TIPS := [
 	"AJUSTA LA VELOCIDAD DE NOTAS DESDE OPCIONES.",
 	"LAS NOTAS ESPECIALES PIDEN DOS CARRILES A LA VEZ.",
@@ -24,9 +26,12 @@ var progress_track: Panel
 var status_label: Label
 var progress_label: Label
 var elapsed := 0.0
+var active_display_seconds := DISPLAY_SECONDS
 var active := false
 var pending_scene := ""
 var completion := Callable()
+var settings_reveal_started := false
+var settings_scan_line: ColorRect
 
 
 func _ready() -> void:
@@ -39,6 +44,12 @@ func request_transition(target_scene: String, on_ready: Callable) -> bool:
 	pending_scene = target_scene
 	completion = on_ready
 	elapsed = 0.0
+	settings_reveal_started = false
+	active_display_seconds = (
+		SETTINGS_COVER_SECONDS
+		if target_scene == "settings"
+		else DISPLAY_SECONDS
+	)
 	active = true
 	_build_overlay(target_scene)
 	set_process(true)
@@ -53,8 +64,15 @@ func _process(delta: float) -> void:
 	if not active:
 		set_process(false)
 		return
-	elapsed = minf(elapsed + delta, DISPLAY_SECONDS)
-	var progress := clampf(elapsed / DISPLAY_SECONDS, 0.0, 1.0)
+	elapsed = minf(elapsed + delta, active_display_seconds)
+	var progress := clampf(elapsed / active_display_seconds, 0.0, 1.0)
+	if pending_scene == "settings":
+		if overlay != null and is_instance_valid(overlay):
+			overlay.modulate.a = progress
+			_update_settings_scan_line(progress)
+		if progress >= 1.0:
+			_begin_settings_reveal()
+		return
 	_update_progress_bar(progress)
 	if progress_label != null:
 		progress_label.text = "%03d%%" % roundi(progress * 100.0)
@@ -69,6 +87,37 @@ func _process(delta: float) -> void:
 	if progress < 1.0:
 		return
 	_complete_transition()
+
+
+func _begin_settings_reveal() -> void:
+	if settings_reveal_started:
+		return
+	settings_reveal_started = true
+	var scene_name := pending_scene
+	var next_action := completion
+	completion = Callable()
+	set_process(false)
+	if next_action.is_valid():
+		next_action.call(scene_name)
+	if overlay == null or not is_instance_valid(overlay):
+		_finish_settings_reveal(scene_name)
+		return
+	var reveal := create_tween()
+	reveal.set_trans(Tween.TRANS_SINE)
+	reveal.set_ease(Tween.EASE_OUT)
+	reveal.tween_property(overlay, "modulate:a", 0.0, SETTINGS_REVEAL_SECONDS)
+	reveal.finished.connect(_finish_settings_reveal.bind(scene_name))
+
+
+func _finish_settings_reveal(scene_name: String) -> void:
+	active = false
+	pending_scene = ""
+	settings_reveal_started = false
+	if overlay != null and is_instance_valid(overlay):
+		overlay.queue_free()
+	overlay = null
+	settings_scan_line = null
+	transition_finished.emit(scene_name)
 
 
 func _complete_transition() -> void:
@@ -100,6 +149,9 @@ func _build_overlay(target_scene: String) -> void:
 	AuroraUi.fill(overlay)
 	overlay.mouse_filter = Control.MOUSE_FILTER_STOP
 	popup_layer.add_child(overlay)
+	if target_scene == "settings":
+		_build_settings_transition()
+		return
 
 	var backdrop := ColorRect.new()
 	AuroraUi.fill(backdrop)
@@ -223,6 +275,70 @@ func _build_overlay(target_scene: String) -> void:
 	progress_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	progress_track.add_child(progress_label)
 	call_deferred("_update_progress_bar", 0.0)
+
+
+func _build_settings_transition() -> void:
+	var background := TextureRect.new()
+	background.name = "SettingsTransitionArtwork"
+	background.texture = load("res://assets/menu/background/cabina_aurora_menu.png") as Texture2D
+	AuroraUi.fill(background)
+	background.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	background.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	background.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(background)
+
+	var shade := ColorRect.new()
+	AuroraUi.fill(shade)
+	shade.color = Color(0.002, 0.006, 0.024, 0.70)
+	shade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(shade)
+
+	var card := PanelContainer.new()
+	card.name = "SettingsTransitionCard"
+	card.anchor_left = 0.5
+	card.anchor_top = 0.5
+	card.anchor_right = 0.5
+	card.anchor_bottom = 0.5
+	card.offset_left = -330.0
+	card.offset_top = -76.0
+	card.offset_right = 330.0
+	card.offset_bottom = 76.0
+	card.add_theme_stylebox_override(
+		"panel",
+		AuroraUi.make_style(
+			Color(0.003, 0.014, 0.042, 0.94),
+			Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.90),
+			0
+		)
+	)
+	overlay.add_child(card)
+	var card_content := VBoxContainer.new()
+	card_content.add_theme_constant_override("separation", 12)
+	card.add_child(card_content)
+	var title := AuroraUi.make_pixel_label("CABINA AURORA // OPCIONES", 14, AuroraUi.TEXT)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card_content.add_child(title)
+	var subtitle := AuroraUi.make_pixel_label("ABRIENDO CONSOLA DE MEZCLA", 8, AuroraUi.TEAL)
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	card_content.add_child(subtitle)
+
+	settings_scan_line = ColorRect.new()
+	settings_scan_line.name = "SettingsTransitionScanLine"
+	settings_scan_line.anchor_right = 1.0
+	settings_scan_line.anchor_top = 0.18
+	settings_scan_line.anchor_bottom = 0.18
+	settings_scan_line.offset_bottom = 2.0
+	settings_scan_line.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.58)
+	settings_scan_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(settings_scan_line)
+
+
+func _update_settings_scan_line(progress: float) -> void:
+	if settings_scan_line == null or not is_instance_valid(settings_scan_line):
+		return
+	var position := lerpf(0.18, 0.82, clampf(progress, 0.0, 1.0))
+	settings_scan_line.anchor_top = position
+	settings_scan_line.anchor_bottom = position
 
 
 func _update_progress_bar(progress: float) -> void:

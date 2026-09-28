@@ -12,7 +12,7 @@ const SETTINGS_SAVE_DEBOUNCE_SECONDS := 0.25
 
 const DEFAULT_SETTINGS := {
 	"language": "es",
-	"master_volume": 1.0,
+	"master_volume": 0.5,
 	"menu_music_volume": 0.58,
 	"music_volume": 0.85,
 	"sfx_volume": 0.9,
@@ -168,7 +168,7 @@ func apply_language_setting() -> void:
 
 
 func apply_audio_settings() -> void:
-	_set_bus_volume("Master", float(get_setting("master_volume", 1.0)))
+	_set_bus_volume("Master", float(get_setting("master_volume", 0.5)))
 	_set_bus_volume("MenuMusic", float(get_setting("menu_music_volume", 0.58)))
 	_set_bus_volume("Music", float(get_setting("music_volume", 0.85)))
 	_set_bus_volume("SFX", float(get_setting("sfx_volume", 0.9)))

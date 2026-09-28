@@ -32,6 +32,36 @@ func export_descriptor(descriptor: Dictionary, output_path: String) -> Dictionar
 			)
 
 
+func export_batch(entries: Array[Dictionary]) -> Dictionary:
+	var results: Array[Dictionary] = []
+	var exported := 0
+	var skipped := 0
+	for entry in entries:
+		var output_path := str(entry.get("path", ""))
+		var result: Dictionary
+		if FileAccess.file_exists(output_path):
+			result = _failure(ERR_ALREADY_EXISTS, "El archivo ya existe; no se sobrescribió.")
+			result["error_code"] = "destination_exists"
+		else:
+			result = export_descriptor(entry.get("descriptor", {}), output_path)
+		if bool(result.get("ok", false)):
+			exported += 1
+		elif str(result.get("error_code", "")) == "destination_exists":
+			skipped += 1
+		results.append({
+			"path": output_path,
+			"result": result,
+		})
+	return {
+		"ok": true,
+		"batch": true,
+		"exported": exported,
+		"skipped": skipped,
+		"failed": entries.size() - exported - skipped,
+		"results": results,
+	}
+
+
 func _export_installed_package(
 	package_root: String,
 	output_path: String

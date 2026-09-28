@@ -8,6 +8,7 @@ signal package_download_finished(result: Dictionary)
 signal update_checked(result: Dictionary)
 signal update_download_progress(downloaded: int, total: int)
 signal update_download_finished(result: Dictionary)
+signal update_install_failed(message: String)
 
 const MANIFEST_SERVICE = preload("res://src/online/OnlineManifestService.gd")
 const CATALOG_URL := (
@@ -27,6 +28,9 @@ var catalog_entries: Array[Dictionary] = []
 var latest_release: Dictionary = {}
 var downloaded_update_path := ""
 var has_checked_latest := false
+var auto_update_enabled := false
+var auto_download_started := false
+var auto_install_ready := false
 var _package_download_entry: Dictionary = {}
 var _package_part_path := ""
 var _update_part_path := ""
@@ -44,6 +48,33 @@ func _ready() -> void:
 	package_request = _make_request("PackageRequest", _on_package_request_completed)
 	release_request = _make_request("ReleaseRequest", _on_release_request_completed)
 	update_request = _make_request("UpdateRequest", _on_update_request_completed)
+	auto_update_enabled = OS.get_name() == "Windows" and not OS.has_feature("editor")
+	if auto_update_enabled:
+		update_checked.connect(_on_auto_update_checked)
+		update_download_finished.connect(_on_auto_update_download_finished)
+		call_deferred("_start_auto_update_check")
+
+
+func _start_auto_update_check() -> void:
+	request_latest_release()
+
+
+func _on_auto_update_checked(result: Dictionary) -> void:
+	if not bool(result.get("ok", false)):
+		return
+	if not bool(result.get("update_available", false)):
+		return
+	if not bool(result.get("download_available", false)):
+		return
+	auto_download_started = true
+	download_latest_update()
+
+
+func _on_auto_update_download_finished(result: Dictionary) -> void:
+	if not auto_download_started:
+		return
+	auto_download_started = false
+	auto_install_ready = bool(result.get("ok", false))
 
 
 func request_catalog() -> Error:
@@ -160,8 +191,7 @@ func apply_downloaded_update() -> Dictionary:
 		return _failure("install_directory", "No se pudo identificar la instalación actual.")
 	var script_result := _write_update_scripts(
 		ProjectSettings.globalize_path(downloaded_update_path),
-		install_directory,
-		executable_path
+		install_directory
 	)
 	if not bool(script_result.get("ok", false)):
 		return script_result
@@ -183,6 +213,13 @@ func apply_downloaded_update() -> Dictionary:
 
 
 func _process(_delta: float) -> void:
+	if auto_install_ready:
+		var scene_manager := get_parent().get_node_or_null("SceneManager") as SceneManager
+		if scene_manager != null and scene_manager.current_scene_name == "main_menu":
+			auto_install_ready = false
+			var install_result := apply_downloaded_update()
+			if not bool(install_result.get("ok", false)):
+				update_install_failed.emit(str(install_result.get("message", "No se pudo instalar la actualización.")))
 	if _package_download_active and package_request != null and package_request.get_downloaded_bytes() > 0:
 		package_download_progress.emit(
 			package_request.get_downloaded_bytes(),
@@ -342,33 +379,59 @@ func _verify_file(path: String, descriptor: Dictionary) -> bool:
 	)
 
 
-func _write_update_scripts(zip_path: String, install_directory: String, executable_path: String) -> Dictionary:
+func _write_update_scripts(zip_path: String, install_directory: String) -> Dictionary:
 	var directory_absolute := ProjectSettings.globalize_path(UPDATE_DIRECTORY)
 	var directory_error := DirAccess.make_dir_recursive_absolute(directory_absolute)
 	if directory_error != OK:
 		return _failure("script_directory", "No se pudo preparar el instalador.")
 	var power_shell_path := directory_absolute.path_join("apply_update.ps1")
-	var stage_name := "AuroraUpdate-%d" % Time.get_unix_time_from_system()
+	var stage_name := "stage-%d-%d" % [Time.get_unix_time_from_system(), OS.get_process_id()]
+	var backup_name := "backup-%d-%d" % [Time.get_unix_time_from_system(), OS.get_process_id()]
 	var power_shell_source := "\n".join([
 		"$ErrorActionPreference = 'Stop'",
 		"$processId = %d" % OS.get_process_id(),
 		"$zipPath = '%s'" % _escape_power_shell(zip_path),
 		"$installDirectory = '%s'" % _escape_power_shell(install_directory),
-		"$executablePath = '%s'" % _escape_power_shell(executable_path),
-		"$stage = Join-Path $env:TEMP '%s'" % stage_name,
-		"while (Get-Process -Id $processId -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }",
-		"if (Test-Path -LiteralPath $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }",
-		"New-Item -ItemType Directory -Path $stage -Force | Out-Null",
-		"Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force",
-		"$source = $stage",
-		"if (-not (Test-Path -LiteralPath (Join-Path $source 'Aurora.exe'))) {",
-		"  $folders = @(Get-ChildItem -LiteralPath $stage -Directory)",
-		"  if ($folders.Count -ne 1 -or -not (Test-Path -LiteralPath (Join-Path $folders[0].FullName 'Aurora.exe'))) { throw 'El ZIP no contiene una distribución válida de Aurora.' }",
-		"  $source = $folders[0].FullName",
+		"$launchPath = Join-Path $installDirectory 'Aurora.exe'",
+		"$stageRoot = '%s'" % _escape_power_shell(directory_absolute),
+		"$stage = Join-Path $stageRoot '%s'" % stage_name,
+		"$backup = Join-Path $stageRoot '%s'" % backup_name,
+		"function Assert-UpdateChildPath([string]$root, [string]$child) {",
+		"  $rootPath = [System.IO.Path]::GetFullPath($root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)",
+		"  $childPath = [System.IO.Path]::GetFullPath($child)",
+		"  if (-not $childPath.StartsWith($rootPath + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) { throw 'Ruta de actualización no válida.' }",
 		"}",
-		"Get-ChildItem -LiteralPath $source -Force | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $installDirectory -Recurse -Force }",
-		"Remove-Item -LiteralPath $stage -Recurse -Force",
-		"Start-Process -FilePath $executablePath -WorkingDirectory $installDirectory",
+		"Assert-UpdateChildPath $stageRoot $stage",
+		"Assert-UpdateChildPath $stageRoot $backup",
+		"while (Get-Process -Id $processId -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 250 }",
+		"$updated = $false",
+		"try {",
+		"  if ((Test-Path -LiteralPath $stage) -or (Test-Path -LiteralPath $backup)) { throw 'Ya existe una instalación temporal; no se sobrescribió.' }",
+		"  New-Item -ItemType Directory -Path $stage | Out-Null",
+		"  Expand-Archive -LiteralPath $zipPath -DestinationPath $stage",
+		"  $source = $stage",
+		"  if (-not (Test-Path -LiteralPath (Join-Path $source 'Aurora.exe'))) {",
+		"    $folders = @(Get-ChildItem -LiteralPath $stage -Directory)",
+		"    if ($folders.Count -ne 1 -or -not (Test-Path -LiteralPath (Join-Path $folders[0].FullName 'Aurora.exe'))) { throw 'El ZIP no contiene Aurora.exe.' }",
+		"    $source = $folders[0].FullName",
+		"  }",
+		"  $names = @('Aurora.exe', 'Aurora.pck')",
+		"  foreach ($name in $names) { if (-not (Test-Path -LiteralPath (Join-Path $source $name) -PathType Leaf)) { throw 'Falta un archivo de Aurora en el ZIP.' } }",
+		"  New-Item -ItemType Directory -Path $backup | Out-Null",
+		"  foreach ($name in $names) { $old = Join-Path $installDirectory $name; if (Test-Path -LiteralPath $old -PathType Leaf) { Copy-Item -LiteralPath $old -Destination $backup -Force } }",
+		"  foreach ($name in $names) { $from = Join-Path $source $name; $to = Join-Path $installDirectory $name; Copy-Item -LiteralPath $from -Destination $to -Force; if ((Get-Item -LiteralPath $from).Length -ne (Get-Item -LiteralPath $to).Length) { throw 'La copia de Aurora no quedó completa.' } }",
+		"  Start-Process -FilePath $launchPath -WorkingDirectory $installDirectory",
+		"  $updated = $true",
+		"} catch {",
+		"  $message = $_.Exception.Message",
+		"  if (Test-Path -LiteralPath $backup) { foreach ($name in @('Aurora.exe', 'Aurora.pck')) { $old = Join-Path $backup $name; if (Test-Path -LiteralPath $old -PathType Leaf) { Copy-Item -LiteralPath $old -Destination $installDirectory -Force } } }",
+		"  Set-Content -LiteralPath (Join-Path $stageRoot 'last-update-error.txt') -Value $message",
+		"  if (Test-Path -LiteralPath $launchPath -PathType Leaf) { Start-Process -FilePath $launchPath -WorkingDirectory $installDirectory }",
+		"}",
+		"if ($updated) {",
+		"  Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue",
+		"  Remove-Item -LiteralPath $backup -Recurse -Force -ErrorAction SilentlyContinue",
+		"}",
 	]) + "\n"
 	var ps_file := FileAccess.open(power_shell_path, FileAccess.WRITE)
 	if ps_file == null:

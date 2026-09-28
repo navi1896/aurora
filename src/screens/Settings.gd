@@ -5,6 +5,25 @@ class_name Settings
 const CACHE_MAINTENANCE_SERVICE := preload(
 	"res://src/maintenance/CacheMaintenanceService.gd"
 )
+const CABINA_BACKGROUND := preload("res://assets/menu/background/cabina_aurora_menu.png")
+const CABINET_PLATE := preload("res://assets/menu/background/settings_cabina_plate.png")
+const CABINET_ART_SIZE := Vector2(1671.0, 939.0)
+const CABINET_BACK_GLOW_SHADER_CODE := """
+shader_type canvas_item;
+render_mode blend_add;
+
+uniform float glow_strength = 0.0;
+
+void fragment() {
+	vec4 source = texture(TEXTURE, UV);
+	float inside = step(0.157, UV.x) * step(UV.x, 0.334)
+		* step(0.770, UV.y) * step(UV.y, 0.854);
+	float brightness = max(source.r, max(source.g, source.b));
+	float lit = smoothstep(0.42, 0.82, brightness);
+	float pulse = 0.94 + 0.06 * sin(TIME * 4.0);
+	COLOR = vec4(source.rgb, source.a * inside * lit * glow_strength * pulse);
+}
+"""
 const FFMPEG_VERSION_LABEL := "n8.1.2-31-g8c9502e9b0-20260729"
 const FFMPEG_LOCAL_PREPARATION := (
 	"AuroraDevTools/btbn-ffmpeg-n8.1-win64-lgpl-20260729"
@@ -21,10 +40,15 @@ const CATEGORIES := [
 var scene_manager: SceneManager
 var settings_manager: SettingsManager
 var input_manager: InputManager
+var song_manager: SongManager
+var menu_music_manager: MenuMusicManager
 
 var content_scroll: ScrollContainer
 var content_frame: MarginContainer
 var content_host: VBoxContainer
+var cabinet_column_scrolls: Array[ScrollContainer] = []
+var cabinet_columns: Array[VBoxContainer] = []
+var cabinet_page_tween: Tween
 var category_buttons: Dictionary = {}
 var header_title_label: Label
 var header_subtitle_label: Label
@@ -44,6 +68,17 @@ var cache_button: Button
 var cache_summary_label: Label
 var cache_confirmation_active := false
 var cache_confirmation_token := 0
+var featured_cover: TextureRect
+var featured_title_label: Label
+var featured_artist_label: Label
+var featured_status_label: Label
+var audio_meter_bars: Dictionary = {}
+var audio_meter_accents: Dictionary = {}
+var cabinet_audio_strip: Control
+var cabinet_status_label: Label
+var cabinet_back_button: Button
+var cabinet_back_glow_material: ShaderMaterial
+var cabinet_back_pressed := false
 
 
 func _ready() -> void:
@@ -52,52 +87,309 @@ func _ready() -> void:
 	scene_manager = managers.get_node("SceneManager") as SceneManager
 	settings_manager = managers.get_node("SettingsManager") as SettingsManager
 	input_manager = managers.get_node("InputManager") as InputManager
+	song_manager = managers.get_node_or_null("SongManager") as SongManager
+	menu_music_manager = managers.get_node_or_null("MenuMusicManager") as MenuMusicManager
 	cache_maintenance = CACHE_MAINTENANCE_SERVICE.new()
 	input_manager.controller_connection_changed.connect(_on_controller_connection_changed)
+	if menu_music_manager != null:
+		menu_music_manager.featured_song_changed.connect(_on_featured_song_changed)
 	setup_ui()
+	set_process(true)
 
 
 func setup_ui() -> void:
+	audio_meter_bars.clear()
+	audio_meter_accents.clear()
+	header_title_label = null
+	header_subtitle_label = null
+	featured_cover = null
+	featured_title_label = null
+	featured_artist_label = null
+	featured_status_label = null
+	cabinet_back_button = null
+	cabinet_back_glow_material = null
+	cabinet_back_pressed = false
+	category_buttons.clear()
+	cabinet_column_scrolls.clear()
+	cabinet_columns.clear()
+	if cabinet_page_tween != null and cabinet_page_tween.is_running():
+		cabinet_page_tween.kill()
 	AuroraUi.clear(self)
-	AuroraUi.add_background(self)
-	_build_terminal_ambient()
+	var plate := TextureRect.new()
+	plate.name = "SettingsCabinetPlate"
+	plate.texture = CABINET_PLATE
+	AuroraUi.fill(plate)
+	plate.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	plate.stretch_mode = TextureRect.STRETCH_SCALE
+	plate.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(plate)
 
-	var ambient := ColorRect.new()
-	AuroraUi.fill(ambient)
-	ambient.color = Color(0.002, 0.006, 0.024, 0.48)
-	ambient.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(ambient)
-
-	var margin := AuroraUi.make_margin(48, 28, 48, 28)
-	add_child(margin)
-
-	var page := VBoxContainer.new()
-	page.add_theme_constant_override("separation", 14)
-	margin.add_child(page)
-
-	_build_header(page)
-
-	var neon_line := ColorRect.new()
-	neon_line.custom_minimum_size.y = 2.0
-	neon_line.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.62)
-	page.add_child(neon_line)
-
-	var body := HBoxContainer.new()
-	body.add_theme_constant_override("separation", 16)
-	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	page.add_child(body)
-
-	_build_sidebar(body)
-	_build_content_area(body)
-	_build_footer(page)
+	var interface := Control.new()
+	interface.name = "SettingsCabinetControls"
+	AuroraUi.fill(interface)
+	add_child(interface)
+	_build_cabinet_back_glow(interface)
+	_build_cabinet_navigation(interface)
+	_build_cabinet_content(interface)
+	_build_cabinet_bottom_strip(interface)
 	_show_category(current_category)
+	if bool(settings_manager.get_setting("reduced_motion", false)):
+		interface.modulate.a = 1.0
+	else:
+		interface.modulate.a = 0.0
+		var intro := create_tween()
+		intro.set_trans(Tween.TRANS_SINE)
+		intro.set_ease(Tween.EASE_OUT)
+		intro.tween_property(interface, "modulate:a", 1.0, 0.34)
 	call_deferred("_focus_current_category")
+
+
+func _place_on_cabinet(control: Control, art_rect: Rect2) -> void:
+	control.anchor_left = art_rect.position.x / CABINET_ART_SIZE.x
+	control.anchor_top = art_rect.position.y / CABINET_ART_SIZE.y
+	control.anchor_right = art_rect.end.x / CABINET_ART_SIZE.x
+	control.anchor_bottom = art_rect.end.y / CABINET_ART_SIZE.y
+	control.offset_left = 0.0
+	control.offset_top = 0.0
+	control.offset_right = 0.0
+	control.offset_bottom = 0.0
+
+
+func _cabinet_button_style(fill: Color, edge: Color) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill
+	style.border_color = edge
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(5)
+	style.content_margin_left = 13.0
+	style.content_margin_right = 8.0
+	return style
+
+
+func _cabinet_fader_handle(accent: Color) -> Texture2D:
+	var pixels := Image.create_empty(72, 20, false, Image.FORMAT_RGBA8)
+	pixels.fill(Color.TRANSPARENT)
+	pixels.fill_rect(Rect2i(0, 0, 72, 20), Color(accent.r, accent.g, accent.b, 0.20))
+	pixels.fill_rect(Rect2i(2, 2, 68, 16), Color(accent.r, accent.g, accent.b, 0.82))
+	pixels.fill_rect(Rect2i(5, 5, 62, 10), Color(0.08, 0.12, 0.23, 1.0))
+	pixels.fill_rect(Rect2i(8, 7, 56, 6), Color(0.88, 0.97, 1.0, 1.0))
+	return ImageTexture.create_from_image(pixels)
+
+
+func _build_cabinet_back_glow(parent: Control) -> void:
+	var glow := TextureRect.new()
+	glow.name = "CabinetBackArtworkGlow"
+	AuroraUi.fill(glow)
+	glow.texture = CABINET_PLATE
+	glow.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	glow.stretch_mode = TextureRect.STRETCH_SCALE
+	glow.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var shader := Shader.new()
+	shader.code = CABINET_BACK_GLOW_SHADER_CODE
+	cabinet_back_glow_material = ShaderMaterial.new()
+	cabinet_back_glow_material.shader = shader
+	glow.material = cabinet_back_glow_material
+	parent.add_child(glow)
+
+
+func _build_cabinet_navigation(parent: Control) -> void:
+	var group := ButtonGroup.new()
+	group.allow_unpress = false
+	for index in range(CATEGORIES.size()):
+		var category: Dictionary = CATEGORIES[index]
+		var button := Button.new()
+		button.name = "Category_%s" % str(category["id"])
+		button.text = "%s  %s" % [str(category["icon"]), AuroraLocale.text(str(category["label"]))]
+		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		button.toggle_mode = true
+		button.button_group = group
+		button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		button.tooltip_text = ""
+		button.focus_mode = Control.FOCUS_ALL
+		AuroraUi.apply_pixel_font(button, 17)
+		button.add_theme_color_override("font_color", AuroraUi.TEXT)
+		button.add_theme_color_override("font_hover_color", AuroraUi.TEAL)
+		button.add_theme_color_override("font_pressed_color", AuroraUi.TEAL)
+		button.add_theme_color_override("font_focus_color", AuroraUi.TEAL)
+		button.add_theme_stylebox_override("normal", _cabinet_button_style(Color.TRANSPARENT, Color.TRANSPARENT))
+		button.add_theme_stylebox_override("hover", _cabinet_button_style(Color(0.0, 0.22, 0.31, 0.30), Color.TRANSPARENT))
+		button.add_theme_stylebox_override("pressed", _cabinet_button_style(Color(0.0, 0.32, 0.40, 0.32), Color.TRANSPARENT))
+		button.add_theme_stylebox_override("hover_pressed", _cabinet_button_style(Color(0.0, 0.40, 0.48, 0.39), Color.TRANSPARENT))
+		button.add_theme_stylebox_override("focus", StyleBoxEmpty.new())
+		_place_on_cabinet(button, Rect2(302.0, 256.0 + float(index) * 74.0, 256.0, 70.0))
+		button.pressed.connect(_show_category.bind(str(category["id"])))
+		button.focus_entered.connect(_refresh_cabinet_navigation)
+		button.focus_exited.connect(_refresh_cabinet_navigation)
+		parent.add_child(button)
+		category_buttons[category["id"]] = button
+
+	var back := Button.new()
+	cabinet_back_button = back
+	back.name = "CabinetBackButton"
+	back.text = AuroraLocale.text("◀  VOLVER")
+	back.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	back.tooltip_text = ""
+	back.focus_mode = Control.FOCUS_ALL
+	AuroraUi.apply_pixel_font(back, 17)
+	back.add_theme_color_override("font_color", AuroraUi.TEXT)
+	back.add_theme_color_override("font_hover_color", AuroraUi.TEAL)
+	back.add_theme_color_override("font_focus_color", AuroraUi.TEAL)
+	back.add_theme_color_override("font_pressed_color", AuroraUi.TEAL)
+	back.add_theme_color_override("font_hover_pressed_color", AuroraUi.TEAL)
+	for style_name in ["normal", "hover", "pressed", "hover_pressed", "focus", "disabled"]:
+		back.add_theme_stylebox_override(style_name, StyleBoxEmpty.new())
+	_place_on_cabinet(back, Rect2(280.0, 735.0, 274.0, 61.0))
+	back.mouse_entered.connect(_refresh_cabinet_back_highlight)
+	back.mouse_exited.connect(_refresh_cabinet_back_highlight)
+	back.focus_entered.connect(_refresh_cabinet_back_highlight)
+	back.focus_exited.connect(_refresh_cabinet_back_highlight)
+	back.button_down.connect(_set_cabinet_back_pressed.bind(true))
+	back.button_up.connect(_set_cabinet_back_pressed.bind(false))
+	back.pressed.connect(Callable(scene_manager, "load_scene").bind("main_menu"))
+	parent.add_child(back)
+
+
+func _set_cabinet_back_pressed(pressed: bool) -> void:
+	cabinet_back_pressed = pressed
+	_refresh_cabinet_back_highlight()
+
+
+func _refresh_cabinet_back_highlight() -> void:
+	if cabinet_back_button == null or not is_instance_valid(cabinet_back_button):
+		return
+	var highlighted := cabinet_back_button.is_hovered() or cabinet_back_button.has_focus()
+	var outline := Color(0.10, 0.80, 0.96, 0.80) if highlighted else Color.TRANSPARENT
+	cabinet_back_button.add_theme_color_override("font_color", AuroraUi.TEAL if highlighted else AuroraUi.TEXT)
+	cabinet_back_button.add_theme_color_override("font_outline_color", outline)
+	cabinet_back_button.add_theme_constant_override("outline_size", 2 if highlighted else 0)
+	if cabinet_back_glow_material != null:
+		var strength := 0.22 if cabinet_back_pressed else (1.05 if highlighted else 0.0)
+		cabinet_back_glow_material.set_shader_parameter("glow_strength", strength)
+
+
+func _build_cabinet_content(parent: Control) -> void:
+	content_scroll = ScrollContainer.new()
+	content_scroll.name = "CabinetContentScroll"
+	content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	content_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	content_scroll.resized.connect(_sync_content_width)
+	_place_on_cabinet(content_scroll, Rect2(597.0, 245.0, 792.0, 474.0))
+	parent.add_child(content_scroll)
+	content_frame = MarginContainer.new()
+	content_frame.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_frame.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	content_scroll.add_child(content_frame)
+	content_host = VBoxContainer.new()
+	content_host.add_theme_constant_override("separation", 12)
+	content_host.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content_frame.add_child(content_host)
+	call_deferred("_sync_content_width")
+	var panel_rects := [
+		Rect2(615.0, 279.0, 216.0, 416.0),
+		Rect2(870.0, 279.0, 213.0, 416.0),
+		Rect2(1118.0, 279.0, 218.0, 416.0),
+	]
+	for index in range(panel_rects.size()):
+		var column_scroll := ScrollContainer.new()
+		column_scroll.name = "CabinetColumnScroll_%d" % index
+		column_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		column_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		_place_on_cabinet(column_scroll, panel_rects[index])
+		parent.add_child(column_scroll)
+		var margin := MarginContainer.new()
+		margin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		margin.add_theme_constant_override("margin_left", 5)
+		margin.add_theme_constant_override("margin_right", 10)
+		margin.add_theme_constant_override("margin_top", 3)
+		margin.add_theme_constant_override("margin_bottom", 8)
+		column_scroll.add_child(margin)
+		var column := VBoxContainer.new()
+		column.name = "CabinetColumn_%d" % index
+		column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		column.add_theme_constant_override("separation", 13)
+		margin.add_child(column)
+		cabinet_column_scrolls.append(column_scroll)
+		cabinet_columns.append(column)
+
+
+func _build_cabinet_bottom_strip(parent: Control) -> void:
+	cabinet_audio_strip = HBoxContainer.new()
+	cabinet_audio_strip.name = "CabinetAudioStrip"
+	cabinet_audio_strip.add_theme_constant_override("separation", 10)
+	_place_on_cabinet(cabinet_audio_strip, Rect2(655.0, 750.0, 717.0, 61.0))
+	parent.add_child(cabinet_audio_strip)
+	var menu_label := AuroraUi.make_pixel_label(AuroraLocale.text("MÚSICA MENÚ"), 12, AuroraUi.TEAL)
+	menu_label.custom_minimum_size.x = 152.0
+	menu_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	cabinet_audio_strip.add_child(menu_label)
+	var menu_slider := HSlider.new()
+	menu_slider.name = "MenuMusicVolume"
+	menu_slider.min_value = 0.0
+	menu_slider.max_value = 1.0
+	menu_slider.step = 0.01
+	menu_slider.value = float(settings_manager.get_setting("menu_music_volume", 0.58))
+	menu_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	menu_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	menu_slider.custom_minimum_size.x = 180.0
+	menu_slider.custom_minimum_size.y = 22.0
+	menu_slider.add_theme_stylebox_override("slider", _cabinet_button_style(Color(0.0, 0.10, 0.16, 0.72), AuroraUi.TEAL))
+	menu_slider.add_theme_stylebox_override("grabber_area", _cabinet_button_style(Color(0.0, 0.72, 0.85, 0.68), Color.TRANSPARENT))
+	cabinet_audio_strip.add_child(menu_slider)
+	var menu_value := AuroraUi.make_pixel_label(_format_value(menu_slider.value, "percent"), 12, AuroraUi.TEXT)
+	menu_value.custom_minimum_size.x = 53.0
+	menu_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	cabinet_audio_strip.add_child(menu_value)
+	menu_slider.value_changed.connect(_on_slider_changed.bind("menu_music_volume", menu_value, "percent"))
+	featured_title_label = AuroraUi.make_pixel_label("", 11, AuroraUi.TEXT)
+	featured_title_label.custom_minimum_size.x = 196.0
+	featured_title_label.custom_minimum_size.y = 22.0
+	featured_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	featured_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	featured_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	cabinet_audio_strip.add_child(featured_title_label)
+	cabinet_status_label = AuroraUi.make_pixel_label("", 12, AuroraUi.TEAL)
+	cabinet_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cabinet_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_place_on_cabinet(cabinet_status_label, Rect2(690.0, 755.0, 640.0, 46.0))
+	parent.add_child(cabinet_status_label)
+
+
+func _add_settings_backdrop() -> void:
+	var artwork := TextureRect.new()
+	artwork.name = "SettingsCabinaArtwork"
+	artwork.texture = CABINA_BACKGROUND
+	AuroraUi.fill(artwork)
+	artwork.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	artwork.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	artwork.modulate = Color(0.56, 0.66, 0.95, 0.36)
+	artwork.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(artwork)
 
 
 func _focus_current_category() -> void:
 	var button := category_buttons.get(current_category) as Button
 	if button != null and is_instance_valid(button):
 		button.grab_focus()
+		_refresh_cabinet_navigation()
+
+
+func _refresh_cabinet_navigation() -> void:
+	for entry in CATEGORIES:
+		var id := str(entry["id"])
+		var button := category_buttons.get(id) as Button
+		if button == null or not is_instance_valid(button):
+			continue
+		var selected := id == current_category
+		var highlighted := selected or button.has_focus()
+		button.text = "%s  %s" % [
+			"▶" if selected else str(entry["icon"]),
+			AuroraLocale.text(str(entry["label"])),
+		]
+		button.add_theme_color_override("font_color", AuroraUi.TEAL if highlighted else AuroraUi.TEXT)
+		button.add_theme_color_override("font_outline_color", Color(0.0, 0.72, 0.90, 0.90) if highlighted else Color.TRANSPARENT)
+		button.add_theme_constant_override("outline_size", 2 if highlighted else 0)
 
 
 func _build_terminal_ambient() -> void:
@@ -112,7 +404,7 @@ func _build_terminal_ambient() -> void:
 		vertical.anchor_right = vertical.anchor_left
 		vertical.anchor_bottom = 1.0
 		vertical.offset_right = 1.0
-		vertical.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.022)
+		vertical.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.032)
 		grid.add_child(vertical)
 	for index in range(1, 7):
 		var horizontal := ColorRect.new()
@@ -120,7 +412,7 @@ func _build_terminal_ambient() -> void:
 		horizontal.anchor_right = 1.0
 		horizontal.anchor_bottom = horizontal.anchor_top
 		horizontal.offset_bottom = 1.0
-		horizontal.color = Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.020)
+		horizontal.color = Color(1.0, 0.20, 0.86, 0.026)
 		grid.add_child(horizontal)
 
 	var spectrum := HBoxContainer.new()
@@ -130,7 +422,7 @@ func _build_terminal_ambient() -> void:
 	spectrum.anchor_bottom = 0.91
 	spectrum.alignment = BoxContainer.ALIGNMENT_END
 	spectrum.add_theme_constant_override("separation", 5)
-	spectrum.modulate = Color(1.0, 1.0, 1.0, 0.16)
+	spectrum.modulate = Color(1.0, 1.0, 1.0, 0.22)
 	grid.add_child(spectrum)
 	var heights := [0.22, 0.48, 0.34, 0.72, 0.56, 0.88, 0.40, 0.66, 0.30, 0.78, 0.52, 0.26]
 	for height in heights:
@@ -195,8 +487,8 @@ func _build_sidebar(parent: HBoxContainer) -> void:
 	sidebar.add_theme_stylebox_override(
 		"panel",
 		_make_terminal_style(
-			Color(0.012, 0.020, 0.052, 0.94),
-			Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.42)
+			Color(0.004, 0.010, 0.030, 0.97),
+			Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.62)
 		)
 	)
 	sidebar.custom_minimum_size.x = 250.0
@@ -237,8 +529,8 @@ func _build_sidebar(parent: HBoxContainer) -> void:
 	profile.add_theme_stylebox_override(
 		"panel",
 		_make_terminal_style(
-			Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.10),
-			Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.50)
+			Color(0.015, 0.028, 0.064, 0.92),
+			Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.62)
 		)
 	)
 	navigation.add_child(profile)
@@ -262,8 +554,8 @@ func _build_content_area(parent: HBoxContainer) -> void:
 	panel.add_theme_stylebox_override(
 		"panel",
 		_make_terminal_style(
-			Color(0.006, 0.012, 0.038, 0.92),
-			Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.30)
+			Color(0.003, 0.008, 0.024, 0.96),
+			Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.48)
 		)
 	)
 	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -293,15 +585,12 @@ func _build_content_area(parent: HBoxContainer) -> void:
 func _sync_content_width() -> void:
 	if content_scroll == null or content_frame == null or content_host == null:
 		return
-	var available := maxf(size.x - 410.0, 720.0)
-	var target := clampf(available - 48.0, 720.0, 1180.0)
-	var gutter := maxf((available - target) * 0.5, 18.0)
-	content_frame.custom_minimum_size.x = available
-	content_frame.add_theme_constant_override("margin_left", roundi(gutter))
-	content_frame.add_theme_constant_override("margin_right", roundi(gutter))
-	content_frame.add_theme_constant_override("margin_top", 16)
-	content_frame.add_theme_constant_override("margin_bottom", 18)
-	content_host.custom_minimum_size.x = target
+	content_frame.custom_minimum_size.x = 0.0
+	content_host.custom_minimum_size.x = 0.0
+	content_frame.add_theme_constant_override("margin_left", 18)
+	content_frame.add_theme_constant_override("margin_right", 18)
+	content_frame.add_theme_constant_override("margin_top", 24)
+	content_frame.add_theme_constant_override("margin_bottom", 12)
 
 
 func _build_footer(parent: VBoxContainer) -> void:
@@ -329,6 +618,10 @@ func _build_footer(parent: VBoxContainer) -> void:
 
 func _show_category(category: String) -> void:
 	current_category = category
+	if cabinet_page_tween != null and cabinet_page_tween.is_running():
+		cabinet_page_tween.kill()
+	audio_meter_bars.clear()
+	audio_meter_accents.clear()
 	_clear_binding_capture()
 	reset_confirmation_active = false
 	reset_confirmation_token += 1
@@ -337,23 +630,48 @@ func _show_category(category: String) -> void:
 	for id in category_buttons:
 		var button := category_buttons[id] as Button
 		button.button_pressed = str(id) == category
-	if header_title_label != null:
+	_refresh_cabinet_navigation()
+	if header_title_label != null and is_instance_valid(header_title_label):
 		header_title_label.text = AuroraLocale.text("CONFIGURACIÓN // %s") % _get_category_label(category)
 
 	AuroraUi.clear(content_host)
+	content_scroll.scroll_vertical = 0
+	content_scroll.visible = category == "audio"
+	for index in range(cabinet_columns.size()):
+		AuroraUi.clear(cabinet_columns[index])
+		cabinet_column_scrolls[index].scroll_vertical = 0
+		cabinet_column_scrolls[index].visible = category != "audio"
+	cabinet_audio_strip.visible = category == "audio"
+	cabinet_status_label.visible = category != "audio"
+	cabinet_status_label.text = AuroraLocale.text("%s  //  AJUSTES GUARDADOS AUTOMÁTICAMENTE") % _get_category_label(category)
 	match category:
 		"audio":
-			_build_audio_settings()
+			_build_cabinet_audio_settings()
 		"gameplay":
-			_build_gameplay_settings()
+			_build_cabinet_gameplay_settings()
 		"graphics":
-			_build_graphics_settings()
+			_build_cabinet_graphics_settings()
 		"controls":
-			_build_control_settings()
+			_build_cabinet_control_settings()
 		"credits":
-			_build_credits_settings()
+			_build_cabinet_credits_settings()
 		_:
-			_build_general_settings()
+			_build_cabinet_general_settings()
+	if not bool(settings_manager.get_setting("reduced_motion", false)):
+		cabinet_page_tween = create_tween()
+		cabinet_page_tween.set_parallel(true)
+		if category == "audio":
+			content_scroll.modulate.a = 0.0
+			cabinet_page_tween.tween_property(content_scroll, "modulate:a", 1.0, 0.18)
+		else:
+			for index in range(cabinet_column_scrolls.size()):
+				var column_scroll := cabinet_column_scrolls[index]
+				column_scroll.modulate.a = 0.0
+				cabinet_page_tween.tween_property(column_scroll, "modulate:a", 1.0, 0.18).set_delay(float(index) * 0.035)
+	else:
+		content_scroll.modulate.a = 1.0
+		for column_scroll in cabinet_column_scrolls:
+			column_scroll.modulate.a = 1.0
 
 
 func _get_category_label(category: String) -> String:
@@ -375,10 +693,10 @@ func _make_terminal_style(
 	style.border_width_top = border_width
 	style.border_width_right = border_width
 	style.border_width_bottom = border_width
-	style.corner_radius_top_left = 2
-	style.corner_radius_top_right = 2
-	style.corner_radius_bottom_left = 2
-	style.corner_radius_bottom_right = 2
+	style.corner_radius_top_left = 0
+	style.corner_radius_top_right = 0
+	style.corner_radius_bottom_left = 0
+	style.corner_radius_bottom_right = 0
 	style.content_margin_left = 16.0
 	style.content_margin_top = 12.0
 	style.content_margin_right = 16.0
@@ -387,22 +705,22 @@ func _make_terminal_style(
 
 
 func _apply_category_button_style(button: Button) -> void:
-	var base := Color(0.055, 0.070, 0.110, 0.94)
-	var selected_border := Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.96)
+	var base := Color(0.008, 0.016, 0.041, 0.97)
+	var selected_border := Color(1.0, 0.24, 0.86, 0.98)
 	button.add_theme_stylebox_override("normal", _make_terminal_style(base, AuroraUi.BORDER))
 	button.add_theme_stylebox_override("hover", _make_terminal_style(base, selected_border, 2))
 	button.add_theme_stylebox_override("focus", _make_terminal_style(base, selected_border, 2))
 	button.add_theme_stylebox_override(
 		"pressed",
-		_make_terminal_style(Color(0.040, 0.085, 0.120, 0.96), selected_border, 2)
+		_make_terminal_style(Color(0.020, 0.085, 0.118, 0.98), selected_border, 2)
 	)
 	button.add_theme_color_override("font_pressed_color", Color.WHITE)
 
 
 func _apply_segment_button_style(button: Button) -> void:
-	var base := Color(0.020, 0.028, 0.060, 0.98)
-	var selected := Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.24)
-	var selected_border := Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.94)
+	var base := Color(0.005, 0.012, 0.036, 0.98)
+	var selected := Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.22)
+	var selected_border := Color(1.0, 0.24, 0.86, 0.96)
 	button.add_theme_stylebox_override("normal", _make_terminal_style(base, AuroraUi.BORDER))
 	button.add_theme_stylebox_override("hover", _make_terminal_style(base, selected_border))
 	button.add_theme_stylebox_override("focus", _make_terminal_style(base, selected_border, 2))
@@ -435,11 +753,11 @@ func _add_page_intro(title: String, subtitle: String, color: Color) -> void:
 func _add_section(title: String, subtitle: String = "") -> VBoxContainer:
 	var panel := PanelContainer.new()
 	var section_style := _make_terminal_style(
-		Color(0.035, 0.045, 0.095, 0.88),
-		Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.36)
+		Color(0.008, 0.016, 0.044, 0.94),
+		Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.56)
 	)
 	section_style.border_width_left = 3
-	section_style.border_color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.48)
+	section_style.border_color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.72)
 	section_style.content_margin_left = 20.0
 	section_style.content_margin_top = 18.0
 	section_style.content_margin_right = 20.0
@@ -457,6 +775,313 @@ func _add_section(title: String, subtitle: String = "") -> VBoxContainer:
 	separator.modulate = Color(0.2, 0.85, 1.0, 0.34)
 	box.add_child(separator)
 	return box
+
+
+func _cabinet_column_heading(index: int, title: String, subtitle: String, accent: Color) -> VBoxContainer:
+	var column := cabinet_columns[index]
+	var heading := AuroraUi.make_pixel_label(AuroraLocale.text(title), 14, accent)
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	heading.custom_minimum_size.y = 29.0
+	column.add_child(heading)
+	if not subtitle.is_empty():
+		_cabinet_copy(column, subtitle, AuroraUi.MUTED, 11)
+	var divider := HSeparator.new()
+	divider.modulate = Color(accent.r, accent.g, accent.b, 0.60)
+	column.add_child(divider)
+	return column
+
+
+func _cabinet_copy(parent: Container, copy: String, color: Color = AuroraUi.TEXT, font_size: int = 12) -> Label:
+	var label := AuroraUi.make_label(AuroraLocale.text(copy), font_size, color)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(label)
+	return label
+
+
+func _cabinet_action_button(parent: Container, title: String, accent: Color) -> Button:
+	var button := Button.new()
+	button.text = AuroraLocale.text(title)
+	button.clip_text = true
+	button.custom_minimum_size.y = 38.0
+	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	AuroraUi.apply_pixel_font(button, 11)
+	button.add_theme_color_override("font_color", AuroraUi.TEXT)
+	button.add_theme_color_override("font_hover_color", accent)
+	button.add_theme_color_override("font_pressed_color", accent)
+	button.add_theme_stylebox_override("normal", _cabinet_button_style(Color(0.006, 0.016, 0.044, 0.86), Color(accent.r, accent.g, accent.b, 0.48)))
+	button.add_theme_stylebox_override("hover", _cabinet_button_style(Color(accent.r, accent.g, accent.b, 0.13), accent))
+	button.add_theme_stylebox_override("pressed", _cabinet_button_style(Color(accent.r, accent.g, accent.b, 0.24), accent))
+	button.add_theme_stylebox_override("hover_pressed", _cabinet_button_style(Color(accent.r, accent.g, accent.b, 0.30), accent))
+	button.add_theme_stylebox_override("focus", _cabinet_button_style(Color.TRANSPARENT, Color(accent.r, accent.g, accent.b, 0.68)))
+	parent.add_child(button)
+	return button
+
+
+func _cabinet_option(parent: VBoxContainer, title: String, key: String, labels: Array, values: Array, accent: Color, description: String = "") -> void:
+	var group := VBoxContainer.new()
+	group.add_theme_constant_override("separation", 5)
+	parent.add_child(group)
+	_cabinet_copy(group, title, AuroraUi.TEXT, 13)
+	if not description.is_empty():
+		_cabinet_copy(group, description, AuroraUi.MUTED, 10)
+	var option := OptionButton.new()
+	option.name = "Option_%s" % key
+	option.custom_minimum_size.y = 38.0
+	option.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	option.clip_text = true
+	AuroraUi.apply_pixel_font(option, 10)
+	option.add_theme_stylebox_override("normal", _cabinet_button_style(Color(0.006, 0.016, 0.044, 0.94), Color(accent.r, accent.g, accent.b, 0.64)))
+	option.add_theme_stylebox_override("hover", _cabinet_button_style(Color(accent.r, accent.g, accent.b, 0.17), accent))
+	option.add_theme_stylebox_override("focus", _cabinet_button_style(Color.TRANSPARENT, accent))
+	for label in labels:
+		option.add_item(AuroraLocale.text(str(label)))
+	option.selected = maxi(values.find(settings_manager.get_setting(key, values[0])), 0)
+	option.item_selected.connect(_on_option_changed.bind(key, values))
+	group.add_child(option)
+
+
+func _cabinet_slider(parent: VBoxContainer, title: String, key: String, minimum: float, maximum: float, step: float, format: String, accent: Color, description: String = "") -> void:
+	var group := VBoxContainer.new()
+	group.add_theme_constant_override("separation", 5)
+	parent.add_child(group)
+	var header := HBoxContainer.new()
+	group.add_child(header)
+	var title_label := AuroraUi.make_label(AuroraLocale.text(title), 12, AuroraUi.TEXT)
+	title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	header.add_child(title_label)
+	var current := float(settings_manager.get_setting(key, minimum))
+	var value_label := AuroraUi.make_label(_format_value(current, format), 12, accent)
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	value_label.custom_minimum_size.x = 58.0
+	header.add_child(value_label)
+	if not description.is_empty():
+		_cabinet_copy(group, description, AuroraUi.MUTED, 10)
+	var slider := HSlider.new()
+	slider.name = "Slider_%s" % key
+	slider.min_value = minimum
+	slider.max_value = maximum
+	slider.step = step
+	slider.value = current
+	slider.custom_minimum_size.y = 29.0
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var track := _cabinet_button_style(Color(0.004, 0.018, 0.045, 0.92), Color(accent.r, accent.g, accent.b, 0.45))
+	var active := _cabinet_button_style(Color(accent.r, accent.g, accent.b, 0.76), Color.TRANSPARENT)
+	slider.add_theme_stylebox_override("slider", track)
+	slider.add_theme_stylebox_override("grabber_area", active)
+	slider.add_theme_stylebox_override("grabber_area_highlight", active)
+	slider.value_changed.connect(_on_slider_changed.bind(key, value_label, format))
+	group.add_child(slider)
+
+
+func _cabinet_toggle(parent: VBoxContainer, title: String, key: String, accent: Color, description: String = "") -> void:
+	var group := VBoxContainer.new()
+	group.add_theme_constant_override("separation", 5)
+	parent.add_child(group)
+	_cabinet_copy(group, title, AuroraUi.TEXT, 12)
+	if not description.is_empty():
+		_cabinet_copy(group, description, AuroraUi.MUTED, 10)
+	var button := _cabinet_action_button(group, "", accent)
+	button.name = "Toggle_%s" % key
+	button.toggle_mode = true
+	button.button_pressed = bool(settings_manager.get_setting(key, false))
+	button.text = AuroraLocale.text("ACTIVADO" if button.button_pressed else "DESACTIVADO")
+	button.toggled.connect(_on_cabinet_toggle_toggled.bind(key, button))
+
+
+func _on_cabinet_toggle_toggled(enabled: bool, key: String, button: Button) -> void:
+	button.text = AuroraLocale.text("ACTIVADO" if enabled else "DESACTIVADO")
+	settings_manager.set_setting(key, enabled)
+
+
+func _build_cabinet_general_settings() -> void:
+	var preferences := _cabinet_column_heading(0, "PREFERENCIAS", "Idioma y accesibilidad.", AuroraUi.TEAL)
+	_cabinet_option(preferences, "Idioma", "language", ["Español", "English"], ["es", "en"], AuroraUi.TEAL, "Idioma de la interfaz.")
+	_cabinet_toggle(preferences, "Reducir movimiento", "reduced_motion", AuroraUi.TEAL, "Limita pulsos y transiciones intensas.")
+
+	var data := _cabinet_column_heading(1, "DATOS LOCALES", "Los ajustes se guardan automáticamente.", AuroraUi.VIOLET)
+	_cabinet_copy(data, "Restablecer configuración", AuroraUi.TEXT, 13)
+	_cabinet_copy(data, "Recupera los valores y controles predeterminados.", AuroraUi.MUTED, 11)
+	reset_button = _cabinet_action_button(data, "RESTABLECER TODO", AuroraUi.CORAL)
+	_apply_danger_button_style(reset_button, false)
+	reset_button.pressed.connect(_on_reset_settings)
+
+	var maintenance := _cabinet_column_heading(2, "MANTENIMIENTO", "Caché regenerable del juego.", AuroraUi.GOLD)
+	_cabinet_copy(maintenance, "Conserva canciones, proyectos y archivos originales.", AuroraUi.MUTED, 11)
+	cache_summary_label = AuroraUi.make_pixel_label(AuroraLocale.text("CALCULANDO CACHÉ..."), 9, AuroraUi.TEAL)
+	cache_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	maintenance.add_child(cache_summary_label)
+	cache_button = _cabinet_action_button(maintenance, "LIMPIAR CACHÉ", AuroraUi.CORAL)
+	_apply_danger_button_style(cache_button, false)
+	cache_button.pressed.connect(_on_clean_cache)
+	_refresh_cache_maintenance_summary()
+
+
+func _build_cabinet_gameplay_settings() -> void:
+	var notes := _cabinet_column_heading(0, "LECTURA DE NOTAS", "Ritmo y visibilidad de la pista.", AuroraUi.GOLD)
+	_cabinet_slider(notes, "Velocidad de notas", "note_speed", 1.0, 10.0, 0.1, "speed", AuroraUi.GOLD)
+	_cabinet_slider(notes, "Opacidad de la pista", "lane_opacity", 0.0, 1.0, 0.01, "percent", AuroraUi.GOLD)
+	_cabinet_slider(notes, "Oscurecer fondo", "background_dim", 0.0, 1.0, 0.01, "percent", AuroraUi.GOLD)
+
+	var effects := _cabinet_column_heading(1, "DURANTE LA PARTIDA", "Elementos que acompañan las notas.", AuroraUi.VIOLET)
+	_cabinet_toggle(effects, "Tramos de cinemática", "cinematic_sections_enabled", AuroraUi.VIOLET, "La pista reaparece antes de las notas.")
+	_cabinet_toggle(effects, "Teclas de carril", "show_lane_labels", AuroraUi.VIOLET)
+	_cabinet_toggle(effects, "Efectos de impacto", "show_hit_effects", AuroraUi.VIOLET)
+
+	var calibration := _cabinet_column_heading(2, "CALIBRACIÓN", "Alinea audio, pantalla y pulsación.", AuroraUi.TEAL)
+	_cabinet_slider(calibration, "Desfase global", "timing_offset_ms", -200.0, 200.0, 1.0, "milliseconds", AuroraUi.TEAL)
+	_cabinet_copy(calibration, "Ajusta valores pequeños hasta que la pulsación coincida con la música y la imagen.", AuroraUi.MUTED, 11)
+
+
+func _build_cabinet_graphics_settings() -> void:
+	var window := _cabinet_column_heading(0, "VENTANA", "Modo y tamaño de la imagen.", AuroraUi.VIOLET)
+	_cabinet_option(window, "Modo de pantalla", "window_mode", ["Ventana", "Sin bordes", "Pantalla completa"], ["windowed", "borderless", "fullscreen"], AuroraUi.VIOLET)
+	_cabinet_option(window, "Resolución", "resolution", ["1280 × 720", "1600 × 900", "1920 × 1080", "2560 × 1440"], ["1280x720", "1600x900", "1920x1080", "2560x1440"], AuroraUi.VIOLET)
+
+	var fluidity := _cabinet_column_heading(1, "FLUIDEZ", "Sincronización y límite de cuadros.", AuroraUi.TEAL)
+	_cabinet_toggle(fluidity, "Sincronización vertical", "vsync_enabled", AuroraUi.TEAL, "Evita cortes de imagen.")
+	_cabinet_option(fluidity, "Límite de FPS", "fps_limit", ["Sin límite", "60", "120", "144", "240"], [0, 60, 120, 144, 240], AuroraUi.TEAL)
+
+	var effects := _cabinet_column_heading(2, "EFECTOS", "Actividad visual del escenario.", AuroraUi.CORAL)
+	_cabinet_option(effects, "Calidad gráfica", "graphics_quality", ["Baja", "Media", "Alta"], ["low", "medium", "high"], AuroraUi.CORAL)
+	_cabinet_toggle(effects, "Fondo animado", "background_animation_enabled", AuroraUi.CORAL)
+	_cabinet_slider(effects, "Intensidad del fondo", "background_animation_intensity", 1.0, 5.0, 1.0, "integer", AuroraUi.CORAL)
+	_cabinet_toggle(effects, "Sacudida de pantalla", "screen_shake_enabled", AuroraUi.CORAL)
+
+
+func _cabinet_binding_button(parent: VBoxContainer, title: String, value: String, accent: Color) -> Button:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 5)
+	parent.add_child(row)
+	var label := AuroraUi.make_pixel_label(AuroraLocale.text(title), 10, AuroraUi.MUTED)
+	label.custom_minimum_size.x = 79.0
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(label)
+	var button := _cabinet_action_button(row, value, accent)
+	button.tooltip_text = value
+	button.custom_minimum_size.y = 35.0
+	return button
+
+
+func _cabinet_action_binding_button(parent: VBoxContainer, title: String, value: String, accent: Color) -> Button:
+	var block := VBoxContainer.new()
+	block.add_theme_constant_override("separation", 4)
+	parent.add_child(block)
+	var label := AuroraUi.make_pixel_label(AuroraLocale.text(title), 9, AuroraUi.MUTED)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	block.add_child(label)
+	var button := _cabinet_action_button(block, value, accent)
+	button.tooltip_text = value
+	button.custom_minimum_size.y = 33.0
+	return button
+
+
+func _build_cabinet_control_settings() -> void:
+	var keyboard := _cabinet_column_heading(0, "TECLADO", "Elige 4K, 6K u 8K y asigna cada carril.", AuroraUi.TEAL)
+	var mode_row := HBoxContainer.new()
+	mode_row.add_theme_constant_override("separation", 4)
+	keyboard.add_child(mode_row)
+	var mode_group := ButtonGroup.new()
+	mode_group.allow_unpress = false
+	for mode in [4, 6, 8]:
+		var mode_button := _cabinet_action_button(mode_row, "%dK" % mode, AuroraUi.TEAL)
+		mode_button.toggle_mode = true
+		mode_button.button_group = mode_group
+		mode_button.button_pressed = mode == binding_mode
+		mode_button.pressed.connect(_on_binding_mode_selected.bind(mode))
+	var keycodes := input_manager.get_mode_keycodes(binding_mode)
+	for lane_index in range(binding_mode):
+		var key_name := input_manager.get_key_label(keycodes[lane_index])
+		var key_button := _cabinet_binding_button(keyboard, AuroraLocale.text("CARRIL %02d") % (lane_index + 1), key_name, AuroraUi.TEAL)
+		key_button.pressed.connect(_start_key_capture.bind(lane_index, key_button))
+	var restore_keys := _cabinet_action_button(keyboard, AuroraLocale.text("RESTAURAR %dK") % binding_mode, AuroraUi.TEAL)
+	restore_keys.pressed.connect(_reset_current_bindings)
+	_cabinet_copy(keyboard, "Si una tecla se repite, intercambia su carril. ESC cancela.", AuroraUi.MUTED, 10)
+
+	var controller := _cabinet_column_heading(1, AuroraLocale.text("MANDO %dK") % binding_mode, "Botones de carril y distribución.", AuroraUi.VIOLET)
+	controller_status_label = AuroraUi.make_pixel_label("", 9, AuroraUi.TEAL)
+	controller_status_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	controller.add_child(controller_status_label)
+	_refresh_controller_status()
+	var joy_buttons := input_manager.get_mode_joy_buttons(binding_mode)
+	for lane_index in range(binding_mode):
+		var joy_name := input_manager.get_controller_button_label(joy_buttons[lane_index])
+		var joy_button := _cabinet_binding_button(controller, AuroraLocale.text("CARRIL %02d") % (lane_index + 1), joy_name, AuroraUi.VIOLET)
+		joy_button.pressed.connect(_start_controller_lane_capture.bind(lane_index, joy_button))
+	var restore_controller := _cabinet_action_button(controller, "RESTAURAR MANDO", AuroraUi.VIOLET)
+	restore_controller.pressed.connect(_reset_current_controller_bindings)
+	_cabinet_copy(controller, "Xbox: %s" % input_manager.get_controller_layout_text(binding_mode, "xbox"), AuroraUi.MUTED, 10)
+	_cabinet_copy(controller, "PlayStation: %s" % input_manager.get_controller_layout_text(binding_mode, "playstation"), AuroraUi.MUTED, 10)
+
+	var actions := _cabinet_column_heading(2, "ACCIONES", "Botones del mando en menús y partida.", AuroraUi.CORAL)
+	var action_labels := {
+		"confirm": "CONFIRMAR",
+		"back": "VOLVER",
+		"pause": "PAUSA / REPRODUCIR",
+		"preview": "VISTA PREVIA",
+		"delete": "BORRAR",
+	}
+	for action_name in InputManager.CONTROLLER_ACTIONS:
+		var action_label := str(action_labels[action_name])
+		var action_button := _cabinet_action_binding_button(actions, action_label, input_manager.get_controller_action_label(action_name), AuroraUi.CORAL)
+		action_button.pressed.connect(_start_controller_action_capture.bind(action_name, action_button))
+	var restore_actions := _cabinet_action_button(actions, "RESTAURAR ACCIONES", AuroraUi.CORAL)
+	restore_actions.pressed.connect(_reset_controller_actions)
+	_cabinet_copy(actions, "El D-pad y el stick izquierdo navegan. El teclado sigue disponible.", AuroraUi.MUTED, 10)
+
+
+func _cabinet_credit_entry(parent: VBoxContainer, title: String, name: String, detail: String, accent: Color) -> void:
+	var block := VBoxContainer.new()
+	block.add_theme_constant_override("separation", 4)
+	parent.add_child(block)
+	var label := AuroraUi.make_pixel_label(AuroraLocale.text(title), 10, accent)
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	block.add_child(label)
+	_cabinet_copy(block, name, AuroraUi.TEXT, 12)
+	_cabinet_copy(block, detail, AuroraUi.MUTED, 10)
+	var divider := HSeparator.new()
+	divider.modulate = Color(accent.r, accent.g, accent.b, 0.30)
+	parent.add_child(divider)
+
+
+func _build_cabinet_credits_settings() -> void:
+	var project := _cabinet_column_heading(0, "AURORA", "Proyecto y colaboración.", AuroraUi.TEAL)
+	_cabinet_credit_entry(project, "DISEÑO Y DESARROLLO", "Aurora Project", "Versión %s // 2026" % str(ProjectSettings.get_setting("application/config/version", "1.0.0")), AuroraUi.TEAL)
+	_cabinet_credit_entry(project, "PRUEBAS Y RETROALIMENTACIÓN", "Navi89", "Pruebas de juego y reportes visuales.", AuroraUi.VIOLET)
+	_cabinet_credit_entry(project, "MÚSICA DEL MENÚ", "Previa de la canción destacada", "La cabina reproduce la pista mostrada en la galería.", AuroraUi.CORAL)
+	_cabinet_credit_entry(project, "EFECTO PERFECT PLAY", "DJMAX // referencia local", "Audio de terceros; animación recreada en Aurora.", AuroraUi.TEAL)
+
+	var technology := _cabinet_column_heading(1, "TECNOLOGÍA", "Herramientas y licencias.", AuroraUi.VIOLET)
+	var engine_version := Engine.get_version_info()
+	_cabinet_credit_entry(technology, "GODOT ENGINE", "%s // MIT" % str(engine_version.get("string", "Godot")), "Godot Engine contributors, Juan Linietsky y Ariel Manzur.", AuroraUi.TEAL)
+	_cabinet_credit_entry(technology, "FFMPEG", "FFmpeg %s // LGPL v3+" % FFMPEG_VERSION_LABEL, "Conversor de video independiente. Receta y fuentes en licenses/FFmpeg/.", AuroraUi.GOLD)
+	_cabinet_credit_entry(technology, "PRESS START 2P", "Press Start 2P Project Authors", "Tipografía pixel // SIL Open Font License 1.1.", AuroraUi.VIOLET)
+
+	var legal := _cabinet_column_heading(2, "AVISOS LEGALES", "Licencias y contenido de terceros.", AuroraUi.CORAL)
+	_cabinet_copy(legal, "Las canciones, videos y charts importados pertenecen a sus respectivos autores y no forman parte de Aurora.", AuroraUi.MUTED, 11)
+	_cabinet_copy(legal, "Las licencias también acompañan al ejecutable en la carpeta licenses.", AuroraUi.MUTED, 11)
+	var license_button := _cabinet_action_button(legal, "VER LICENCIAS", AuroraUi.CORAL)
+	license_button.toggle_mode = true
+	var license_text := RichTextLabel.new()
+	license_text.custom_minimum_size.y = 270.0
+	license_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	license_text.bbcode_enabled = false
+	license_text.selection_enabled = true
+	license_text.scroll_active = true
+	license_text.text = _build_complete_license_text()
+	license_text.visible = false
+	license_text.add_theme_font_size_override("normal_font_size", 11)
+	license_text.add_theme_color_override("default_color", AuroraUi.TEXT)
+	legal.add_child(license_text)
+	license_button.toggled.connect(_on_cabinet_license_toggled.bind(license_button, license_text))
+
+
+func _on_cabinet_license_toggled(open: bool, button: Button, license_text: RichTextLabel) -> void:
+	license_text.visible = open
+	button.text = AuroraLocale.text("OCULTAR LICENCIAS" if open else "VER LICENCIAS")
 
 
 func _build_general_settings() -> void:
@@ -538,18 +1163,395 @@ func _build_general_settings() -> void:
 	_refresh_cache_maintenance_summary()
 
 
+func _build_cabinet_audio_settings() -> void:
+	var columns := HBoxContainer.new()
+	columns.name = "CabinetMixer"
+	columns.add_theme_constant_override("separation", 15)
+	columns.custom_minimum_size.y = 470.0
+	content_host.add_child(columns)
+	_add_cabinet_fader(columns, "VOLUMEN\nGENERAL", "master_volume", "Master", AuroraUi.TEAL)
+	_add_cabinet_fader(columns, "MÚSICA", "music_volume", "Music", AuroraUi.VIOLET)
+	_add_cabinet_fader(columns, "EFECTOS", "sfx_volume", "SFX", AuroraUi.CORAL, true)
+	if menu_music_manager != null:
+		_on_featured_song_changed(menu_music_manager.featured_song, menu_music_manager.featured_audio_available)
+	else:
+		_on_featured_song_changed(null, false)
+
+
+func _add_cabinet_fader(
+	parent: HBoxContainer,
+	title: String,
+	key: String,
+	bus_name: String,
+	accent: Color,
+	show_key_sounds: bool = false
+) -> void:
+	var column := VBoxContainer.new()
+	column.name = "Fader_%s" % key
+	column.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	column.add_theme_constant_override("separation", 7)
+	parent.add_child(column)
+	var heading := AuroraUi.make_pixel_label(AuroraLocale.text(title), 15, accent)
+	heading.custom_minimum_size.y = 54.0
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	column.add_child(heading)
+	var current := float(settings_manager.get_setting(key, 0.7))
+	var percentage := AuroraUi.make_pixel_label(_format_value(current, "percent"), 20, AuroraUi.TEXT)
+	percentage.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	percentage.custom_minimum_size.y = 40.0
+	column.add_child(percentage)
+	var fader_area := HBoxContainer.new()
+	fader_area.name = "FaderArea"
+	fader_area.custom_minimum_size.y = 272.0
+	fader_area.alignment = BoxContainer.ALIGNMENT_CENTER
+	fader_area.add_theme_constant_override("separation", 13)
+	column.add_child(fader_area)
+	var ticks := VBoxContainer.new()
+	ticks.custom_minimum_size = Vector2(23.0, 252.0)
+	ticks.add_theme_constant_override("separation", 0)
+	fader_area.add_child(ticks)
+	for index in range(11):
+		var tick := AuroraUi.make_pixel_label("─", 7, Color(accent.r, accent.g, accent.b, 0.55))
+		tick.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		ticks.add_child(tick)
+	var slider := VSlider.new()
+	slider.name = "VolumeSlider"
+	slider.min_value = 0.0
+	slider.max_value = 1.0
+	slider.step = 0.01
+	slider.value = current
+	slider.custom_minimum_size = Vector2(43.0, 252.0)
+	slider.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	var groove := StyleBoxFlat.new()
+	groove.bg_color = Color(0.005, 0.02, 0.05, 0.98)
+	groove.border_color = Color(accent.r, accent.g, accent.b, 0.8)
+	groove.set_border_width_all(2)
+	groove.set_corner_radius_all(3)
+	var active := StyleBoxFlat.new()
+	active.bg_color = Color(accent.r, accent.g, accent.b, 0.82)
+	active.set_corner_radius_all(3)
+	slider.add_theme_stylebox_override("slider", groove)
+	slider.add_theme_stylebox_override("grabber_area", active)
+	slider.add_theme_stylebox_override("grabber_area_highlight", active)
+	var handle := _cabinet_fader_handle(accent)
+	slider.add_theme_icon_override("grabber", handle)
+	slider.add_theme_icon_override("grabber_highlight", handle)
+	slider.value_changed.connect(_on_slider_changed.bind(key, percentage, "percent"))
+	fader_area.add_child(slider)
+	var meter := VBoxContainer.new()
+	meter.custom_minimum_size = Vector2(16.0, 252.0)
+	meter.alignment = BoxContainer.ALIGNMENT_END
+	meter.add_theme_constant_override("separation", 4)
+	fader_area.add_child(meter)
+	var bars: Array[ColorRect] = []
+	for _index in range(12):
+		var bar := ColorRect.new()
+		bar.custom_minimum_size = Vector2(13.0, 12.0)
+		bar.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		bar.color = Color(accent.r, accent.g, accent.b, 0.2)
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		meter.add_child(bar)
+		bars.push_front(bar)
+	audio_meter_bars[bus_name] = bars
+	audio_meter_accents[bus_name] = accent
+	var signal_label := AuroraUi.make_pixel_label(AuroraLocale.text("SEÑAL / %s") % bus_name.to_upper(), 11, accent)
+	signal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	column.add_child(signal_label)
+	if show_key_sounds:
+		var key_sounds := Button.new()
+		key_sounds.text = AuroraLocale.text("SONIDO DE TECLAS")
+		key_sounds.toggle_mode = true
+		key_sounds.button_pressed = bool(settings_manager.get_setting("key_sounds_enabled", true))
+		key_sounds.custom_minimum_size.y = 40.0
+		AuroraUi.apply_pixel_font(key_sounds, 11)
+		key_sounds.add_theme_color_override("font_color", AuroraUi.TEXT)
+		key_sounds.add_theme_stylebox_override("normal", _cabinet_button_style(Color(0.01, 0.02, 0.05, 0.9), AuroraUi.BORDER))
+		key_sounds.add_theme_stylebox_override("hover", _cabinet_button_style(Color(0.01, 0.10, 0.15, 0.9), accent))
+		key_sounds.add_theme_stylebox_override("pressed", _cabinet_button_style(Color(accent.r, accent.g, accent.b, 0.24), accent))
+		key_sounds.add_theme_stylebox_override("hover_pressed", _cabinet_button_style(Color(accent.r, accent.g, accent.b, 0.35), accent))
+		key_sounds.add_theme_stylebox_override("focus", _cabinet_button_style(Color.TRANSPARENT, accent))
+		key_sounds.toggled.connect(func(enabled: bool) -> void: settings_manager.set_setting("key_sounds_enabled", enabled))
+		column.add_child(key_sounds)
+	else:
+		var auto_save := AuroraUi.make_pixel_label(AuroraLocale.text("GUARDADO AUTOMÁTICO"), 9, AuroraUi.MUTED)
+		auto_save.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		column.add_child(auto_save)
+
+
 func _build_audio_settings() -> void:
 	_add_page_intro(
 		"SONIDO",
-		"Controla por separado el menú, las canciones y los efectos.",
+		"La música del menú sigue la canción destacada y cambia con el carrusel.",
 		AuroraUi.CORAL
 	)
+	_build_featured_track_card()
 
-	var mix := _add_section("MEZCLADOR", "Los buses disponibles se actualizan en tiempo real.")
-	_add_slider_row(mix, "Volumen maestro", "master_volume", 0.0, 1.0, 0.01, "percent")
-	_add_slider_row(mix, "Música del menú", "menu_music_volume", 0.0, 1.0, 0.01, "percent")
-	_add_slider_row(mix, "Música de canciones", "music_volume", 0.0, 1.0, 0.01, "percent")
-	_add_slider_row(mix, "Efectos", "sfx_volume", 0.0, 1.0, 0.01, "percent")
+	var mixer_heading := HBoxContainer.new()
+	mixer_heading.add_theme_constant_override("separation", 12)
+	content_host.add_child(mixer_heading)
+	var mixer_title := AuroraUi.make_pixel_label(
+		AuroraLocale.text("MEZCLADOR DE CABINA"), 10, AuroraUi.TEAL
+	)
+	mixer_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mixer_heading.add_child(mixer_title)
+	var signal_label := AuroraUi.make_pixel_label(
+		AuroraLocale.text("SEÑAL EN VIVO"), 7, AuroraUi.MUTED
+	)
+	signal_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	signal_label.custom_minimum_size.x = 126.0
+	signal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	mixer_heading.add_child(signal_label)
+
+	var cards := HBoxContainer.new()
+	cards.add_theme_constant_override("separation", 12)
+	cards.custom_minimum_size.y = 282.0
+	content_host.add_child(cards)
+
+	var master_card := _new_audio_mixer_card(cards, "01 // SALIDA", AuroraUi.TEAL)
+	_add_audio_slider(master_card, "Volumen maestro", "master_volume", AuroraUi.TEAL)
+	_add_audio_meter(master_card, "Master", AuroraUi.TEAL)
+
+	var music_card := _new_audio_mixer_card(cards, "02 // MÚSICA", AuroraUi.VIOLET)
+	_add_audio_slider(music_card, "Música del menú", "menu_music_volume", AuroraUi.VIOLET)
+	music_card.add_child(
+		AuroraUi.make_label(
+			AuroraLocale.text("Pista que aparece en la pantalla principal."),
+			10,
+			AuroraUi.MUTED
+		)
+	)
+	_add_audio_slider(music_card, "Música de canciones", "music_volume", AuroraUi.VIOLET)
+	_add_audio_meter(music_card, "MenuMusic", AuroraUi.VIOLET)
+
+	var effects_card := _new_audio_mixer_card(cards, "03 // EFECTOS", AuroraUi.CORAL)
+	_add_audio_slider(effects_card, "Efectos", "sfx_volume", AuroraUi.CORAL)
+	_add_audio_meter(effects_card, "SFX", AuroraUi.CORAL)
+	_add_toggle_row(
+		effects_card,
+		"Sonido de teclas",
+		"key_sounds_enabled",
+		"Reproduce un tono al pulsar cada carril."
+	)
+	if menu_music_manager != null:
+		_on_featured_song_changed(
+			menu_music_manager.featured_song,
+			menu_music_manager.featured_audio_available
+		)
+	else:
+		_on_featured_song_changed(null, false)
+
+
+func _build_featured_track_card() -> void:
+	var panel := PanelContainer.new()
+	panel.name = "FeaturedTrackCard"
+	panel.custom_minimum_size.y = 126.0
+	panel.add_theme_stylebox_override(
+		"panel",
+		_make_terminal_style(
+			Color(0.003, 0.012, 0.034, 0.97),
+			Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.70),
+			2
+		)
+	)
+	content_host.add_child(panel)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 18)
+	panel.add_child(row)
+	featured_cover = TextureRect.new()
+	featured_cover.name = "FeaturedTrackCover"
+	featured_cover.custom_minimum_size = Vector2(100.0, 100.0)
+	featured_cover.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	featured_cover.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	featured_cover.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	row.add_child(featured_cover)
+	var info := VBoxContainer.new()
+	info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	info.add_theme_constant_override("separation", 7)
+	row.add_child(info)
+	info.add_child(
+		AuroraUi.make_pixel_label(
+			AuroraLocale.text("AHORA EN CABINA  //  CANCIÓN DESTACADA"),
+			8,
+			AuroraUi.TEAL
+		)
+	)
+	featured_title_label = AuroraUi.make_pixel_label(
+		AuroraLocale.text("SIN CANCIÓN"), 12, AuroraUi.TEXT
+	)
+	featured_title_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	featured_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	info.add_child(featured_title_label)
+	featured_artist_label = AuroraUi.make_label(
+		AuroraLocale.text("Galería de Aurora"), 11, AuroraUi.MUTED
+	)
+	featured_artist_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	info.add_child(featured_artist_label)
+	featured_status_label = AuroraUi.make_pixel_label(
+		AuroraLocale.text("ESPERANDO PISTA"), 7, AuroraUi.GOLD
+	)
+	featured_status_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	info.add_child(featured_status_label)
+	var preview_note := AuroraUi.make_label(
+		AuroraLocale.text("El control de música del menú ajusta este audio."),
+		10,
+		AuroraUi.MUTED
+	)
+	info.add_child(preview_note)
+
+
+func _new_audio_mixer_card(parent: HBoxContainer, title: String, accent: Color) -> VBoxContainer:
+	var panel := PanelContainer.new()
+	panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	panel.custom_minimum_size.x = 208.0
+	var style := _make_terminal_style(
+		Color(0.006, 0.014, 0.039, 0.97),
+		Color(accent.r, accent.g, accent.b, 0.62)
+	)
+	style.border_width_top = 3
+	style.border_color = Color(accent.r, accent.g, accent.b, 0.88)
+	style.content_margin_left = 13.0
+	style.content_margin_right = 13.0
+	style.content_margin_top = 15.0
+	style.content_margin_bottom = 12.0
+	panel.add_theme_stylebox_override("panel", style)
+	parent.add_child(panel)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	panel.add_child(content)
+	var heading := AuroraUi.make_pixel_label(AuroraLocale.text(title), 8, accent)
+	content.add_child(heading)
+	var divider := HSeparator.new()
+	divider.modulate = Color(accent.r, accent.g, accent.b, 0.40)
+	content.add_child(divider)
+	return content
+
+
+func _add_audio_slider(parent: VBoxContainer, title: String, key: String, accent: Color) -> void:
+	var row := VBoxContainer.new()
+	row.add_theme_constant_override("separation", 5)
+	parent.add_child(row)
+	var header := HBoxContainer.new()
+	row.add_child(header)
+	var label := AuroraUi.make_label(AuroraLocale.text(title), 11, AuroraUi.TEXT)
+	label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	header.add_child(label)
+	var current := float(settings_manager.get_setting(key, 0.0))
+	var value_label := AuroraUi.make_pixel_label(_format_value(current, "percent"), 7, accent)
+	value_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	value_label.custom_minimum_size.x = 42.0
+	value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	header.add_child(value_label)
+	var slider := HSlider.new()
+	slider.min_value = 0.0
+	slider.max_value = 1.0
+	slider.step = 0.01
+	slider.value = current
+	slider.custom_minimum_size.y = 24.0
+	slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var track := StyleBoxFlat.new()
+	track.bg_color = Color(0.012, 0.025, 0.052, 1.0)
+	track.border_color = Color(accent.r, accent.g, accent.b, 0.38)
+	track.border_width_bottom = 1
+	track.border_width_top = 1
+	track.border_width_left = 1
+	track.border_width_right = 1
+	var active_track := StyleBoxFlat.new()
+	active_track.bg_color = Color(accent.r, accent.g, accent.b, 0.78)
+	slider.add_theme_stylebox_override("slider", track)
+	slider.add_theme_stylebox_override("grabber_area", active_track)
+	slider.add_theme_stylebox_override("grabber_area_highlight", active_track)
+	slider.value_changed.connect(_on_slider_changed.bind(key, value_label, "percent"))
+	row.add_child(slider)
+
+
+func _add_audio_meter(parent: VBoxContainer, bus_name: String, accent: Color) -> void:
+	var meter_row := HBoxContainer.new()
+	meter_row.add_theme_constant_override("separation", 4)
+	parent.add_child(meter_row)
+	var meter_label := AuroraUi.make_pixel_label(AuroraLocale.text("NIVEL"), 6, AuroraUi.MUTED)
+	meter_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	meter_label.custom_minimum_size.x = 38.0
+	meter_row.add_child(meter_label)
+	var meter := HBoxContainer.new()
+	meter.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	meter.alignment = BoxContainer.ALIGNMENT_END
+	meter.add_theme_constant_override("separation", 3)
+	meter_row.add_child(meter)
+	var bars: Array[ColorRect] = []
+	for _index in range(12):
+		var bar := ColorRect.new()
+		bar.custom_minimum_size = Vector2(5.0, 11.0)
+		bar.color = Color(accent.r, accent.g, accent.b, 0.18)
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		meter.add_child(bar)
+		bars.append(bar)
+	audio_meter_bars[bus_name] = bars
+	audio_meter_accents[bus_name] = accent
+
+
+func _on_featured_song_changed(song: SongData, has_audio: bool) -> void:
+	if featured_title_label == null or not is_instance_valid(featured_title_label):
+		return
+	if song == null:
+		if featured_cover != null and is_instance_valid(featured_cover):
+			featured_cover.texture = null
+		featured_title_label.text = AuroraLocale.text("SIN CANCIÓN")
+		if featured_artist_label != null and is_instance_valid(featured_artist_label):
+			featured_artist_label.text = AuroraLocale.text("Galería de Aurora")
+		if featured_status_label != null and is_instance_valid(featured_status_label):
+			featured_status_label.text = AuroraLocale.text("ESPERANDO PISTA")
+			featured_status_label.add_theme_color_override("font_color", AuroraUi.GOLD)
+		return
+	if song_manager != null and featured_cover != null and is_instance_valid(featured_cover):
+		song_manager.ensure_song_cover_loaded(song)
+	if featured_cover != null and is_instance_valid(featured_cover):
+		featured_cover.texture = song.cover
+	featured_title_label.text = str(song.title).strip_edges().to_upper()
+	if featured_artist_label != null and is_instance_valid(featured_artist_label):
+		featured_artist_label.text = str(song.artist).strip_edges()
+	_refresh_featured_status(has_audio)
+
+
+func _refresh_featured_status(has_audio: bool) -> void:
+	if featured_status_label == null or not is_instance_valid(featured_status_label):
+		return
+	var menu_volume := float(settings_manager.get_setting("menu_music_volume", 0.58))
+	if menu_volume <= 0.001:
+		featured_status_label.text = AuroraLocale.text("MÚSICA DEL MENÚ // SILENCIADA")
+		featured_status_label.add_theme_color_override("font_color", AuroraUi.MUTED)
+	elif has_audio:
+		featured_status_label.text = AuroraLocale.text("PREVIA ACTIVA // CAMBIA CON EL CARRUSEL")
+		featured_status_label.add_theme_color_override("font_color", AuroraUi.TEAL)
+	else:
+		featured_status_label.text = AuroraLocale.text("SIN AUDIO // PREVIA EN SILENCIO")
+		featured_status_label.add_theme_color_override("font_color", AuroraUi.GOLD)
+
+
+func _process(_delta: float) -> void:
+	for bus_name_variant in audio_meter_bars:
+		var bus_name := str(bus_name_variant)
+		var bus_index := AudioServer.get_bus_index(bus_name)
+		var bars: Array = audio_meter_bars[bus_name_variant]
+		var accent: Color = audio_meter_accents.get(bus_name_variant, AuroraUi.TEAL)
+		var level := 0.0
+		if bus_index >= 0:
+			var left_db := AudioServer.get_bus_peak_volume_left_db(bus_index, 0)
+			var right_db := AudioServer.get_bus_peak_volume_right_db(bus_index, 0)
+			level = clampf((maxf(left_db, right_db) + 42.0) / 42.0, 0.0, 1.0)
+		for index in range(bars.size()):
+			if not is_instance_valid(bars[index]):
+				continue
+			var bar := bars[index] as ColorRect
+			if bar == null:
+				continue
+			var active_bars := roundi(level * float(bars.size()))
+			bar.color = (
+				accent
+				if index < active_bars
+				else Color(accent.r, accent.g, accent.b, 0.18)
+			)
 
 
 func _build_gameplay_settings() -> void:
@@ -832,8 +1834,8 @@ func _build_credits_settings() -> void:
 	_add_credit_entry(
 		project,
 		"MÚSICA DEL MENÚ",
-		"Composición procedural original de Aurora",
-		"Generada localmente por el juego; no utiliza una grabación externa.",
+		"Previsualización de la canción destacada",
+		"La cabina reproduce la pista que muestra el carrusel de la galería.",
 		AuroraUi.CORAL
 	)
 	_add_credit_entry(
@@ -1188,6 +2190,9 @@ func _on_slider_changed(value: float, key: String, value_label: Label, format: S
 	if format in ["integer", "milliseconds"]:
 		stored_value = roundi(value)
 	settings_manager.set_setting(key, stored_value)
+	if key == "menu_music_volume":
+		var has_audio := menu_music_manager != null and menu_music_manager.featured_audio_available
+		_refresh_featured_status(has_audio)
 
 
 func _on_segment_toggle_pressed(

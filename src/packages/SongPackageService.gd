@@ -907,6 +907,20 @@ func validate_manifest(
 				ERR_INVALID_DATA,
 				"El campo %s no es numérico." % numeric_field
 			)
+	if song.has("audio_gain_db"):
+		if not _is_finite_number(song.get("audio_gain_db", null)):
+			return _failure(
+				"invalid_audio_gain",
+				ERR_INVALID_DATA,
+				"El volumen de la canción no es numérico."
+			)
+		var audio_gain_db := float(song.get("audio_gain_db", 0.0))
+		if audio_gain_db < -18.0 or audio_gain_db > 12.0:
+			return _failure(
+				"invalid_audio_gain",
+				ERR_INVALID_DATA,
+				"El volumen de la canción está fuera del rango permitido."
+			)
 	var bpm := float(song.get("bpm", 0.0))
 	var duration_seconds := float(song.get("duration_seconds", 0.0))
 	var preview_start := float(song.get("preview_start_seconds", 0.0))
@@ -1265,6 +1279,11 @@ func migrate_editor_v3_to_manifest(
 			),
 			"preview_duration_seconds": float(
 				metadata.get("preview_duration_seconds", 15.0)
+			),
+			"audio_gain_db": clampf(
+				float(metadata.get("audio_gain_db", 0.0)),
+				-18.0,
+				12.0
 			),
 			"media": migrated_media,
 			"charts": [

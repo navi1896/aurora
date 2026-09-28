@@ -1,6 +1,7 @@
 extends SceneTree
 
 const PROJECT_STORE = preload("res://src/screens/editor/EditorProjectStore.gd")
+const CABINA_MENU = preload("res://src/screens/main_menu/CabinaMenu.gd")
 
 var failures: PackedStringArray = []
 
@@ -126,15 +127,15 @@ func _run() -> void:
 		"Reasignar un botón de mando intercambia los carriles repetidos"
 	)
 	_expect(
-		menu_music_manager.player != null
-		and menu_music_manager.player.stream is AudioStreamWAV
-		and menu_music_manager.player.bus == "MenuMusic"
+		menu_music_manager.players.size() == 2
+		and menu_music_manager.players[0].bus == "MenuMusic"
+		and menu_music_manager.players[1].bus == "MenuMusic"
 		and AudioServer.get_bus_index("MenuMusic") >= 0,
-		"El menú usa una pieza original con volumen independiente"
+		"El menú reproduce canciones disponibles con volumen independiente"
 	)
 	_expect(
 		ui_feedback_manager.feedback_player != null
-		and ui_feedback_manager.feedback_streams.size() == 5
+		and ui_feedback_manager.feedback_streams.size() >= 5
 		and ui_feedback_manager.feedback_player.bus == "SFX"
 		and ui_feedback_manager.feedback_streams.get("confirm", null) is AudioStreamWAV
 		and ui_feedback_manager.feedback_streams.get("loading", null) is AudioStreamWAV,
@@ -338,68 +339,27 @@ func _run() -> void:
 			"El menú principal muestra la versión del proyecto"
 		)
 		_expect(
-			main_menu.main_buttons.menu_buttons.size() == 4
-			and main_menu.main_buttons.menu_buttons[0].text
-			== AuroraLocale.text("JUGAR")
-			and main_menu.main_buttons.menu_buttons[1].text
-			== AuroraLocale.text("CREAR")
-			and main_menu.main_buttons.menu_buttons[2].text
-			== AuroraLocale.text("OPCIONES"),
-			"El menú prioriza Jugar, Crear y después Opciones"
+			main_menu.cabina_menu.buttons_by_action.size() == 4
+			and main_menu.cabina_menu.buttons_by_action.has(&"play")
+			and main_menu.cabina_menu.buttons_by_action.has(&"editor")
+			and main_menu.cabina_menu.buttons_by_action.has(&"settings"),
+			"La cabina ofrece Jugar, Crear y Opciones"
 		)
-		MainMenuButtons.remembered_action = &"editor"
-		main_menu.main_buttons.focus_default_button()
+		CABINA_MENU.remembered_action = &"editor"
+		main_menu.cabina_menu.focus_default_button()
 		_expect(
 			root.gui_get_focus_owner()
-			== main_menu.main_buttons.menu_buttons[1],
+			== main_menu.cabina_menu.buttons_by_action[&"editor"],
 			"El menú recuerda la última opción enfocada al regresar"
 		)
-		MainMenuButtons.remembered_action = &"play"
+		CABINA_MENU.remembered_action = &"play"
 		_expect(
 			main_menu.update_button != null
 			and main_menu.update_status != null,
 			"El menú incluye un comprobador discreto de actualizaciones"
 		)
-		var character_idle = main_menu.get_node_or_null(
-			"MenuMargins/PageLayout/MenuBody/CharacterShowcase/IdleRig"
-		)
-		_expect(character_idle != null, "El personaje del menú incluye una animación idle")
-		if character_idle != null:
-			settings_manager.settings["reduced_motion"] = false
-			_expect(
-				character_idle.has_blink_frame(),
-				"El parpadeo conserva el tamaño del sprite aprobado"
-			)
-			_expect(
-				character_idle.uses_pixel_safe_motion(),
-				"El idle usa movimiento entero y filtrado nearest"
-			)
-			_expect(
-				character_idle.has_interactive_headphone_pulse(),
-				"Los audífonos incluyen una respuesta visual al cambiar de opción"
-			)
-			character_idle.trigger_selection_pulse(&"settings")
-			_expect(
-				character_idle.headphone_pulse.visible
-				and character_idle.selection_pulse_remaining_seconds > 0.0,
-				"Seleccionar una opción activa el pulso de los audífonos"
-			)
-			settings_manager.settings["reduced_motion"] = true
-			character_idle._process(0.5)
-			_expect(
-				character_idle.scale.is_equal_approx(character_idle.rest_scale)
-				and character_idle.character.position.is_equal_approx(
-					character_idle.rest_character_position
-				)
-				and character_idle.character.texture == character_idle.original_texture,
-				"Reducir movimiento devuelve al personaje a su pose estática"
-			)
-			character_idle.trigger_selection_pulse(&"editor")
-			_expect(
-				not character_idle.headphone_pulse.visible,
-				"Reducir movimiento también desactiva la respuesta de los audífonos"
-			)
-			settings_manager.settings["reduced_motion"] = false
+		_expect(main_menu.cabina_menu.track_card != null, "La cabina muestra la canción destacada")
+		_expect(main_menu.cabina_menu.arrow_buttons.size() == 2, "La cabina permite cambiar de canción")
 	await _check_screen(scene_manager, "song_select", "SongSelect")
 	var song_select = scene_manager.current_scene
 	if song_select != null and song_select.name == "SongSelect":
@@ -411,7 +371,7 @@ func _run() -> void:
 		_expect(
 			song_select.share_package_button.get_parent().name == "ActionButtons"
 			and song_select.import_package_button.text
-			== AuroraLocale.text("INSTALAR NIVEL")
+			== AuroraLocale.text("INSTALAR NIVELES")
 			and song_select.share_package_button.text
 			== AuroraLocale.text("COMPARTIR NIVEL"),
 			"Instalar y Compartir quedan juntos y explican acciones diferentes"
@@ -420,7 +380,7 @@ func _run() -> void:
 		await process_frame
 		if song_select.share_panel != null:
 			_expect(
-				song_select.share_panel.song_selector != null
+				song_select.share_panel.song_list != null
 				and song_select.share_panel.export_button != null
 				and song_select.share_panel.save_dialog.use_native_dialog,
 				"Compartir abre el flujo local dentro de Aurora"
@@ -548,15 +508,15 @@ func _run() -> void:
 			"Gameplay no crea ni reproduce sonidos al pulsar carriles"
 		)
 		_expect(
-			gameplay._get_judgment_for_error(0.060) == "PERFECT",
-			"Una desviación de 60 ms todavía obtiene PERFECT"
+			gameplay._get_judgment_for_error(0.045) == "PERFECT",
+			"Una desviación de 45 ms todavía obtiene PERFECT"
 		)
 		_expect(
-			gameplay._get_judgment_for_error(0.105) == "GREAT",
-			"Una desviación de 105 ms todavía obtiene GREAT"
+			gameplay._get_judgment_for_error(0.090) == "GREAT",
+			"Una desviación de 90 ms todavía obtiene GREAT"
 		)
 		_expect(
-			gameplay._get_judgment_for_error(0.155) == "GOOD",
+			gameplay._get_judgment_for_error(0.145) == "GOOD",
 			"Las pulsaciones cercanas conservan un juicio válido"
 		)
 		_expect(
@@ -815,9 +775,9 @@ func _run() -> void:
 	if settings_screen != null and settings_screen.name == "Settings":
 		_expect(settings_screen.category_buttons.size() == 6, "Configuración muestra seis categorías")
 		_expect(
-			settings_screen.header_title_label.text
-			== AuroraLocale.text("CONFIGURACIÓN // %s") % AuroraLocale.text("GENERAL"),
-			"Configuración integra la categoría en el encabezado"
+			settings_screen.current_category == "general"
+			and settings_screen.cabinet_status_label != null,
+			"Configuración abre en la categoría General"
 		)
 		_expect(
 			settings_screen.content_scroll.size.x < 5000.0,
@@ -979,6 +939,24 @@ func _run() -> void:
 			editor.preview_audio_button != null
 			and editor.preview_audio_button.button_pressed,
 			"La vista previa ofrece un control de audio compacto y accesible"
+		)
+		_expect(
+			editor.audio_gain_slider != null
+			and editor.audio_gain_reset_button != null
+			and is_equal_approx(editor.song_gain_db, 0.0),
+			"El editor ofrece un volumen propio por canción"
+		)
+		editor._set_song_gain_db(3.5)
+		_expect(
+			is_equal_approx(editor.song_gain_db, 3.5)
+			and is_equal_approx(editor.audio_player.volume_db, 3.5),
+			"El volumen de la canción se aplica de inmediato a la vista previa"
+		)
+		editor._reset_song_gain()
+		_expect(
+			is_equal_approx(editor.song_gain_db, 0.0)
+			and editor.audio_gain_label.text == "0.0 dB",
+			"El editor puede restaurar el volumen original"
 		)
 		_expect(
 			editor.cover_select_button != null
@@ -1328,6 +1306,7 @@ func _run() -> void:
 			var timeline_rect: Rect2 = editor.timeline.get_global_rect()
 			var toggle_rect: Rect2 = editor.properties_toggle_button.get_global_rect()
 			var export_rect: Rect2 = editor.package_export_button.get_global_rect()
+			var volume_rect: Rect2 = editor.audio_gain_slider.get_global_rect()
 			var responsive_layout_valid := (
 				editor_rect.size.x > 0.0
 				and editor_rect.size.y > 0.0
@@ -1336,6 +1315,9 @@ func _run() -> void:
 				and toggle_rect.end.x <= editor_rect.end.x + 2.0
 				and export_rect.end.x <= editor_rect.end.x + 2.0
 				and export_rect.end.y <= editor_rect.end.y + 2.0
+				and volume_rect.position.x >= editor_rect.position.x - 2.0
+				and volume_rect.end.x <= editor_rect.end.x + 2.0
+				and volume_rect.size.x >= 100.0
 			)
 			if not responsive_layout_valid:
 				print(

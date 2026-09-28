@@ -9,6 +9,7 @@ class_name SongData
 @export var cover: Texture2D
 @export var audio: AudioStream
 @export var background_video: VideoStream
+@export_range(-18.0, 12.0, 0.5) var audio_gain_db := 0.0
 @export_range(0.0, 3600.0, 0.1) var background_video_start_seconds := 0.0
 @export_range(0.0, 3600.0, 1.0) var duration_seconds := 0.0
 @export_range(1.0, 400.0, 0.1) var bpm := 120.0

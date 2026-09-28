@@ -1,0 +1,62 @@
+name: Publicar una canción de Aurora
+description: Envía un paquete .aurora para revisión antes de añadirlo al catálogo comunitario.
+title: "[CANCIÓN] "
+labels:
+  - community-song
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Adjunta aquí el archivo `.aurora` exportado por el editor. No publiques material de otros juegos, películas o artistas sin permiso. Los mantenedores validarán el paquete, la licencia, el tamaño y el SHA-256 antes de añadirlo al catálogo.
+  - type: input
+    id: title
+    attributes:
+      label: Título de la canción
+    validations:
+      required: true
+  - type: input
+    id: artist
+    attributes:
+      label: Artista o autor musical
+    validations:
+      required: true
+  - type: input
+    id: chart_author
+    attributes:
+      label: Creador del chart
+    validations:
+      required: true
+  - type: dropdown
+    id: permission
+    attributes:
+      label: Derecho para compartir los recursos
+      options:
+        - Soy autor de todos los recursos
+        - Dominio público o CC0
+        - Licencia que permite redistribución en videojuegos
+        - Permiso escrito del autor
+    validations:
+      required: true
+  - type: textarea
+    id: license
+    attributes:
+      label: Licencia, fuente y atribución
+      description: Incluye URLs y el texto de atribución requerido.
+    validations:
+      required: true
+  - type: textarea
+    id: package
+    attributes:
+      label: Paquete .aurora
+      description: Arrastra el archivo exportado a este campo.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmación
+      options:
+        - label: Confirmo que tengo permiso para redistribuir todo el contenido del paquete.
+          required: true
+        - label: Acepto que el paquete sea validado y rechazado si contiene archivos inseguros o sin licencia clara.
+          required: true

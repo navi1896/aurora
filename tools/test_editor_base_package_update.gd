@@ -92,6 +92,7 @@ func _run() -> void:
 	)
 	var metadata: Dictionary = project.get("metadata", {}).duplicate(true)
 	metadata["title"] = "Base actualizada"
+	metadata["audio_gain_db"] = 4.5
 	project["metadata"] = metadata
 	var cover_source_path := fixture_root.path_join("loading_cover.png")
 	var cover_image := Image.create(8, 8, false, Image.FORMAT_RGBA8)
@@ -120,6 +121,7 @@ func _run() -> void:
 	var refreshed := _find_song(manager, "package_%s" % fixture_id)
 	_expect(refreshed != null and refreshed.title == "Base actualizada", "La biblioteca muestra el título actualizado")
 	if refreshed != null:
+		_expect(is_equal_approx(refreshed.audio_gain_db, 4.5), "La biblioteca conserva el volumen ajustado")
 		_expect(refreshed.package_version == "1.0.1", "Incrementa versión de contenido")
 		_expect(refreshed.charts[0].load_notes(120.0, 8.0).size() == 2, "La base usa las notas editadas")
 		_expect(
@@ -136,6 +138,10 @@ func _run() -> void:
 			str(refreshed_manifest.get("song", {}).get("media", {}).get("cover", {}).get("path", ""))
 			== "media/cover.png",
 			"El manifiesto declara la portada actualizada"
+		)
+		_expect(
+			is_equal_approx(float(refreshed_manifest.get("song", {}).get("audio_gain_db", 0.0)), 4.5),
+			"El manifiesto declara el volumen actualizado"
 		)
 	var copies_of_this_fixture := 0
 	var editable_id := str(editor_result.get("editor_song_id", ""))

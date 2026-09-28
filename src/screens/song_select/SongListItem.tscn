@@ -3,15 +3,13 @@
 [ext_resource type="Texture2D" path="res://assets/menu/buttons/button_normal.png" id="1_normal"]
 [ext_resource type="Texture2D" path="res://assets/menu/buttons/button_selected.png" id="2_selected"]
 [ext_resource type="FontFile" path="res://assets/menu/fonts/PressStart2P-Regular.ttf" id="3_font"]
-[ext_resource type="Texture2D" path="res://assets/menu/ui/music_note.png" id="4_note"]
-
 [sub_resource type="StyleBoxTexture" id="StyleBox_normal"]
 texture = ExtResource("1_normal")
 texture_margin_left = 80.0
 texture_margin_top = 45.0
 texture_margin_right = 80.0
 texture_margin_bottom = 45.0
-content_margin_left = 24.0
+content_margin_left = 166.0
 content_margin_top = 14.0
 content_margin_right = 24.0
 content_margin_bottom = 14.0
@@ -22,12 +20,20 @@ texture_margin_left = 80.0
 texture_margin_top = 45.0
 texture_margin_right = 80.0
 texture_margin_bottom = 45.0
-content_margin_left = 24.0
+content_margin_left = 166.0
 content_margin_top = 14.0
 content_margin_right = 24.0
 content_margin_bottom = 14.0
 
 [sub_resource type="StyleBoxEmpty" id="StyleBox_empty"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_thumbnail"]
+bg_color = Color(0.01, 0.018, 0.055, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.22, 0.84, 0.96, 0.95)
 
 [sub_resource type="Theme" id="Theme_song_item"]
 Button/colors/font_color = Color(0.78, 0.8, 0.9, 1)
@@ -40,7 +46,7 @@ Button/colors/icon_hover_color = Color(1, 1, 1, 1)
 Button/colors/icon_pressed_color = Color(1, 1, 1, 1)
 Button/constants/h_separation = 16
 Button/fonts/font = ExtResource("3_font")
-Button/font_sizes/font_size = 16
+Button/font_sizes/font_size = 14
 Button/styles/disabled = SubResource("StyleBox_empty")
 Button/styles/focus = SubResource("StyleBox_selected")
 Button/styles/hover = SubResource("StyleBox_selected")
@@ -48,14 +54,32 @@ Button/styles/normal = SubResource("StyleBox_normal")
 Button/styles/pressed = SubResource("StyleBox_selected")
 
 [node name="SongListItem" type="Button"]
-custom_minimum_size = Vector2(0, 112)
+custom_minimum_size = Vector2(0, 100)
 size_flags_horizontal = 3
 focus_mode = 2
 mouse_default_cursor_shape = 2
 theme = SubResource("Theme_song_item")
 alignment = 0
-icon = ExtResource("4_note")
-icon_alignment = 0
-expand_icon = true
-icon_max_width = 24
 text_overrun_behavior = 3
+clip_contents = true
+
+[node name="ThumbnailFrame" type="Panel" parent="."]
+layout_mode = 1
+anchor_top = 0.5
+anchor_bottom = 0.5
+offset_left = 96.0
+offset_top = -25.0
+offset_right = 146.0
+offset_bottom = 25.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBox_thumbnail")
+
+[node name="Thumbnail" type="TextureRect" parent="ThumbnailFrame"]
+layout_mode = 1
+offset_left = 2.0
+offset_top = 2.0
+offset_right = 48.0
+offset_bottom = 48.0
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 6

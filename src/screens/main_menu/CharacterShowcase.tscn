@@ -1,23 +1,22 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://bqym47wv3gh3g"]
 
-[ext_resource type="Texture2D" path="res://assets/menu/character/menu_character_female.png" id="1_character"]
-[ext_resource type="Script" path="res://src/screens/main_menu/CharacterIdleRig.gd" id="2_idle"]
+[ext_resource type="Texture2D" uid="uid://d2s0jnoybnoxr" path="res://assets/menu/character/menu_character_female.png" id="1_character"]
+[ext_resource type="Script" uid="uid://bp3f4nrlrhvdg" path="res://src/screens/main_menu/CharacterIdleRig.gd" id="2_idle"]
 
-[node name="CharacterShowcase" type="CenterContainer"]
+[node name="CharacterShowcase" type="CenterContainer" unique_id=1304045452]
 custom_minimum_size = Vector2(480, 0)
-layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 mouse_filter = 2
 
-[node name="IdleRig" type="Control" parent="."]
+[node name="IdleRig" type="Control" parent="." unique_id=1678312076]
+texture_filter = 1
 custom_minimum_size = Vector2(430, 650)
 layout_mode = 2
 mouse_filter = 2
-texture_filter = 1
 script = ExtResource("2_idle")
 
-[node name="MenuCharacter" type="TextureRect" parent="IdleRig"]
+[node name="MenuCharacter" type="TextureRect" parent="IdleRig" unique_id=1060929443]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -29,12 +28,12 @@ texture = ExtResource("1_character")
 expand_mode = 3
 stretch_mode = 5
 
-[node name="HeadphonePulse" type="Line2D" parent="IdleRig/MenuCharacter"]
+[node name="HeadphonePulse" type="Line2D" parent="IdleRig/MenuCharacter" unique_id=1528957316]
 visible = false
 show_behind_parent = true
 z_index = -1
-points = PackedVector2Array(146, 119, 170, 119, 170, 123, 182, 123, 182, 127, 190, 127, 190, 135, 194, 135, 194, 143, 198, 143, 198, 151, 202, 151, 202, 171, 198, 171, 198, 183, 194, 183, 194, 191, 190, 191, 190, 195, 182, 195, 182, 199, 170, 199, 170, 203, 146, 203, 146, 199, 134, 199, 134, 195, 126, 195, 126, 191, 122, 191, 122, 183, 118, 183, 118, 171, 114, 171, 114, 151, 118, 151, 118, 143, 122, 143, 122, 135, 126, 135, 126, 127, 134, 127, 134, 123, 146, 123)
+position = Vector2(0, 7.6293945e-06)
+points = PackedVector2Array(146, 117.99999, 146, 111.99999, 163, 111.99999, 166, 118, 173, 118, 174, 127, 179, 127, 182, 132, 182, 150, 175, 152, 176, 160, 173, 165, 168, 166, 162, 170, 166, 170, 145, 170, 146, 165, 141, 165, 141, 160, 136, 160, 136, 155, 132, 155, 133, 150, 129, 149, 130, 129, 134, 129, 134, 123, 138, 117.99999)
+closed = true
 width = 3.0
 default_color = Color(0.15, 0.93, 1, 0.9)
-closed = true
-antialiased = false

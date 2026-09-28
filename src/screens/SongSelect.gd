@@ -9,8 +9,13 @@ const LOCAL_PACKAGE_SHARE_PANEL := preload(
 const LOCAL_PACKAGE_INSTALL_PANEL := preload(
 	"res://src/screens/song_select/LocalPackageInstallPanel.gd"
 )
+const LOCAL_PACKAGE_BATCH_PANEL := preload(
+	"res://src/screens/song_select/LocalPackageBatchPanel.gd"
+)
+const SONG_PACKAGE_SERVICE := preload("res://src/packages/SongPackageService.gd")
 const PREVIEW_FADE_SECONDS := 0.5
 const PREVIEW_SILENT_DB := -48.0
+const DEFAULT_SONG_ICON := preload("res://assets/menu/ui/music_note.png")
 
 @onready var back_button: Button = $LibraryMargins/PageLayout/Header/BackButton
 @onready var title_label: Label = $LibraryMargins/PageLayout/Header/HeaderCopy/TitleLabel
@@ -43,11 +48,11 @@ const PREVIEW_SILENT_DB := -48.0
 @onready var delete_button: Button = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewActions/DeleteButton
 @onready var play_button: Button = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PlayButton
 @onready var controls_label: Label = $LibraryMargins/PageLayout/Footer/ControlsLabel
+@onready var version_label: Label = $LibraryMargins/PageLayout/Footer/VersionLabel
 @onready var preview_audio: AudioStreamPlayer = $PreviewAudio
 
 static var remembered_song_id := ""
 static var remembered_chart_signature := ""
-static var remembered_scroll_value := 0.0
 static var remembered_search_text := ""
 static var remembered_filter_index := 0
 
@@ -60,6 +65,10 @@ var ui_feedback
 var all_songs: Array[SongData] = []
 var songs: Array[SongData] = []
 var song_buttons: Array[Button] = []
+var song_thumbnails: Dictionary = {}
+var song_top_spacer: Control
+var song_bottom_spacer: Control
+var recenter_generation := 0
 var mode_buttons: Array[Button] = []
 var song_button_group := ButtonGroup.new()
 var selected_song_index := 0
@@ -79,14 +88,20 @@ var preview_request_token := 0
 var package_dialog: FileDialog
 var package_import_thread: Thread
 var package_import_path := ""
+var package_import_queue := PackedStringArray()
+var package_import_batch_total := 0
+var package_import_batch_results: Array[Dictionary] = []
+var package_import_batch_items: Array[Dictionary] = []
 var package_import_selected_song_id := ""
 var package_import_chart_signature := ""
 var preserve_remembered_selection_on_exit := false
 var share_panel: Control
 var package_install_panel: Control
+var preview_content_scroll: ScrollContainer
 
 
 func _ready() -> void:
+	version_label.text = "v%s" % str(ProjectSettings.get_setting("application/config/version", ""))
 	var app := get_tree().current_scene
 	scene_manager = app.get_node("Managers/SceneManager")
 	game_manager = app.get_node("Managers/GameManager")
@@ -105,11 +120,12 @@ func _ready() -> void:
 	preview_video.loop = false
 	preview_video.autoplay = false
 	preview_video.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	_apply_library_layout()
 	_setup_preview_loop_timers()
 	_apply_localized_texts()
 	_setup_package_dialog()
 	back_button.pressed.connect(_return_to_menu)
-	import_package_button.pressed.connect(_open_package_dialog)
+	import_package_button.pressed.connect(_open_local_package_import)
 	share_package_button.pressed.connect(_open_local_package_share)
 	play_button.pressed.connect(_start_selected_song)
 	preview_button.pressed.connect(_toggle_preview)
@@ -127,19 +143,64 @@ func _ready() -> void:
 	filter_option.select(clampi(remembered_filter_index, 0, 2))
 	_setup_delete_dialog()
 	_refresh_note_speed()
+	song_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
+	song_scroll.resized.connect(_queue_center_song_selection)
 	_apply_song_filter()
 	if not song_buttons.is_empty():
 		song_buttons[selected_song_index].grab_focus()
 	elif all_songs.is_empty():
 		import_package_button.grab_focus()
-	call_deferred("_restore_scroll_position")
+
+
+func _apply_library_layout() -> void:
+	var body := $LibraryMargins/PageLayout/LibraryBody as HBoxContainer
+	var list_panel := body.get_node("SongListPanel") as PanelContainer
+	var preview_panel := body.get_node("PreviewPanel") as PanelContainer
+	body.move_child(preview_panel, 0)
+	body.add_theme_constant_override("separation", 18)
+	preview_panel.custom_minimum_size.x = 0.0
+	preview_panel.size_flags_stretch_ratio = 0.85
+	list_panel.size_flags_stretch_ratio = 1.15
+	var preview_layout := preview_title.get_parent() as VBoxContainer
+	preview_layout.move_child(preview_title, 1)
+	preview_layout.move_child(preview_artist, 2)
+	preview_layout.move_child(preview_meta, 3)
+	var spacer := preview_layout.get_node("PreviewSpacer")
+	preview_layout.move_child(spacer, 10)
+	preview_layout.move_child(play_button, 11)
+	preview_layout.move_child(preview_button.get_parent(), 12)
+	var preview_margins := preview_layout.get_parent()
+	preview_margins.remove_child(preview_layout)
+	preview_content_scroll = ScrollContainer.new()
+	preview_content_scroll.name = "PreviewContentScroll"
+	preview_content_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	preview_content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	preview_content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	preview_content_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	preview_content_scroll.follow_focus = true
+	preview_margins.add_child(preview_content_scroll)
+	preview_content_scroll.add_child(preview_layout)
+	preview_layout.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	resized.connect(_update_library_layout)
+	preview_content_scroll.resized.connect(_update_library_layout)
+	call_deferred("_update_library_layout")
+
+
+func _update_library_layout() -> void:
+	if preview_content_scroll == null or preview_content_scroll.size.y <= 0.0:
+		return
+	var preview_layout := preview_title.get_parent() as VBoxContainer
+	preview_cover.custom_minimum_size.y = 0.0
+	var controls_height := preview_layout.get_combined_minimum_size().y
+	var cover_height := maxf(0.0, preview_content_scroll.size.y - controls_height - 4.0)
+	preview_cover.custom_minimum_size.y = minf(370.0, cover_height)
 
 
 func _apply_localized_texts() -> void:
 	back_button.text = AuroraLocale.text("VOLVER")
-	import_package_button.text = AuroraLocale.text("INSTALAR NIVEL")
+	import_package_button.text = AuroraLocale.text("INSTALAR NIVELES")
 	import_package_button.tooltip_text = AuroraLocale.text(
-		"AÑADE A TU BIBLIOTECA UN ARCHIVO .AURORA RECIBIDO POR CORREO, CHAT, USB O NUBE"
+		"AÑADE A TU BIBLIOTECA UNO O VARIOS ARCHIVOS .AURORA RECIBIDOS POR CORREO, CHAT, USB O NUBE"
 	)
 	share_package_button.text = AuroraLocale.text("COMPARTIR NIVEL")
 	share_package_button.tooltip_text = AuroraLocale.text(
@@ -187,15 +248,15 @@ func _refresh_controls_hint() -> void:
 func _setup_package_dialog() -> void:
 	package_dialog = FileDialog.new()
 	package_dialog.name = "ImportPackageDialog"
-	package_dialog.title = AuroraLocale.text("INSTALAR NIVEL .AURORA")
+	package_dialog.title = AuroraLocale.text("INSTALAR UNO O VARIOS NIVELES .AURORA")
 	package_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	package_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	package_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILES
 	package_dialog.use_native_dialog = true
 	package_dialog.filters = PackedStringArray([
 		"*.aurora ; Aurora Song Package",
 	])
-	package_dialog.file_selected.connect(
-		_on_package_file_selected
+	package_dialog.files_selected.connect(
+		_on_package_files_selected
 	)
 	add_child(package_dialog)
 
@@ -217,17 +278,26 @@ func _open_package_dialog() -> void:
 	package_dialog.popup_centered_ratio(0.72)
 
 
-func _on_package_file_selected(package_path: String) -> void:
+func _on_package_files_selected(paths: PackedStringArray) -> void:
 	if _is_package_import_active():
 		preview_status.text = AuroraLocale.text(
 			"ESPERA A QUE TERMINE LA IMPORTACIÓN DEL PAQUETE."
 		)
 		return
+	if paths.is_empty():
+		return
 	settings_manager.set_setting(
 		"last_package_directory",
-		package_path.get_base_dir(),
+		paths[0].get_base_dir(),
 		false
 	)
+	if paths.size() == 1:
+		_on_package_file_selected(paths[0])
+		return
+	_open_package_batch_confirmation(paths)
+
+
+func _on_package_file_selected(package_path: String) -> void:
 	var inspection := song_manager.inspect_song_package(package_path)
 	if not bool(inspection.get("ok", false)):
 		preview_status.text = _package_import_error_text(inspection)
@@ -236,6 +306,57 @@ func _on_package_file_selected(package_path: String) -> void:
 		package_path,
 		inspection.get("manifest", {})
 	)
+
+
+func _open_package_batch_confirmation(paths: PackedStringArray) -> void:
+	var items: Array[Dictionary] = []
+	var latest_by_id: Dictionary = {}
+	for path in paths:
+		var item := {
+			"path": path,
+			"name": path.get_file(),
+			"status": AuroraLocale.text("ARCHIVO NO VÁLIDO"),
+			"installable": false,
+		}
+		items.append(item)
+		if path.get_extension().to_lower() != "aurora":
+			continue
+		var inspection := song_manager.inspect_song_package(path)
+		if not bool(inspection.get("ok", false)):
+			item["status"] = str(inspection.get("message", AuroraLocale.text("ARCHIVO NO VÁLIDO")))
+			continue
+		var manifest: Dictionary = inspection.get("manifest", {})
+		var package_id := str(manifest.get("package_id", ""))
+		var version := str(manifest.get("package_version", "1.0.0"))
+		var song: Dictionary = manifest.get("song", {})
+		item["name"] = "%s  //  %s" % [str(song.get("title", path.get_file())), path.get_file()]
+		var installed_version := song_manager.get_installed_package_version(package_id)
+		if not installed_version.is_empty() and SONG_PACKAGE_SERVICE.compare_package_versions(version, installed_version) <= 0:
+			item["status"] = AuroraLocale.text("YA INSTALADO O VERSIÓN ANTERIOR")
+			continue
+		item["status"] = (AuroraLocale.text("ACTUALIZAR A v%s") if not installed_version.is_empty() else AuroraLocale.text("INSTALAR v%s")) % version
+		item["installable"] = true
+		if latest_by_id.has(package_id):
+			var previous_index := int(latest_by_id[package_id])
+			var previous: Dictionary = items[previous_index]
+			if SONG_PACKAGE_SERVICE.compare_package_versions(version, str(previous.get("version", "0.0.0"))) > 0:
+				previous["installable"] = false
+				previous["status"] = AuroraLocale.text("OTRA VERSIÓN SELECCIONADA ES MÁS RECIENTE")
+				latest_by_id[package_id] = items.size() - 1
+			else:
+				item["installable"] = false
+				item["status"] = AuroraLocale.text("OTRA VERSIÓN SELECCIONADA ES MÁS RECIENTE")
+		else:
+			latest_by_id[package_id] = items.size() - 1
+		item["version"] = version
+	package_import_batch_items = items
+	_close_package_install_confirmation()
+	package_install_panel = LOCAL_PACKAGE_BATCH_PANEL.new()
+	package_install_panel.name = "LocalPackageBatchPanel"
+	package_install_panel.install_confirmed.connect(_confirm_package_batch_install)
+	package_install_panel.close_requested.connect(_close_package_install_confirmation)
+	add_child(package_install_panel)
+	package_install_panel.show_selection(items)
 
 
 func _open_package_install_confirmation(
@@ -265,6 +386,34 @@ func _close_package_install_confirmation() -> void:
 
 func _confirm_package_install(package_path: String) -> void:
 	_close_package_install_confirmation()
+	_prepare_package_import()
+	_start_package_import(package_path)
+
+
+func _confirm_package_batch_install(paths: PackedStringArray) -> void:
+	_close_package_install_confirmation()
+	if paths.is_empty():
+		return
+	_prepare_package_import()
+	package_import_queue = paths
+	package_import_batch_total = paths.size()
+	package_import_batch_results.clear()
+	for item in package_import_batch_items:
+		if not bool(item.get("installable", false)):
+			package_import_batch_results.append({
+				"path": str(item.get("path", "")),
+				"result": {
+					"ok": false,
+					"error_code": "selection_skipped",
+					"message": str(item.get("status", "")),
+				},
+			})
+	package_import_batch_items.clear()
+	_set_package_import_controls_disabled(true)
+	_start_next_package_import()
+
+
+func _prepare_package_import() -> void:
 	var selected_before := _get_selected_song()
 	package_import_selected_song_id = (
 		str(selected_before.song_id)
@@ -287,14 +436,30 @@ func _confirm_package_install(package_path: String) -> void:
 		package_import_chart_signature = _chart_signature(
 			selected_before.charts[safe_index]
 		)
-	_start_package_import(package_path)
+
+
+func _start_next_package_import() -> void:
+	if package_import_queue.is_empty():
+		_finish_package_batch_import()
+		return
+	var path := package_import_queue[0]
+	package_import_queue.remove_at(0)
+	_start_package_import(path)
 
 
 func _start_package_import(package_path: String) -> void:
 	package_import_path = package_path
 	package_import_thread = Thread.new()
 	_set_package_import_controls_disabled(true)
-	preview_status.text = AuroraLocale.text("VALIDANDO PAQUETE...")
+	preview_status.text = (
+		AuroraLocale.text("INSTALANDO %d / %d // %s") % [
+			package_import_batch_total - package_import_queue.size(),
+			package_import_batch_total,
+			package_path.get_file(),
+		]
+		if package_import_batch_total > 0
+		else AuroraLocale.text("VALIDANDO PAQUETE...")
+	)
 	var start_error := package_import_thread.start(
 		Callable(
 			song_manager,
@@ -305,10 +470,16 @@ func _start_package_import(package_path: String) -> void:
 		return
 	package_import_thread = null
 	package_import_path = ""
-	_set_package_import_controls_disabled(false)
-	preview_status.text = AuroraLocale.text(
-		"NO SE PUDO INICIAR LA IMPORTACIÓN DEL PAQUETE."
-	)
+	var failure := {
+		"ok": false,
+		"message": "NO SE PUDO INICIAR LA IMPORTACIÓN DEL PAQUETE.",
+	}
+	if package_import_batch_total > 0:
+		package_import_batch_results.append({"path": package_path, "result": failure})
+		_start_next_package_import()
+	else:
+		_set_package_import_controls_disabled(false)
+		preview_status.text = AuroraLocale.text(str(failure["message"]))
 
 
 func _poll_package_import() -> void:
@@ -321,17 +492,22 @@ func _poll_package_import() -> void:
 	package_import_thread = null
 	var completed_path := package_import_path
 	package_import_path = ""
-	_set_package_import_controls_disabled(false)
 	var result: Dictionary = (
 		result_value
 		if result_value is Dictionary
 		else {}
 	)
+	if package_import_batch_total > 0:
+		package_import_batch_results.append({"path": completed_path, "result": result})
+		_start_next_package_import()
+		return
+	_set_package_import_controls_disabled(false)
 	if not bool(result.get("ok", false)):
 		preview_status.text = _package_import_error_text(result)
 		return
 	song_manager.load_songs()
 	all_songs = song_manager.get_all_songs()
+	song_thumbnails.clear()
 	remembered_song_id = package_import_selected_song_id
 	remembered_chart_signature = package_import_chart_signature
 	if remembered_song_id.is_empty():
@@ -356,8 +532,42 @@ func _poll_package_import() -> void:
 	) % [imported_title, imported_version]
 
 
+func _finish_package_batch_import() -> void:
+	var installed := 0
+	var updated := 0
+	for item in package_import_batch_results:
+		var result: Dictionary = item.get("result", {})
+		if bool(result.get("ok", false)):
+			if bool(result.get("updated", false)):
+				updated += 1
+			else:
+				installed += 1
+			if package_import_selected_song_id.is_empty():
+				package_import_selected_song_id = str(result.get("song_id", ""))
+	if installed + updated > 0:
+		song_manager.load_songs()
+		all_songs = song_manager.get_all_songs()
+		song_thumbnails.clear()
+		remembered_song_id = package_import_selected_song_id
+		remembered_chart_signature = package_import_chart_signature
+		_apply_song_filter()
+	package_import_queue.clear()
+	package_import_batch_total = 0
+	package_import_batch_items.clear()
+	package_import_selected_song_id = ""
+	package_import_chart_signature = ""
+	_set_package_import_controls_disabled(false)
+	preview_status.text = AuroraLocale.text("%d INSTALADOS · %d ACTUALIZADOS // REVISA EL RESUMEN") % [installed, updated]
+	package_install_panel = LOCAL_PACKAGE_BATCH_PANEL.new()
+	package_install_panel.name = "LocalPackageBatchResults"
+	package_install_panel.close_requested.connect(_close_package_install_confirmation)
+	add_child(package_install_panel)
+	package_install_panel.show_results(package_import_batch_results)
+	package_import_batch_results.clear()
+
+
 func _is_package_import_active() -> bool:
-	return package_import_thread != null
+	return package_import_thread != null or package_import_batch_total > 0
 
 
 func _set_package_import_controls_disabled(disabled: bool) -> void:
@@ -385,7 +595,7 @@ func _set_package_import_controls_disabled(disabled: bool) -> void:
 		filter_option.disabled = disabled
 	if import_package_button != null:
 		import_package_button.text = AuroraLocale.text(
-			"INSTALANDO..." if disabled else "INSTALAR NIVEL"
+			"INSTALANDO..." if disabled else "INSTALAR NIVELES"
 		)
 	if share_package_button != null:
 		share_package_button.text = AuroraLocale.text("COMPARTIR NIVEL")
@@ -487,6 +697,20 @@ func _input(event: InputEvent) -> void:
 				song_buttons[selected_song_index].grab_focus()
 			get_viewport().set_input_as_handled()
 		return
+	if (
+		event is InputEventMouseButton
+		and event.pressed
+		and (delete_modal == null or not delete_modal.visible)
+		and song_scroll.get_global_rect().has_point(event.position)
+	):
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP:
+			_move_song_selection(-1)
+			get_viewport().set_input_as_handled()
+			return
+		if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			_move_song_selection(1)
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventJoypadButton and event.pressed:
 		if delete_modal != null and delete_modal.visible:
 			if input_manager.controller_event_matches(event, "back"):
@@ -570,7 +794,7 @@ func _input(event: InputEvent) -> void:
 				_request_delete_selected_song()
 				get_viewport().set_input_as_handled()
 			KEY_I:
-				_open_package_dialog()
+				_open_local_package_import()
 				get_viewport().set_input_as_handled()
 			KEY_ENTER, KEY_KP_ENTER:
 				if use_library_shortcuts:
@@ -588,8 +812,13 @@ func _is_note_speed_control(focused_control: Control) -> bool:
 
 func _populate_song_list() -> void:
 	for child in song_list.get_children():
+		song_list.remove_child(child)
 		child.queue_free()
 	song_buttons.clear()
+	song_top_spacer = Control.new()
+	song_top_spacer.name = "TopCenterSpacer"
+	song_top_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	song_list.add_child(song_top_spacer)
 
 	for index in range(songs.size()):
 		var song := songs[index]
@@ -597,23 +826,48 @@ func _populate_song_list() -> void:
 		button.name = "Song%02d" % (index + 1)
 		button.toggle_mode = true
 		button.button_group = song_button_group
-		button.text = "%02d  %s\n     %s  ·  %s  ·  %s" % [
-			index + 1,
+		button.text = "%s\n%s  ·  %s  ·  %s" % [
 			song.title.to_upper(),
 			song.artist,
 			song.get_duration_text(),
 			_song_modes_text(song),
 		]
+		var thumbnail := button.get_node("ThumbnailFrame/Thumbnail") as TextureRect
+		thumbnail.texture = _get_song_thumbnail(song)
 		button.focus_entered.connect(_select_song.bind(index, false))
 		button.pressed.connect(_select_song.bind(index, true))
 		song_list.add_child(button)
 		song_buttons.append(button)
+	song_bottom_spacer = Control.new()
+	song_bottom_spacer.name = "BottomCenterSpacer"
+	song_bottom_spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	song_list.add_child(song_bottom_spacer)
 
 	song_count_label.text = (
 		AuroraLocale.text("%d / %d CANCIONES") % [songs.size(), all_songs.size()]
 		if songs.size() != all_songs.size()
 		else AuroraLocale.text("%d CANCIONES") % songs.size()
 	)
+
+
+func _get_song_thumbnail(song: SongData) -> Texture2D:
+	var song_id := str(song.song_id)
+	if song_thumbnails.has(song_id):
+		return song_thumbnails[song_id] as Texture2D
+	var source_image: Image
+	var media: Dictionary = song_manager.package_media_by_song_id.get(song_id, {})
+	var cover_path := str(media.get("cover_path", ""))
+	if not cover_path.is_empty() and FileAccess.file_exists(cover_path):
+		source_image = Image.load_from_file(ProjectSettings.globalize_path(cover_path))
+	if (source_image == null or source_image.is_empty()) and song.cover != null:
+		source_image = song.cover.get_image()
+	if source_image == null or source_image.is_empty():
+		return DEFAULT_SONG_ICON
+	var thumbnail := source_image.duplicate() as Image
+	thumbnail.resize(46, 46, Image.INTERPOLATE_LANCZOS)
+	var texture := ImageTexture.create_from_image(thumbnail)
+	song_thumbnails[song_id] = texture
+	return texture
 
 
 func _song_modes_text(song: SongData) -> String:
@@ -635,6 +889,8 @@ func _select_song(index: int, focus_button: bool) -> void:
 			ui_feedback.play_navigation()
 		selected_chart_index = 0
 	_refresh_selection()
+	if song_changed:
+		_queue_center_song_selection()
 	if focus_button and index < song_buttons.size():
 		song_buttons[index].grab_focus()
 
@@ -657,6 +913,7 @@ func _refresh_selection() -> void:
 	preview_meta.text = AuroraLocale.text("DURACION %s") % song.get_duration_text()
 	_populate_mode_buttons(song)
 	_update_chart_selection()
+	call_deferred("_update_library_layout")
 	delete_button.disabled = not song_manager.is_removable_local_song(
 		song
 	)
@@ -768,7 +1025,41 @@ func _move_song_selection(direction: int) -> void:
 	selected_song_index = wrapi(selected_song_index + direction, 0, songs.size())
 	selected_chart_index = 0
 	_refresh_selection()
-	song_buttons[selected_song_index].grab_focus()
+	_queue_center_song_selection()
+	if not search_field.has_focus():
+		song_buttons[selected_song_index].grab_focus()
+
+
+func _queue_center_song_selection() -> void:
+	recenter_generation += 1
+	call_deferred("_center_song_selection", recenter_generation)
+
+
+func _center_song_selection(generation: int) -> void:
+	if generation != recenter_generation or song_buttons.is_empty():
+		return
+	var row_height := song_buttons[selected_song_index].size.y
+	var separation := float(song_list.get_theme_constant("separation"))
+	var padding := maxf(0.0, (song_scroll.size.y - row_height) * 0.5 - separation)
+	song_top_spacer.custom_minimum_size.y = padding
+	song_bottom_spacer.custom_minimum_size.y = padding
+	var center_slot := song_buttons.size() / 2
+	for visual_slot in range(song_buttons.size()):
+		var song_index := wrapi(
+			selected_song_index - center_slot + visual_slot,
+			0,
+			song_buttons.size()
+		)
+		song_list.move_child(song_buttons[song_index], visual_slot + 1)
+	await get_tree().process_frame
+	if generation != recenter_generation or not is_inside_tree():
+		return
+	var selected_button := song_buttons[selected_song_index]
+	song_scroll.scroll_vertical = roundi(
+		selected_button.position.y
+		+ selected_button.size.y * 0.5
+		- song_scroll.size.y * 0.5
+	)
 
 
 func _move_chart_selection(direction: int) -> void:
@@ -1003,6 +1294,7 @@ func _on_filter_selected(index: int) -> void:
 
 
 func _apply_song_filter() -> void:
+	var keep_search_focus := search_field.has_focus()
 	var previous_song_id := ""
 	var selected_song := _get_selected_song()
 	if selected_song != null:
@@ -1039,7 +1331,8 @@ func _apply_song_filter() -> void:
 	selected_chart_index = 0
 	_populate_song_list()
 	_refresh_selection()
-	if not song_buttons.is_empty():
+	_queue_center_song_selection()
+	if not song_buttons.is_empty() and not keep_search_focus:
 		song_buttons[selected_song_index].grab_focus()
 
 
@@ -1166,17 +1459,10 @@ func _remember_library_state() -> void:
 		if not song.charts.is_empty():
 			var safe_chart_index := clampi(selected_chart_index, 0, song.charts.size() - 1)
 			remembered_chart_signature = _chart_signature(song.charts[safe_chart_index])
-	if song_scroll != null:
-		remembered_scroll_value = song_scroll.scroll_vertical
 	if search_field != null:
 		remembered_search_text = search_field.text
 	if filter_option != null:
 		remembered_filter_index = filter_option.selected
-
-
-func _restore_scroll_position() -> void:
-	if song_scroll != null:
-		song_scroll.scroll_vertical = int(remembered_scroll_value)
 
 
 func _setup_delete_dialog() -> void:
@@ -1318,7 +1604,11 @@ func _return_to_menu() -> void:
 	scene_manager.load_scene("main_menu")
 
 
-func _open_local_package_share() -> void:
+func _open_local_package_import() -> void:
+	_open_local_package_share("import")
+
+
+func _open_local_package_share(initial_tab := "export") -> void:
 	if share_panel != null or _is_package_import_active():
 		return
 	preview_request_token += 1
@@ -1326,16 +1616,26 @@ func _open_local_package_share() -> void:
 	share_panel = LOCAL_PACKAGE_SHARE_PANEL.new()
 	share_panel.name = "LocalPackageSharePanel"
 	share_panel.close_requested.connect(_close_local_package_share)
+	share_panel.import_requested.connect(_on_share_import_requested)
 	add_child(share_panel)
-	share_panel.setup(song_manager, settings_manager, _get_selected_song())
+	share_panel.setup(song_manager, settings_manager, _get_selected_song(), initial_tab)
+
+
+func _on_share_import_requested() -> void:
+	_close_local_package_share()
+	_open_package_dialog()
 
 
 func _close_local_package_share() -> void:
 	if share_panel == null:
 		return
+	var focus_import: bool = share_panel.import_view.visible
 	share_panel.queue_free()
 	share_panel = null
-	share_package_button.grab_focus()
+	if focus_import:
+		import_package_button.grab_focus()
+	else:
+		share_package_button.grab_focus()
 
 
 func _get_selected_song() -> SongData:

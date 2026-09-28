@@ -6,10 +6,12 @@ const CINEMATICS := preload("res://src/data/CinematicSections.gd")
 const PAUSE_MENU_SCENE := preload("res://src/screens/pause/PauseMenu.tscn")
 const AUTO_SIDE_TRACK := preload("res://src/screens/gameplay/AutoSideTrack.gd")
 const PERFECT_PLAY := preload("res://src/screens/gameplay/PerfectPlayCelebration.gd")
-const PERFECT_WINDOW := 0.065
-const GREAT_WINDOW := 0.115
-const GOOD_WINDOW := 0.170
-const MISS_WINDOW := 0.220
+const PERFECT_WINDOW := 0.045
+const GREAT_WINDOW := 0.090
+const GOOD_WINDOW := 0.120
+const MISS_WINDOW := 0.150
+const SLOWEST_NOTE_TRAVEL_TIME := 4.2
+const FASTEST_NOTE_TRAVEL_TIME := 0.42
 const CONTROL_DECK_HEIGHT := 150.0
 const RECEPTOR_TOP_OFFSET := 64.0
 const RECEPTOR_BOTTOM_OFFSET := 10.0
@@ -154,6 +156,7 @@ func setup_ui() -> void:
 func _add_stage_background() -> void:
 	background_video_player = null
 	if game_manager.current_song != null and game_manager.current_song.background_video != null:
+		var song_gain_db := clampf(game_manager.current_song.audio_gain_db, -18.0, 12.0)
 		background_video_player = VideoStreamPlayer.new()
 		background_video_player.name = "BackgroundVideo"
 		AuroraUi.fill(background_video_player)
@@ -162,7 +165,7 @@ func _add_stage_background() -> void:
 		background_video_player.loop = false
 		background_video_player.autoplay = false
 		background_video_player.bus = "Music" if AudioServer.get_bus_index("Music") >= 0 else "Master"
-		background_video_player.volume_db = -80.0 if game_manager.current_song.audio != null else 0.0
+		background_video_player.volume_db = -80.0 if game_manager.current_song.audio != null else song_gain_db
 		background_video_player.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 		background_video_player.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		add_child(background_video_player)
@@ -716,13 +719,14 @@ func _register_lane_input(lane_index: int) -> void:
 		return
 
 	var judgment := _get_judgment_for_error(signed_error)
+	var timing_score := _get_timing_score(signed_error)
 	match judgment:
 		"PERFECT":
-			_judge_note(closest_note, judgment, 1.0, 1000, AuroraUi.TEAL)
+			_judge_note(closest_note, judgment, 1.0, timing_score, AuroraUi.TEAL)
 		"GREAT":
-			_judge_note(closest_note, judgment, 0.80, 750, AuroraUi.GOLD)
+			_judge_note(closest_note, judgment, 0.80, timing_score, AuroraUi.GOLD)
 		_:
-			_judge_note(closest_note, "GOOD", 0.50, 450, AuroraUi.CORAL)
+			_judge_note(closest_note, "GOOD", 0.50, timing_score, AuroraUi.CORAL)
 	_record_timing_sample(signed_error)
 	_show_timing_feedback(signed_error)
 
@@ -796,7 +800,7 @@ func _try_start_shift_pair(pair_id: String, judgment_time: float) -> void:
 		return
 	var judgment := _get_judgment_for_error(signed_error)
 	var accuracy := 1.0 if judgment == "PERFECT" else 0.80 if judgment == "GREAT" else 0.50
-	var score_value := 1000 if judgment == "PERFECT" else 750 if judgment == "GREAT" else 450
+	var score_value := _get_timing_score(signed_error)
 	_record_timing_sample(signed_error)
 	_show_timing_feedback(signed_error)
 	_judge_shift_pair(pair_id, judgment, accuracy, score_value, AuroraUi.GOLD)
@@ -881,16 +885,16 @@ func _get_hold_release_result(progress: float, release_error: float) -> Dictiona
 		return {"judgment": "MISS", "accuracy": 0.0, "score": 0}
 
 	var absolute_error := absf(release_error)
+	var score := _get_timing_score(release_error, 1200.0, 1080.0, 900.0, 550.0, 200.0)
 	if absolute_error <= PERFECT_WINDOW:
-		return {"judgment": "PERFECT", "accuracy": 1.0, "score": 1200}
+		return {"judgment": "PERFECT", "accuracy": 1.0, "score": score}
 	if absolute_error <= GREAT_WINDOW:
-		return {"judgment": "GREAT", "accuracy": 0.80, "score": 900}
+		return {"judgment": "GREAT", "accuracy": 0.80, "score": score}
 	if absolute_error <= GOOD_WINDOW:
-		return {"judgment": "GOOD", "accuracy": 0.50, "score": 550}
+		return {"judgment": "GOOD", "accuracy": 0.50, "score": score}
 
-	# Releasing after the halfway point preserves the combo but grants
-	# only the minimum hold-note reward.
-	return {"judgment": "GOOD", "accuracy": 0.25, "score": 200}
+	# Late releases preserve the combo while their score falls toward the miss limit.
+	return {"judgment": "GOOD", "accuracy": 0.25, "score": score}
 
 
 func _get_judgment_for_error(error_seconds: float) -> String:
@@ -899,9 +903,35 @@ func _get_judgment_for_error(error_seconds: float) -> String:
 		return "PERFECT"
 	if absolute_error <= GREAT_WINDOW:
 		return "GREAT"
-	if absolute_error <= GOOD_WINDOW:
+	if absolute_error <= MISS_WINDOW:
 		return "GOOD"
 	return "MISS"
+
+
+func _get_timing_score(
+	error_seconds: float,
+	perfect_score: float = 1000.0,
+	perfect_edge_score: float = 950.0,
+	great_edge_score: float = 750.0,
+	good_edge_score: float = 450.0,
+	miss_edge_score: float = 0.0
+) -> int:
+	# Preserve judgment bands while scoring each hit from its exact timing offset.
+	var absolute_error := absf(error_seconds)
+	if absolute_error > MISS_WINDOW:
+		return 0
+	if absolute_error <= PERFECT_WINDOW:
+		return roundi(
+			lerpf(perfect_score, perfect_edge_score, absolute_error / PERFECT_WINDOW)
+		)
+	if absolute_error <= GREAT_WINDOW:
+		var great_progress := (absolute_error - PERFECT_WINDOW) / (GREAT_WINDOW - PERFECT_WINDOW)
+		return roundi(lerpf(perfect_edge_score, great_edge_score, great_progress))
+	if absolute_error <= GOOD_WINDOW:
+		var good_progress := (absolute_error - GREAT_WINDOW) / (GOOD_WINDOW - GREAT_WINDOW)
+		return roundi(lerpf(great_edge_score, good_edge_score, good_progress))
+	var late_progress := (absolute_error - GOOD_WINDOW) / (MISS_WINDOW - GOOD_WINDOW)
+	return roundi(lerpf(good_edge_score, miss_edge_score, late_progress))
 
 
 func _initialize_gameplay() -> void:
@@ -959,6 +989,11 @@ func _setup_audio_players() -> void:
 
 	if game_manager.current_song != null and game_manager.current_song.audio != null:
 		song_player.stream = game_manager.current_song.audio
+		song_player.volume_db = clampf(
+			game_manager.current_song.audio_gain_db,
+			-18.0,
+			12.0
+		)
 
 
 func _build_start_gate() -> void:
@@ -1088,7 +1123,12 @@ func _update_song_clock(delta: float) -> void:
 func _get_note_travel_time() -> float:
 	var note_speed := float(settings_manager.get_setting("note_speed", 5.5))
 	var normalized := clampf((note_speed - 1.0) / 9.0, 0.0, 1.0)
-	return lerpf(2.65, 0.72, normalized)
+	# Spread the slider perceptually: higher settings gain speed much sooner,
+	# while preserving a broad slow-to-fast range across levels 1 through 10.
+	return SLOWEST_NOTE_TRAVEL_TIME * pow(
+		FASTEST_NOTE_TRAVEL_TIME / SLOWEST_NOTE_TRAVEL_TIME,
+		normalized
+	)
 
 
 func _get_preparation_duration() -> float:

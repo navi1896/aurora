@@ -1,25 +1,11 @@
-Aurora v1.0.2
+Aurora v1.1.0
 
-Actualización de calidad de vida centrada en progreso local y navegación.
+Cambios principales:
+- Biblioteca con selección circular de canciones y vista previa que ajusta la imagen para mostrar todos los controles sin desplazar el panel.
+- Ventana de archivos de canciones con pestañas Importar y Exportar, búsqueda de niveles, importación de uno o varios paquetes `.aurora` y exportación individual o de toda la biblioteca a una carpeta con un archivo por canción.
+- Menú de cabina interactivo y presentación renovada de la configuración.
+- Comprobación y descarga automática de nuevas versiones al abrir la edición de Windows. La instalación se verifica mediante SHA-256; cuando está lista, Aurora se cierra, se actualiza y vuelve a abrirse.
 
-Incluye:
-- Juego de ritmo de 4, 6 y 8 teclas
-- Nueva protagonista femenina original en el menú principal
-- Menú principal simplificado: Jugar, Crear, Opciones y Salir
-- El menú recuerda la última opción enfocada al regresar
-- Récords personales persistentes por canción y dificultad
-- La biblioteca muestra mejor puntuación, precisión, combo y partidas
-- La pantalla de resultados celebra los nuevos récords personales
-- Compatibilidad con teclado y mandos
-- Biblioteca de canciones con vista previa
-- Editor manual y automático con notas normales y sostenidas
-- Forma de onda, guardado de recuperación y prueba directa del chart
-- Intercambio local de niveles mediante paquetes portátiles `.aurora`
-- Comprobación de nuevas versiones mediante GitHub Releases
-- Importación de MP4, MOV, MKV, WEBM, AVI y M4V con FFmpeg incluido
-- Validación de decodificación y calidad antes de aceptar un video convertido
-- Configuración independiente de audio, video, jugabilidad y controles
-
-Contenido:
-- Aurora se distribuye sin canciones ni videos protegidos.
+Distribución:
+- La edición pública no incluye canciones ni videos protegidos.
 - Cada jugador puede crear o importar contenido local bajo su propia responsabilidad.
