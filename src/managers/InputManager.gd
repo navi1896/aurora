@@ -13,6 +13,8 @@ const CONTROLLER_ACTIONS: Array[String] = [
 	"confirm",
 	"back",
 	"pause",
+	"shift_left",
+	"shift_right",
 	"preview",
 	"delete",
 ]

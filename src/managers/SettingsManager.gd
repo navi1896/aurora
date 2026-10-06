@@ -13,7 +13,6 @@ const SETTINGS_SAVE_DEBOUNCE_SECONDS := 0.25
 const DEFAULT_SETTINGS := {
 	"language": "es",
 	"master_volume": 0.5,
-	"menu_music_volume": 0.58,
 	"music_volume": 0.85,
 	"sfx_volume": 0.9,
 	"note_speed": 5.5,
@@ -49,6 +48,8 @@ const DEFAULT_SETTINGS := {
 			"confirm": JOY_BUTTON_A,
 			"back": JOY_BUTTON_B,
 			"pause": JOY_BUTTON_START,
+			"shift_left": JOY_BUTTON_LEFT_STICK,
+			"shift_right": JOY_BUTTON_RIGHT_STICK,
 			"preview": JOY_BUTTON_Y,
 			"delete": JOY_BUTTON_X,
 		},
@@ -105,10 +106,20 @@ func load_settings() -> void:
 		return
 
 	var parsed = JSON.parse_string(file.get_as_text())
+	var settings_migrated := false
 	if parsed is Dictionary:
 		for key in parsed.keys():
 			settings[key] = parsed[key]
+		if parsed.has("menu_music_volume"):
+			# Keep the established gameplay music level as the shared setting.
+			# Older files without it inherit the former menu level instead.
+			if not parsed.has("music_volume"):
+				settings["music_volume"] = parsed["menu_music_volume"]
+			settings.erase("menu_music_volume")
+			settings_migrated = true
 	_validate_settings()
+	if settings_migrated:
+		_queue_settings_save()
 
 
 func save_settings() -> void:
@@ -169,8 +180,9 @@ func apply_language_setting() -> void:
 
 func apply_audio_settings() -> void:
 	_set_bus_volume("Master", float(get_setting("master_volume", 0.5)))
-	_set_bus_volume("MenuMusic", float(get_setting("menu_music_volume", 0.58)))
-	_set_bus_volume("Music", float(get_setting("music_volume", 0.85)))
+	var music_volume := float(get_setting("music_volume", 0.85))
+	_set_bus_volume("MenuMusic", music_volume)
+	_set_bus_volume("Music", music_volume)
 	_set_bus_volume("SFX", float(get_setting("sfx_volume", 0.9)))
 
 
@@ -218,7 +230,7 @@ func apply_graphics_settings() -> void:
 func _apply_setting(key: String) -> void:
 	if key == "language":
 		apply_language_setting()
-	elif key in ["master_volume", "menu_music_volume", "music_volume", "sfx_volume"]:
+	elif key in ["master_volume", "music_volume", "sfx_volume"]:
 		apply_audio_settings()
 	elif key in ["window_mode", "resolution", "vsync_enabled", "fps_limit"]:
 		apply_display_settings()
@@ -261,7 +273,7 @@ func _validate_setting(key: String) -> void:
 		"language":
 			if str(settings[key]) not in SUPPORTED_LANGUAGES:
 				settings[key] = "es"
-		"master_volume", "menu_music_volume", "music_volume", "sfx_volume":
+		"master_volume", "music_volume", "sfx_volume":
 			settings[key] = clampf(float(settings[key]), 0.0, 1.0)
 		"note_speed":
 			settings[key] = clampf(float(settings[key]), 1.0, 10.0)

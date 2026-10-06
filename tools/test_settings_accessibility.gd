@@ -42,10 +42,20 @@ func _run() -> void:
 
 	settings._show_category("controls")
 	await process_frame
-	var action_grid := settings.find_child("ControllerActionGrid", true, false) as GridContainer
+	var action_labels: Array[String] = []
+	if settings.cabinet_columns.size() >= 3:
+		_collect_button_labels(settings.cabinet_columns[2], action_labels)
+	var actions_present := settings.cabinet_columns.size() == 3
+	for action_name in InputManager.CONTROLLER_ACTIONS:
+		actions_present = actions_present and (
+			input_manager.get_controller_action_label(action_name) in action_labels
+		)
 	_expect(
-		action_grid != null and action_grid.columns == 3,
-		"Las acciones del mando usan una cuadrícula que cabe en 1280x720"
+		actions_present
+		and settings.cabinet_column_scrolls.size() == 3
+		and settings.cabinet_column_scrolls[2].get_global_rect().end.x
+		<= settings.get_viewport_rect().end.x + 1.0,
+		"Las acciones del mando aparecen dentro de la vista de controles"
 	)
 
 	var bindings_before := input_manager.get_mode_joy_buttons(4).duplicate()
@@ -85,3 +95,10 @@ func _finish() -> void:
 	else:
 		print("SETTINGS ACCESSIBILITY TESTS FAILED: %s" % ", ".join(failures))
 		quit(1)
+
+
+func _collect_button_labels(node: Node, labels: Array[String]) -> void:
+	if node is Button:
+		labels.append((node as Button).text)
+	for child in node.get_children():
+		_collect_button_labels(child, labels)

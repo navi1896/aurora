@@ -49,7 +49,10 @@ func _should_show_loading(scene_name: String) -> bool:
 		and
 		not current_scene_name.is_empty()
 		and current_scene_name != scene_name
-		and scene_name in ["gameplay", "editor", "settings"]
+		and (
+			scene_name in ["gameplay", "editor", "settings"]
+			or scene_name in ["song_select", "main_menu"]
+		)
 	)
 
 

@@ -5,16 +5,28 @@ class_name Gameplay
 const CINEMATICS := preload("res://src/data/CinematicSections.gd")
 const PAUSE_MENU_SCENE := preload("res://src/screens/pause/PauseMenu.tscn")
 const AUTO_SIDE_TRACK := preload("res://src/screens/gameplay/AutoSideTrack.gd")
+const CABINET_CHROME := preload("res://src/screens/gameplay/CabinetChrome.gd")
 const PERFECT_PLAY := preload("res://src/screens/gameplay/PerfectPlayCelebration.gd")
+const GAMEPLAY_CABINET_OVERLAY := preload("res://assets/gameplay/ui/gameplay_cabinet_overlay.png")
+const PERFECT_JUDGMENT_ART := preload("res://assets/gameplay/ui/judgment_perfect.png")
+const JUDGMENT_RATINGS_SHEET := preload("res://assets/gameplay/ui/judgment_ratings_sheet.png")
+const LANE_RECEPTOR_KEY_ART := preload("res://assets/gameplay/ui/lane_receptor_key.png")
+const HIT_LINE_ART := preload("res://assets/gameplay/ui/hit_line_neon.png")
+const NEON_NOTE := preload("res://src/screens/gameplay/NeonGameplayNote.gd")
+const NEON_RECEPTOR := preload("res://src/screens/gameplay/NeonGameplayReceptor.gd")
+const SKIN_REFERENCE_SIZE := Vector2(1672.0, 941.0)
+const SKIN_HIT_OFFSET := 170.0
+const SKIN_RECEPTOR_TOP := 160.0
+const SKIN_RECEPTOR_BOTTOM := 113.0
 const PERFECT_WINDOW := 0.045
 const GREAT_WINDOW := 0.090
 const GOOD_WINDOW := 0.120
 const MISS_WINDOW := 0.150
 const SLOWEST_NOTE_TRAVEL_TIME := 4.2
 const FASTEST_NOTE_TRAVEL_TIME := 0.42
-const CONTROL_DECK_HEIGHT := 150.0
-const RECEPTOR_TOP_OFFSET := 64.0
-const RECEPTOR_BOTTOM_OFFSET := 10.0
+const CONTROL_DECK_HEIGHT := 118.0
+const RECEPTOR_TOP_OFFSET := 130.0
+const RECEPTOR_BOTTOM_OFFSET := 76.0
 const NOTE_HALF_HEIGHT := 10.0
 const HOLD_NOTE_MIN_DURATION := 0.18
 const HIT_ZONE_HEIGHT := 40.0
@@ -22,11 +34,14 @@ const HIT_LINE_GAP := NOTE_HALF_HEIGHT * 3.0
 const HIT_LINE_BOTTOM_OFFSET := CONTROL_DECK_HEIGHT + RECEPTOR_TOP_OFFSET + HIT_LINE_GAP
 const EXTRA_PREPARATION_SECONDS := 2.5
 const CLEAR_CELEBRATION_DELAY := 0.25
+const FEVER_HITS_PER_LEVEL := 20
+const FEVER_MAX_LEVEL := 5
+const FEVER_PINK := Color(1.0, 0.20, 0.72)
 const LANE_COLORS: Array[Color] = [
 	Color(0.08, 0.86, 1.0),
-	Color(0.42, 0.24, 1.0),
 	Color(1.0, 0.20, 0.72),
 	Color(0.08, 0.86, 1.0),
+	Color(1.0, 0.20, 0.72),
 	Color(0.08, 0.86, 1.0),
 	Color(1.0, 0.20, 0.72),
 	Color(0.42, 0.24, 1.0),
@@ -42,7 +57,8 @@ var ui_feedback
 
 var lane_mode := 4
 var lane_panels: Array[PanelContainer] = []
-var lane_receptors: Array[PanelContainer] = []
+var lane_receptors: Array[Control] = []
+var lane_receptor_tints: Array[Color] = []
 var lane_labels: Array[Label] = []
 var lane_note_layers: Array[Control] = []
 var lane_pressed: Array[bool] = []
@@ -50,6 +66,24 @@ var lane_pressed: Array[bool] = []
 var score := 0
 var combo := 0
 var max_combo := 0
+var score_streak := 0
+var combo_earned := 0
+var fever_level := 1
+var fever_hits := 0
+var fever_max_level := 1
+var use_gameplay_skin := false
+var skin_canvas: Control
+var cabinet_art_overlay: Control
+var cabinet_chrome_visual: CanvasItem
+var cabinet_frame_bars: Array[ColorRect] = []
+var fever_label: Label
+var fever_level_segments: Array[Control] = []
+var fever_level_segment_frames: Array[Panel] = []
+var fever_level_segment_fills: Array[ColorRect] = []
+var fever_progress_label: Label
+var fever_multiplier_label: Label
+var fever_displayed_level := 0
+var cumulative_label: Label
 var perfect_count := 0
 var great_count := 0
 var good_count := 0
@@ -79,19 +113,29 @@ var intro_hidden_controls: Array[Control] = []
 
 var chart_notes: Array[Dictionary] = []
 var chart_shift_notes: Array[Dictionary] = []
+var chart_side_notes: Array[Dictionary] = []
+var side_note_entries: Array[Dictionary] = []
+var side_pressed := [false, false]
 var active_notes: Array[Dictionary] = []
 var active_shift_pairs: Dictionary = {}
 var side_tracks: Array[Control] = []
 var song_player: AudioStreamPlayer
+var media_fade_tween: Tween
 var background_video_player: VideoStreamPlayer
 var beat_player: AudioStreamPlayer
 var miss_sound_player: AudioStreamPlayer
+var countdown_sound_player: AudioStreamPlayer
+var last_countdown_value := 4
 
 var score_label: Label
 var combo_label: Label
 var combo_caption_label: Label
 var precision_label: Label
 var judgment_label: Label
+var judgment_art: TextureRect
+var judgment_art_textures: Dictionary = {}
+var hit_precision_label: Label
+var judgment_feedback_tween: Tween
 var timing_feedback_label: Label
 var speed_label: Label
 var progress_label: Label
@@ -131,8 +175,10 @@ func _ready() -> void:
 
 func setup_ui() -> void:
 	AuroraUi.clear(self)
+	use_gameplay_skin = lane_mode == 4
 	lane_panels.clear()
 	lane_receptors.clear()
+	lane_receptor_tints.clear()
 	lane_labels.clear()
 	lane_note_layers.clear()
 	lane_pressed.clear()
@@ -140,17 +186,47 @@ func setup_ui() -> void:
 	active_notes.clear()
 	active_shift_pairs.clear()
 	side_tracks.clear()
+	side_note_entries.clear()
+	side_pressed = [false, false]
 	track_rails.clear()
 	intro_hidden_controls.clear()
+	cabinet_art_overlay = null
+	cabinet_chrome_visual = null
+	cabinet_frame_bars.clear()
 
 	AuroraUi.add_background(self)
 	_add_stage_background()
 	_build_preparation_blackout()
+	_build_reference_canvas()
 	_build_compact_playfield()
+	_build_gameplay_art_overlay()
 	_build_floating_screen_hud()
 	_apply_visual_settings()
 	_build_start_gate()
 	_apply_intro_visibility()
+	if not resized.is_connected(_layout_reference_canvas):
+		resized.connect(_layout_reference_canvas)
+	call_deferred("_layout_reference_canvas")
+
+
+func _build_reference_canvas() -> void:
+	skin_canvas = null
+	if not use_gameplay_skin:
+		return
+	skin_canvas = Control.new()
+	skin_canvas.name = "GameplayReferenceCanvas"
+	skin_canvas.size = SKIN_REFERENCE_SIZE
+	skin_canvas.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(skin_canvas)
+	_layout_reference_canvas()
+
+
+func _layout_reference_canvas() -> void:
+	if skin_canvas == null or not is_instance_valid(skin_canvas):
+		return
+	var fit := minf(size.x / SKIN_REFERENCE_SIZE.x, size.y / SKIN_REFERENCE_SIZE.y)
+	skin_canvas.scale = Vector2.ONE * fit
+	skin_canvas.position = (size - SKIN_REFERENCE_SIZE * fit) * 0.5
 
 
 func _add_stage_background() -> void:
@@ -184,12 +260,16 @@ func _build_preparation_blackout() -> void:
 	AuroraUi.fill(preparation_blackout)
 	preparation_blackout.color = Color.BLACK
 	preparation_blackout.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if use_gameplay_skin:
+		preparation_blackout.z_index = 4
+		preparation_blackout.z_as_relative = false
 	preparation_blackout.visible = start_gate_active
 	add_child(preparation_blackout)
 
 
 func _build_compact_playfield() -> void:
-	var track_width := 640.0 + float(lane_mode - 4) * 64.0
+	use_gameplay_skin = lane_mode == 4
+	var track_width := 815.0 if use_gameplay_skin else 760.0 + float(lane_mode - 4) * 60.0
 	frame_panel = PanelContainer.new()
 	frame_panel.name = "PlayfieldFrame"
 	frame_panel.anchor_left = 0.5
@@ -198,38 +278,55 @@ func _build_compact_playfield() -> void:
 	frame_panel.offset_left = -track_width * 0.5
 	frame_panel.offset_right = track_width * 0.5
 	frame_panel.add_theme_stylebox_override("panel", _make_playfield_frame_style())
-	add_child(frame_panel)
+	if use_gameplay_skin:
+		frame_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		frame_panel.position = Vector2(480, 0)
+		frame_panel.size = Vector2(712, 941)
+		skin_canvas.add_child(frame_panel)
+	else:
+		add_child(frame_panel)
 
 	var stage := Control.new()
 	stage.name = "PlayfieldStage"
+	stage.z_index = 2 if use_gameplay_skin else 0
+	stage.z_as_relative = false
 	frame_panel.add_child(stage)
+	if not use_gameplay_skin:
+		var cabinet_chrome = CABINET_CHROME.new()
+		cabinet_chrome.name = "CabinetChrome"
+		AuroraUi.fill(cabinet_chrome)
+		cabinet_chrome_visual = cabinet_chrome
+		stage.add_child(cabinet_chrome)
+		intro_hidden_controls.append(cabinet_chrome)
 	_build_auto_side_tracks(stage)
 
-	var left_rail := ColorRect.new()
-	left_rail.anchor_bottom = 1.0
-	left_rail.offset_right = 8.0
-	left_rail.color = Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.94)
-	left_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(left_rail)
+	if not use_gameplay_skin:
+		var left_rail := ColorRect.new()
+		left_rail.anchor_bottom = 1.0
+		left_rail.offset_right = 8.0
+		left_rail.color = Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.94)
+		left_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stage.add_child(left_rail)
 
-	var right_rail := ColorRect.new()
-	right_rail.anchor_left = 1.0
-	right_rail.anchor_right = 1.0
-	right_rail.anchor_bottom = 1.0
-	right_rail.offset_left = -8.0
-	right_rail.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.94)
-	right_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	stage.add_child(right_rail)
-	track_rails.assign([left_rail, right_rail])
+		var right_rail := ColorRect.new()
+		right_rail.anchor_left = 1.0
+		right_rail.anchor_right = 1.0
+		right_rail.anchor_bottom = 1.0
+		right_rail.offset_left = -8.0
+		right_rail.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.94)
+		right_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stage.add_child(right_rail)
+		track_rails.assign([left_rail, right_rail])
 
 	var lanes := GridContainer.new()
 	lanes.name = "Lanes"
 	lanes.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	lanes.offset_left = 14.0
-	lanes.offset_right = -14.0
-	lanes.offset_bottom = -CONTROL_DECK_HEIGHT
+	lanes.offset_left = 92.0 if use_gameplay_skin else 38.0
+	lanes.offset_right = -92.0 if use_gameplay_skin else -38.0
+	lanes.offset_top = 44.0 if use_gameplay_skin else 0.0
+	lanes.offset_bottom = -97.0 if use_gameplay_skin else -CONTROL_DECK_HEIGHT
 	lanes.columns = lane_mode
-	lanes.add_theme_constant_override("h_separation", 3)
+	lanes.add_theme_constant_override("h_separation", 0 if use_gameplay_skin else 3)
 	stage.add_child(lanes)
 
 	var keycodes := input_manager.get_mode_keycodes(lane_mode)
@@ -239,17 +336,29 @@ func _build_compact_playfield() -> void:
 			lane_index,
 			input_manager.get_lane_input_label(lane_mode, lane_index, keycodes[lane_index])
 		)
+	if use_gameplay_skin:
+		for divider_index in range(1, 4):
+			var divider := ColorRect.new()
+			divider.name = "LaneDivider%d" % divider_index
+			divider.position = Vector2(92.0 + float(divider_index) * 132.0 - 0.6, 44.0)
+			divider.size = Vector2(1.2, 800.0)
+			divider.color = Color(0.16, 0.72, 1.0, 0.56)
+			divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			stage.add_child(divider)
 
 	var progress_track := ColorRect.new()
+	progress_track.name = "SongProgressTrack"
 	progress_track.anchor_left = 0.055
-	progress_track.anchor_top = 0.022
+	progress_track.anchor_top = 0.084
 	progress_track.anchor_right = 0.945
-	progress_track.anchor_bottom = 0.022
-	progress_track.offset_bottom = 5.0
+	progress_track.anchor_bottom = 0.084
+	progress_track.offset_bottom = 3.0
 	progress_track.color = Color(1.0, 1.0, 1.0, 0.18)
 	progress_track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	progress_track.visible = not use_gameplay_skin
 	stage.add_child(progress_track)
-	intro_hidden_controls.append(progress_track)
+	if not use_gameplay_skin:
+		intro_hidden_controls.append(progress_track)
 
 	progress_fill = ColorRect.new()
 	progress_fill.anchor_right = 0.0
@@ -259,65 +368,173 @@ func _build_compact_playfield() -> void:
 	progress_track.add_child(progress_fill)
 
 	progress_label = AuroraUi.make_pixel_label("000 / 000", 9, Color(0.86, 0.92, 1.0, 0.88))
-	progress_label.anchor_left = 0.55
-	progress_label.anchor_top = 0.035
+	progress_label.anchor_left = 0.60
+	progress_label.anchor_top = 0.087
 	progress_label.anchor_right = 0.93
-	progress_label.anchor_bottom = 0.072
+	progress_label.anchor_bottom = 0.116
 	progress_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	progress_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	progress_label.visible = not use_gameplay_skin
 	stage.add_child(progress_label)
-	intro_hidden_controls.append(progress_label)
+	if not use_gameplay_skin:
+		intro_hidden_controls.append(progress_label)
 
 	var sync_glow := ColorRect.new()
-	sync_glow.anchor_left = 0.025
+	sync_glow.anchor_left = 0.12 if use_gameplay_skin else 0.025
 	sync_glow.anchor_top = 1.0
-	sync_glow.anchor_right = 0.975
+	sync_glow.anchor_right = 0.88 if use_gameplay_skin else 0.975
 	sync_glow.anchor_bottom = 1.0
 	sync_glow.offset_top = -HIT_LINE_BOTTOM_OFFSET - HIT_ZONE_HEIGHT * 0.62
 	sync_glow.offset_bottom = -HIT_LINE_BOTTOM_OFFSET + HIT_ZONE_HEIGHT * 0.62
 	sync_glow.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.12)
 	sync_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sync_glow.visible = not use_gameplay_skin
 	stage.add_child(sync_glow)
 
 	hit_line = ColorRect.new()
 	hit_line.name = "HitLine"
-	hit_line.anchor_left = 0.025
+	hit_line.anchor_left = 0.12 if use_gameplay_skin else 0.025
 	hit_line.anchor_top = 1.0
-	hit_line.anchor_right = 0.975
+	hit_line.anchor_right = 0.88 if use_gameplay_skin else 0.975
 	hit_line.anchor_bottom = 1.0
 	hit_line.offset_top = -HIT_LINE_BOTTOM_OFFSET - HIT_ZONE_HEIGHT * 0.5
 	hit_line.offset_bottom = -HIT_LINE_BOTTOM_OFFSET + HIT_ZONE_HEIGHT * 0.5
-	hit_line.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.18)
+	hit_line.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.18) if not use_gameplay_skin else Color(0.0, 0.0, 0.0, 0.0)
 	hit_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(hit_line)
+	if use_gameplay_skin:
+		hit_line.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
+		hit_line.position = Vector2(92, 667)
+		hit_line.size = Vector2(528, 14)
+		for band in [Vector3(0, 14, 0.10), Vector3(3, 8, 0.22), Vector3(5, 4, 0.65), Vector3(6, 2, 1.0)]:
+			var light := ColorRect.new()
+			light.name = "HitLineGlow"
+			light.anchor_right = 1.0
+			light.offset_top = band.x
+			light.offset_bottom = band.x + band.y
+			light.color = Color(0.85, 1.0, 1.0, band.z)
+			light.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			hit_line.add_child(light)
+	else:
+		for edge_anchor in [0.0, 1.0]:
+			var edge := ColorRect.new()
+			edge.anchor_top = edge_anchor
+			edge.anchor_right = 1.0
+			edge.anchor_bottom = edge_anchor
+			edge.offset_top = -1.5
+			edge.offset_bottom = 1.5
+			edge.color = Color(0.82, 0.98, 1.0, 0.88)
+			edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			hit_line.add_child(edge)
 
-	for edge_anchor in [0.0, 1.0]:
-		var edge := ColorRect.new()
-		edge.anchor_top = edge_anchor
-		edge.anchor_right = 1.0
-		edge.anchor_bottom = edge_anchor
-		edge.offset_top = -1.5
-		edge.offset_bottom = 1.5
-		edge.color = Color(0.82, 0.98, 1.0, 0.88)
-		edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		hit_line.add_child(edge)
-
-	var line_core := ColorRect.new()
-	line_core.anchor_top = 0.5
-	line_core.anchor_right = 1.0
-	line_core.anchor_bottom = 0.5
-	line_core.offset_top = -2.0
-	line_core.offset_bottom = 2.0
-	line_core.color = AuroraUi.TEAL
-	line_core.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hit_line.add_child(line_core)
+		var line_core := ColorRect.new()
+		line_core.anchor_top = 0.5
+		line_core.anchor_right = 1.0
+		line_core.anchor_bottom = 0.5
+		line_core.offset_top = -2.0
+		line_core.offset_bottom = 2.0
+		line_core.color = AuroraUi.TEAL
+		line_core.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		hit_line.add_child(line_core)
 
 	_build_center_performance_hud(stage)
+	_build_fever_display(stage)
 	_build_playfield_deck(stage)
+	if not use_gameplay_skin:
+		_build_cabinet_chrome(stage)
+
+
+func _build_gameplay_art_overlay() -> void:
+	if not use_gameplay_skin:
+		return
+	var art := Control.new()
+	cabinet_art_overlay = art
+	art.name = "GameplayCabinetArtwork"
+	AuroraUi.fill(art)
+	art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	art.z_index = 3
+	art.z_as_relative = false
+	skin_canvas.add_child(art)
+	# Compress only the outside chrome. The 528px play area stays unchanged.
+	# The header has no baked Fever boxes; Fever lives in the lower deck.
+	var pieces: Array = [
+		[Rect2(467, 0, 141, 61), Rect2(505, 0, 92, 44)],
+		[Rect2(1064, 0, 140, 61), Rect2(1075, 0, 91, 44)],
+		[Rect2(0, 61, 575, 783), Rect2(201.25, 44, 373.75, 800)],
+		[Rect2(1097, 61, 575, 783), Rect2(1097, 44, 373.75, 800)],
+		[Rect2(467, 844, 108, 97), Rect2(505, 844, 70, 97)],
+		[Rect2(575, 844, 522, 97), Rect2(575, 844, 522, 97)],
+		[Rect2(1097, 844, 107, 97), Rect2(1097, 844, 70, 97)],
+		[Rect2(575, 790, 50, 54), Rect2(575, 790, 50, 54)],
+		[Rect2(1047, 790, 50, 54), Rect2(1047, 790, 50, 54)],
+	]
+	for piece_rects in pieces:
+		var region: Rect2 = piece_rects[0]
+		var destination: Rect2 = piece_rects[1]
+		var texture := AtlasTexture.new()
+		texture.atlas = GAMEPLAY_CABINET_OVERLAY
+		texture.region = region
+		texture.filter_clip = true
+		var piece := TextureRect.new()
+		piece.position = destination.position
+		piece.size = destination.size
+		piece.texture = texture
+		piece.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		piece.stretch_mode = TextureRect.STRETCH_SCALE
+		piece.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		piece.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		art.add_child(piece)
+	var header := ColorRect.new()
+	header.name = "CleanCabinetHeader"
+	header.position = Vector2(597, 0)
+	header.size = Vector2(478, 44)
+	header.color = Color(0.004, 0.008, 0.025, 0.98)
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	art.add_child(header)
+	for height in [5.0, 38.0]:
+		var accent := ColorRect.new()
+		accent.position = Vector2(597, height)
+		accent.size = Vector2(478, 1.5)
+		accent.color = Color(0.04, 0.75, 1.0, 0.80) if height < 10.0 else Color(1.0, 0.06, 0.85, 0.80)
+		accent.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		art.add_child(accent)
+
+
+func _build_cabinet_chrome(stage: Control) -> void:
+	var cyan := Color(0.05, 0.88, 1.0, 0.94)
+	var pink := Color(1.0, 0.14, 0.82, 0.94)
+	var shadow := Color(0.005, 0.010, 0.04, 0.96)
+	_add_chrome_bar(stage, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 17.0, shadow)
+	_add_chrome_bar(stage, 0.0, 0.0, 1.0, 0.0, 20.0, 6.0, -20.0, 10.0, cyan)
+	_add_chrome_bar(stage, 0.0, 0.0, 0.0, 1.0, 3.0, 16.0, 9.0, -CONTROL_DECK_HEIGHT, cyan)
+	_add_chrome_bar(stage, 1.0, 0.0, 1.0, 1.0, -9.0, 16.0, -3.0, -CONTROL_DECK_HEIGHT, pink)
+	_add_chrome_bar(stage, 0.0, 1.0, 1.0, 1.0, 22.0, -CONTROL_DECK_HEIGHT, -22.0, -CONTROL_DECK_HEIGHT + 5.0, cyan)
+	_add_chrome_bar(stage, 0.0, 1.0, 0.0, 1.0, 28.0, -11.0, 180.0, -7.0, pink)
+	_add_chrome_bar(stage, 1.0, 1.0, 1.0, 1.0, -180.0, -11.0, -28.0, -7.0, cyan)
+
+
+func _add_chrome_bar(stage: Control, left: float, top: float, right: float, bottom: float, x1: float, y1: float, x2: float, y2: float, tint: Color) -> void:
+	var bar := ColorRect.new()
+	bar.anchor_left = left
+	bar.anchor_top = top
+	bar.anchor_right = right
+	bar.anchor_bottom = bottom
+	bar.offset_left = x1
+	bar.offset_top = y1
+	bar.offset_right = x2
+	bar.offset_bottom = y2
+	bar.color = tint
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(bar)
+	cabinet_frame_bars.append(bar)
+	intro_hidden_controls.append(bar)
 
 
 func _build_center_performance_hud(stage: Control) -> void:
+	if use_gameplay_skin:
+		_build_reference_performance_hud(stage)
+		return
 	var hud := VBoxContainer.new()
 	hud.name = "PerformanceCenter"
 	hud.anchor_left = 0.10
@@ -330,15 +547,15 @@ func _build_center_performance_hud(stage: Control) -> void:
 	stage.add_child(hud)
 	intro_hidden_controls.append(hud)
 
-	combo_caption_label = AuroraUi.make_pixel_label("COMBO", 9, AuroraUi.TEAL)
-	combo_caption_label.custom_minimum_size.y = 20.0
+	combo_caption_label = AuroraUi.make_pixel_label("COMBO", 13, AuroraUi.TEAL)
+	combo_caption_label.custom_minimum_size.y = 22.0
 	combo_caption_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	combo_caption_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	combo_caption_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hud.add_child(combo_caption_label)
 
-	combo_label = AuroraUi.make_pixel_label("000", 46, AuroraUi.TEXT)
-	combo_label.custom_minimum_size.y = 74.0
+	combo_label = AuroraUi.make_pixel_label("000", 72, AuroraUi.TEXT)
+	combo_label.custom_minimum_size.y = 94.0
 	combo_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	combo_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	combo_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -347,15 +564,15 @@ func _build_center_performance_hud(stage: Control) -> void:
 	combo_label.add_theme_constant_override("shadow_offset_y", 4)
 	hud.add_child(combo_label)
 
-	precision_label = AuroraUi.make_pixel_label("RATE  100.00%", 10, Color(0.86, 0.92, 1.0, 0.86))
-	precision_label.custom_minimum_size.y = 24.0
+	precision_label = AuroraUi.make_pixel_label("RATE  100.00%", 14, Color(0.86, 0.92, 1.0, 0.90))
+	precision_label.custom_minimum_size.y = 28.0
 	precision_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	precision_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	precision_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	hud.add_child(precision_label)
 
-	judgment_label = AuroraUi.make_pixel_label("READY", 24, AuroraUi.GOLD)
-	judgment_label.custom_minimum_size.y = 46.0
+	judgment_label = AuroraUi.make_pixel_label("READY", 44, AuroraUi.GOLD)
+	judgment_label.custom_minimum_size.y = 92.0 if use_gameplay_skin else 64.0
 	judgment_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	judgment_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	judgment_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -363,6 +580,34 @@ func _build_center_performance_hud(stage: Control) -> void:
 	judgment_label.add_theme_constant_override("shadow_offset_x", 3)
 	judgment_label.add_theme_constant_override("shadow_offset_y", 3)
 	hud.add_child(judgment_label)
+	if use_gameplay_skin:
+		judgment_art_textures = {
+			"PERFECT": PERFECT_JUDGMENT_ART,
+			"GREAT": _make_judgment_atlas_texture(150.0),
+			"GOOD": _make_judgment_atlas_texture(635.0),
+			"MISS": _make_judgment_atlas_texture(1080.0),
+		}
+		judgment_art = TextureRect.new()
+		judgment_art.name = "JudgmentArtwork"
+		judgment_art.anchor_left = 0.12
+		judgment_art.anchor_top = 0.462
+		judgment_art.anchor_right = 0.88
+		judgment_art.anchor_bottom = 0.547
+		judgment_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		judgment_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		judgment_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		judgment_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		judgment_art.visible = false
+		stage.add_child(judgment_art)
+
+	hit_precision_label = AuroraUi.make_pixel_label("", 18, Color.WHITE)
+	hit_precision_label.name = "HitPrecisionPercentage"
+	hit_precision_label.custom_minimum_size.y = 30.0
+	hit_precision_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	hit_precision_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hit_precision_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hit_precision_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hud.add_child(hit_precision_label)
 
 	timing_feedback_label = AuroraUi.make_pixel_label("SYNC READY", 8, AuroraUi.MUTED)
 	timing_feedback_label.custom_minimum_size.y = 20.0
@@ -373,6 +618,268 @@ func _build_center_performance_hud(stage: Control) -> void:
 	timing_feedback_label.add_theme_constant_override("shadow_offset_x", 2)
 	timing_feedback_label.add_theme_constant_override("shadow_offset_y", 2)
 	hud.add_child(timing_feedback_label)
+
+
+func _make_judgment_atlas_texture(top: float) -> AtlasTexture:
+	var texture := AtlasTexture.new()
+	texture.atlas = JUDGMENT_RATINGS_SHEET
+	texture.region = Rect2(20.0, top, 984.0, 300.0)
+	texture.filter_clip = true
+	return texture
+
+
+func _reference_label(parent: Control, text: String, font_size: int, color: Color, rect: Rect2) -> Label:
+	var label := AuroraUi.make_pixel_label(text, font_size, color)
+	label.position = rect.position
+	label.size = rect.size
+	label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.9))
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	parent.add_child(label)
+	return label
+
+
+func _build_reference_performance_hud(stage: Control) -> void:
+	var hud := Control.new()
+	hud.name = "PerformanceCenter"
+	AuroraUi.fill(hud)
+	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(hud)
+	intro_hidden_controls.append(hud)
+	combo_caption_label = _reference_label(hud, "COMBO", 16, AuroraUi.TEAL, Rect2(92, 330, 528, 32))
+	combo_label = _reference_label(hud, "000", 54, Color.WHITE, Rect2(92, 356, 528, 73))
+	_reference_label(hud, "RATE", 13, AuroraUi.TEAL, Rect2(272, 428, 60, 28))
+	precision_label = _reference_label(hud, "100.00%", 13, Color.WHITE, Rect2(337, 428, 116, 28))
+	judgment_label = _reference_label(hud, "READY", 36, AuroraUi.TEAL, Rect2(92, 456, 528, 82))
+	hit_precision_label = _reference_label(hud, "--", 23, Color.WHITE, Rect2(92, 532, 528, 38))
+	hit_precision_label.name = "HitPrecisionPercentage"
+	hit_precision_label.visible = false
+	timing_feedback_label = _reference_label(hud, "SYNC READY", 8, AuroraUi.MUTED, Rect2(92, 576, 528, 20))
+	var perfect_texture := AtlasTexture.new()
+	perfect_texture.atlas = PERFECT_JUDGMENT_ART
+	perfect_texture.region = Rect2(65, 155, 2025, 430)
+	perfect_texture.filter_clip = true
+	judgment_art_textures = {
+		"PERFECT": perfect_texture,
+		"GREAT": _make_judgment_atlas_texture(150.0),
+		"GOOD": _make_judgment_atlas_texture(635.0),
+		"MISS": _make_judgment_atlas_texture(1080.0),
+	}
+	judgment_art = TextureRect.new()
+	judgment_art.name = "JudgmentArtwork"
+	judgment_art.position = Vector2(176, 454)
+	judgment_art.size = Vector2(360, 84)
+	judgment_art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	judgment_art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	judgment_art.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	judgment_art.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	judgment_art.visible = false
+	hud.add_child(judgment_art)
+
+
+func _build_fever_display(stage: Control) -> void:
+	if use_gameplay_skin:
+		_build_reference_fever(stage)
+		return
+	var fever_box := PanelContainer.new() if not use_gameplay_skin else Control.new()
+	fever_box.name = "FeverGauge"
+	fever_box.anchor_left = 0.0 if use_gameplay_skin else 0.055
+	fever_box.anchor_top = 0.012
+	fever_box.anchor_right = 1.0 if use_gameplay_skin else 0.945
+	fever_box.anchor_bottom = 0.074
+	if not use_gameplay_skin:
+		var fever_frame := AuroraUi.make_style(
+			Color(0.005, 0.012, 0.035, 0.94),
+			Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.78),
+			0
+		)
+		fever_frame.border_width_left = 1
+		fever_frame.border_width_top = 2
+		fever_frame.border_width_right = 1
+		fever_frame.border_width_bottom = 2
+		fever_frame.content_margin_left = 12.0
+		fever_frame.content_margin_top = 5.0
+		fever_frame.content_margin_right = 12.0
+		fever_frame.content_margin_bottom = 5.0
+		fever_box.add_theme_stylebox_override("panel", fever_frame)
+	fever_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(fever_box)
+	intro_hidden_controls.append(fever_box)
+
+	var row := HBoxContainer.new()
+	row.name = "FeverStatusRow"
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8 if use_gameplay_skin else 10)
+	row.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var content := VBoxContainer.new()
+	content.name = "FeverContent"
+	content.alignment = BoxContainer.ALIGNMENT_CENTER
+	content.add_theme_constant_override("separation", 4)
+	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	AuroraUi.fill(content)
+	fever_box.add_child(content)
+	content.add_child(row)
+
+	fever_label = AuroraUi.make_pixel_label("FEVER 01", 16, AuroraUi.TEAL)
+	fever_label.custom_minimum_size = Vector2(150.0 if use_gameplay_skin else 128.0, 28.0)
+	fever_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	fever_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(fever_label)
+
+	var segment_row := HBoxContainer.new()
+	segment_row.name = "FeverLevelSegments"
+	segment_row.add_theme_constant_override("separation", 5)
+	segment_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	segment_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(segment_row)
+	fever_level_segments.clear()
+	fever_level_segment_frames.clear()
+	fever_level_segment_fills.clear()
+	for level_index in range(FEVER_MAX_LEVEL):
+		var segment := Control.new()
+		segment.name = "LevelSegment%d" % (level_index + 1)
+		segment.custom_minimum_size = Vector2(26.0, 22.0)
+		segment.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var segment_frame := Panel.new()
+		AuroraUi.fill(segment_frame)
+		segment_frame.name = "LevelOutline"
+		segment.add_child(segment_frame)
+		var segment_fill := ColorRect.new()
+		segment_fill.name = "LevelFill"
+		segment_fill.anchor_left = 0.16
+		segment_fill.anchor_top = 0.16
+		segment_fill.anchor_right = 0.84
+		segment_fill.anchor_bottom = 0.84
+		segment_fill.color = AuroraUi.TEAL
+		segment_fill.visible = false
+		segment_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		segment.add_child(segment_fill)
+		segment_row.add_child(segment)
+		fever_level_segments.append(segment)
+		fever_level_segment_frames.append(segment_frame)
+		fever_level_segment_fills.append(segment_fill)
+
+	fever_progress_label = AuroraUi.make_pixel_label("00 / 20", 13, Color(0.88, 0.93, 1.0, 0.88))
+	fever_progress_label.custom_minimum_size = Vector2(82.0, 26.0)
+	fever_progress_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	fever_progress_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	fever_progress_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(fever_progress_label)
+
+	var separator := ColorRect.new()
+	separator.custom_minimum_size = Vector2(2.0, 20.0)
+	separator.color = Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.7)
+	separator.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(separator)
+
+	fever_multiplier_label = AuroraUi.make_pixel_label("×1", 22, FEVER_PINK)
+	fever_multiplier_label.custom_minimum_size = Vector2(56.0, 28.0)
+	fever_multiplier_label.autowrap_mode = TextServer.AUTOWRAP_OFF
+	fever_multiplier_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	fever_multiplier_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(fever_multiplier_label)
+
+	_refresh_fever_display()
+
+
+func _build_reference_fever(stage: Control) -> void:
+	var gauge := Control.new()
+	gauge.name = "FeverGauge"
+	gauge.z_index = 4
+	gauge.z_as_relative = false
+	gauge.position = Vector2(0, 860)
+	gauge.size = Vector2(712, 68)
+	gauge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	stage.add_child(gauge)
+	intro_hidden_controls.append(gauge)
+	var header := Panel.new()
+	header.position = Vector2(111, 7)
+	header.size = Vector2(485, 49)
+	var header_style := StyleBoxFlat.new()
+	header_style.bg_color = Color(0.004, 0.008, 0.026, 0.96)
+	header_style.border_color = Color(0.08, 0.80, 1.0, 0.65)
+	header_style.set_border_width_all(1)
+	header.add_theme_stylebox_override("panel", header_style)
+	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gauge.add_child(header)
+	fever_label = _reference_label(gauge, "FEVER 01", 14, AuroraUi.TEAL, Rect2(124, 18, 110, 25))
+	fever_level_segments.clear()
+	fever_level_segment_frames.clear()
+	fever_level_segment_fills.clear()
+	fever_displayed_level = 0
+	for index in range(FEVER_MAX_LEVEL):
+		var segment := Control.new()
+		segment.name = "LevelSegment%d" % (index + 1)
+		segment.position = Vector2(246.0 + float(index) * 29.0, 19)
+		segment.size = Vector2(24, 24)
+		segment.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		gauge.add_child(segment)
+		var outline := Panel.new()
+		outline.name = "LevelOutline"
+		AuroraUi.fill(outline)
+		var style := StyleBoxFlat.new()
+		style.bg_color = Color(0.005, 0.015, 0.04, 0.98)
+		style.border_color = Color(0.08, 0.7, 1.0, 0.85)
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(2)
+		outline.add_theme_stylebox_override("panel", style)
+		segment.add_child(outline)
+		var fill := ColorRect.new()
+		fill.name = "LevelFill"
+		fill.position = Vector2(2, 2)
+		fill.size = Vector2(20, 20)
+		fill.color = Color(0.04, 0.93, 1.0)
+		fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		segment.add_child(fill)
+		fever_level_segments.append(segment)
+		fever_level_segment_frames.append(outline)
+		fever_level_segment_fills.append(fill)
+	fever_progress_label = _reference_label(gauge, "00 / 20", 13, Color.WHITE, Rect2(406, 18, 90, 25))
+	var separator := ColorRect.new()
+	separator.position = Vector2(513, 18)
+	separator.size = Vector2(2, 25)
+	separator.color = Color(0.4, 0.95, 1.0)
+	separator.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gauge.add_child(separator)
+	fever_multiplier_label = _reference_label(gauge, "×1", 22, FEVER_PINK, Rect2(532, 14, 58, 32))
+	_refresh_fever_display()
+
+
+func _refresh_fever_display() -> void:
+	if fever_label == null or fever_progress_label == null or fever_multiplier_label == null:
+		return
+	var display_level := clampi(fever_level, 1, FEVER_MAX_LEVEL)
+	fever_label.text = "FEVER %02d" % display_level
+	fever_multiplier_label.text = "×%d" % display_level
+	fever_label.add_theme_color_override("font_color", AuroraUi.TEAL if use_gameplay_skin else AuroraUi.GOLD if display_level > 1 else AuroraUi.TEAL)
+	fever_multiplier_label.add_theme_color_override("font_color", FEVER_PINK if use_gameplay_skin or display_level > 1 else AuroraUi.MUTED)
+	if fever_displayed_level != display_level:
+		for index in range(fever_level_segments.size()):
+			var active := index < display_level
+			var segment_frame := fever_level_segment_frames[index]
+			segment_frame.visible = true
+			if not use_gameplay_skin:
+				var segment_style := AuroraUi.make_style(
+					Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.86) if active else Color(0.015, 0.030, 0.080, 0.92),
+					Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.98) if active else Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.50),
+					0
+				)
+				segment_style.border_width_left = 1
+				segment_style.border_width_top = 1
+				segment_style.border_width_right = 1
+				segment_style.border_width_bottom = 1
+				segment_frame.add_theme_stylebox_override("panel", segment_style)
+			fever_level_segment_fills[index].visible = use_gameplay_skin and active
+		fever_displayed_level = display_level
+	if display_level >= FEVER_MAX_LEVEL:
+		fever_progress_label.text = "MAX"
+	else:
+		fever_progress_label.text = "%02d / %02d" % [fever_hits, FEVER_HITS_PER_LEVEL]
 
 
 func _build_playfield_deck(stage: Control) -> void:
@@ -393,8 +900,10 @@ func _build_playfield_deck(stage: Control) -> void:
 	deck_style.content_margin_right = 22.0
 	deck_style.content_margin_bottom = 14.0
 	control_deck.add_theme_stylebox_override("panel", deck_style)
+	control_deck.visible = not use_gameplay_skin
 	stage.add_child(control_deck)
-	intro_hidden_controls.append(control_deck)
+	if not use_gameplay_skin:
+		intro_hidden_controls.append(control_deck)
 
 	var content := VBoxContainer.new()
 	content.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -403,7 +912,7 @@ func _build_playfield_deck(stage: Control) -> void:
 
 	var deck_header := HBoxContainer.new()
 	content.add_child(deck_header)
-	var brand := AuroraUi.make_pixel_label("AURORA // LIVE LINK", 7, Color(0.80, 0.86, 0.98, 0.68))
+	var brand := AuroraUi.make_pixel_label("LIVE LINK // CABINA", 7, Color(0.80, 0.86, 0.98, 0.68))
 	brand.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	brand.autowrap_mode = TextServer.AUTOWRAP_OFF
 	deck_header.add_child(brand)
@@ -463,6 +972,9 @@ func _build_playfield_deck(stage: Control) -> void:
 
 
 func _build_floating_screen_hud() -> void:
+	if use_gameplay_skin:
+		_build_reference_screen_hud()
+		return
 	var song_info := VBoxContainer.new()
 	song_info.anchor_left = 0.018
 	song_info.anchor_top = 0.022
@@ -470,6 +982,9 @@ func _build_floating_screen_hud() -> void:
 	song_info.anchor_bottom = 0.14
 	song_info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(song_info)
+	if use_gameplay_skin:
+		song_info.z_index = 3
+		song_info.z_as_relative = false
 	intro_hidden_controls.append(song_info)
 
 	var title := "AURORA DEMO"
@@ -477,10 +992,10 @@ func _build_floating_screen_hud() -> void:
 	if game_manager.current_song != null:
 		title = game_manager.current_song.title.to_upper()
 		artist = game_manager.current_song.artist.to_upper()
-	var title_label := AuroraUi.make_pixel_label(title, 13, AuroraUi.TEXT)
+	var title_label := AuroraUi.make_pixel_label(title, 19, AuroraUi.TEXT)
 	title_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	song_info.add_child(title_label)
-	var artist_label := AuroraUi.make_pixel_label(artist, 8, AuroraUi.TEAL)
+	var artist_label := AuroraUi.make_pixel_label(artist, 12, AuroraUi.TEAL)
 	artist_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	song_info.add_child(artist_label)
 
@@ -491,13 +1006,16 @@ func _build_floating_screen_hud() -> void:
 	right_hud.anchor_bottom = 0.16
 	right_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(right_hud)
+	if use_gameplay_skin:
+		right_hud.z_index = 3
+		right_hud.z_as_relative = false
 	intro_hidden_controls.append(right_hud)
 
-	var score_caption := AuroraUi.make_pixel_label("SCORE", 8, Color(0.82, 0.88, 0.98, 0.70))
+	var score_caption := AuroraUi.make_pixel_label("SCORE", 12, Color(0.82, 0.88, 0.98, 0.78))
 	score_caption.autowrap_mode = TextServer.AUTOWRAP_OFF
 	score_caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right_hud.add_child(score_caption)
-	score_label = AuroraUi.make_pixel_label("0000000", 22, AuroraUi.GOLD)
+	score_label = AuroraUi.make_pixel_label("0000000", 30, AuroraUi.GOLD)
 	score_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right_hud.add_child(score_label)
@@ -511,37 +1029,87 @@ func _build_floating_screen_hud() -> void:
 	pause_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	right_hud.add_child(pause_hint)
 	if not side_tracks.is_empty():
-		var automatic_hint := AuroraUi.make_pixel_label("LATERALES: AUTO // %d TECLAS" % lane_mode, 7, AuroraUi.MUTED)
+		var automatic_hint := AuroraUi.make_pixel_label("L SHIFT / R SHIFT // LATERALES", 7, AuroraUi.MUTED)
 		automatic_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 		right_hud.add_child(automatic_hint)
+	cumulative_label = AuroraUi.make_pixel_label("ACUMULADO  %d" % game_manager.cumulative_combo, 8, AuroraUi.TEAL)
+	cumulative_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	right_hud.add_child(cumulative_label)
+
+
+func _build_reference_screen_hud() -> void:
+	var screen_hud := Control.new()
+	screen_hud.name = "ScreenHud"
+	AuroraUi.fill(screen_hud)
+	screen_hud.z_index = 3
+	screen_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	skin_canvas.add_child(screen_hud)
+	intro_hidden_controls.append(screen_hud)
+	if game_manager.current_song != null:
+		var title := _reference_label(screen_hud, game_manager.current_song.title.to_upper(), 10, Color(1, 1, 1, 0.80), Rect2(24, 16, 420, 22))
+		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		var artist := _reference_label(screen_hud, game_manager.current_song.artist.to_upper(), 8, AuroraUi.TEAL, Rect2(24, 39, 420, 18))
+		artist.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var caption := _reference_label(screen_hud, "SCORE", 13, AuroraUi.TEAL, Rect2(1400, 22, 242, 26))
+	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	score_label = _reference_label(screen_hud, "0000000", 28, Color.WHITE, Rect2(1400, 48, 242, 40))
+	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	for index in range(7):
+		var underline := ColorRect.new()
+		underline.position = Vector2(1480 + index * 22, 91)
+		underline.size = Vector2(18, 2)
+		underline.color = AuroraUi.TEAL if index < 5 else FEVER_PINK
+		underline.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		screen_hud.add_child(underline)
+	cumulative_label = _reference_label(screen_hud, "ACUMULADO  %d" % game_manager.cumulative_combo, 7, AuroraUi.TEAL, Rect2(1400, 103, 242, 18))
+	cumulative_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	var pause_hint := _reference_label(screen_hud, "ESC  PAUSA", 7, AuroraUi.MUTED, Rect2(1400, 123, 242, 18))
+	pause_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 
 func _build_auto_side_tracks(stage: Control) -> void:
 	if game_manager.current_chart == null or game_manager.current_song == null:
 		return
-	var side_notes := game_manager.current_chart.load_side_notes(
+	chart_side_notes = game_manager.current_chart.load_side_notes(
 		game_manager.current_song.bpm, game_manager.current_song.duration_seconds
 	)
-	if side_notes.is_empty():
+	if chart_side_notes.is_empty():
 		return
 	for side in range(2):
 		var track = AUTO_SIDE_TRACK.new()
-		track.name = "AutoSideTrack%d" % side
+		track.name = "ShiftSideTrack%d" % side
 		track.anchor_left = float(side)
 		track.anchor_right = float(side)
 		track.anchor_bottom = 1.0
-		track.offset_left = -28.0 if side == 0 else 10.0
-		track.offset_right = -10.0 if side == 0 else 28.0
+		track.offset_left = 11.0 if side == 0 else -30.0
+		track.offset_right = 30.0 if side == 0 else -11.0
 		track.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		track.deck_height = CONTROL_DECK_HEIGHT
-		track.hit_offset = RECEPTOR_TOP_OFFSET + HIT_LINE_GAP
-		track.notes = side_notes.filter(func(note: Dictionary) -> bool: return int(note["side"]) == side)
+		track.deck_height = 97.0 if use_gameplay_skin else CONTROL_DECK_HEIGHT
+		track.hit_offset = SKIN_HIT_OFFSET if use_gameplay_skin else RECEPTOR_TOP_OFFSET + HIT_LINE_GAP
+		track.notes = chart_side_notes.filter(func(note: Dictionary) -> bool: return int(note["side"]) == side)
 		track.tint = AuroraUi.VIOLET if side == 0 else AuroraUi.TEAL
 		stage.add_child(track)
 		side_tracks.append(track)
+		for index in range(track.notes.size()):
+			var entry: Dictionary = track.notes[index].duplicate()
+			entry["track"] = track
+			entry["track_index"] = index
+			entry["state"] = "pending"
+			side_note_entries.append(entry)
 
 
 func _make_playfield_frame_style() -> StyleBoxFlat:
+	if use_gameplay_skin:
+		var transparent_style := AuroraUi.make_style(Color(0.0, 0.0, 0.0, 0.0), Color(0.0, 0.0, 0.0, 0.0), 0)
+		transparent_style.border_width_left = 0
+		transparent_style.border_width_top = 0
+		transparent_style.border_width_right = 0
+		transparent_style.border_width_bottom = 0
+		transparent_style.content_margin_left = 0.0
+		transparent_style.content_margin_top = 0.0
+		transparent_style.content_margin_right = 0.0
+		transparent_style.content_margin_bottom = 0.0
+		return transparent_style
 	var style := AuroraUi.make_style(
 		Color(0.006, 0.009, 0.026, float(settings_manager.get_setting("lane_opacity", 0.82))),
 		Color(0.70, 0.60, 1.0, 0.92 * float(settings_manager.get_setting("lane_opacity", 0.82))),
@@ -559,7 +1127,7 @@ func _make_playfield_frame_style() -> StyleBoxFlat:
 
 
 func _add_lane(parent: GridContainer, lane_index: int, key_name: String) -> void:
-	var tint := LANE_COLORS[lane_index]
+	var tint := _get_visual_lane_tint(lane_index)
 	var lane := PanelContainer.new()
 	lane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lane.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -579,24 +1147,37 @@ func _add_lane(parent: GridContainer, lane_index: int, key_name: String) -> void
 	content.add_child(note_layer)
 	lane_note_layers.append(note_layer)
 
-	var receptor := PanelContainer.new()
+	var receptor: Control
+	if use_gameplay_skin:
+		receptor = NEON_RECEPTOR.new()
+		receptor.tint = tint
+	else:
+		receptor = PanelContainer.new()
 	receptor.name = "Receptor%02d" % (lane_index + 1)
-	receptor.anchor_left = 0.055
+	receptor.anchor_left = 0.025 if use_gameplay_skin else 0.055
 	receptor.anchor_top = 1.0
-	receptor.anchor_right = 0.945
+	receptor.anchor_right = 0.975 if use_gameplay_skin else 0.945
 	receptor.anchor_bottom = 1.0
-	receptor.offset_top = -RECEPTOR_TOP_OFFSET
-	receptor.offset_bottom = -RECEPTOR_BOTTOM_OFFSET
-	receptor.add_theme_stylebox_override("panel", _make_receptor_style(tint, false))
+	receptor.offset_top = -SKIN_RECEPTOR_TOP if use_gameplay_skin else -RECEPTOR_TOP_OFFSET
+	receptor.offset_bottom = -SKIN_RECEPTOR_BOTTOM if use_gameplay_skin else -RECEPTOR_BOTTOM_OFFSET
+	if not use_gameplay_skin:
+		receptor.add_theme_stylebox_override("panel", _make_receptor_style(tint, false))
 	content.add_child(receptor)
 	lane_receptors.append(receptor)
+	lane_receptor_tints.append(tint)
 
-	var label := AuroraUi.make_pixel_label(key_name, 14, AuroraUi.TEXT)
+	var label := AuroraUi.make_pixel_label(key_name, 8 if use_gameplay_skin else 14, Color(0.7, 0.85, 0.96, 0.65) if use_gameplay_skin else AuroraUi.TEXT)
 	label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if use_gameplay_skin:
+		label.anchor_top = 1.0
+		label.anchor_right = 1.0
+		label.anchor_bottom = 1.0
+		label.offset_top = 9.0
+		label.offset_bottom = 25.0
 	receptor.add_child(label)
 	lane_labels.append(label)
 
@@ -619,19 +1200,27 @@ func _make_badge(text: String, color: Color) -> PanelContainer:
 	return badge
 
 
+func _get_visual_lane_tint(lane_index: int) -> Color:
+	if use_gameplay_skin:
+		return Color(0.02, 0.86, 1.0) if lane_index % 2 == 0 else Color(1.0, 0.08, 0.92)
+	return LANE_COLORS[lane_index]
+
+
 func _make_lane_style(tint: Color, active: bool) -> StyleBoxFlat:
 	var opacity := float(settings_manager.get_setting("lane_opacity", 0.82))
-	var lane_alpha := 0.0 # The frame is the single opacity layer; avoid stacked darkness.
+	var lane_alpha := opacity * 0.77 if use_gameplay_skin else 0.0
 	var border_alpha := (0.18 if active else 0.08) * opacity
 	var style := AuroraUi.make_style(
 		Color(0.008, 0.012, 0.028, lane_alpha),
 		Color(tint.r, tint.g, tint.b, border_alpha),
 		0
 	)
-	style.content_margin_left = 1.0
-	style.content_margin_right = 1.0
-	style.content_margin_top = 1.0
-	style.content_margin_bottom = 1.0
+	if use_gameplay_skin:
+		style.set_border_width_all(0)
+	style.content_margin_left = 0.0 if use_gameplay_skin else 1.0
+	style.content_margin_right = 0.0 if use_gameplay_skin else 1.0
+	style.content_margin_top = 0.0 if use_gameplay_skin else 1.0
+	style.content_margin_bottom = 0.0 if use_gameplay_skin else 1.0
 	return style
 
 
@@ -652,6 +1241,20 @@ func _make_receptor_style(tint: Color, active: bool) -> StyleBoxFlat:
 	return style
 
 
+func _make_receptor_texture() -> AtlasTexture:
+	var texture := AtlasTexture.new()
+	texture.atlas = LANE_RECEPTOR_KEY_ART
+	texture.region = Rect2(0.0, 170.0, 1536.0, 684.0)
+	return texture
+
+
+func _make_hit_line_texture() -> AtlasTexture:
+	var texture := AtlasTexture.new()
+	texture.atlas = HIT_LINE_ART
+	texture.region = Rect2(0.0, 280.0, 2156.0, 160.0)
+	return texture
+
+
 func _process(delta: float) -> void:
 	ambient_time += delta
 	if start_gate_active:
@@ -662,6 +1265,7 @@ func _process(delta: float) -> void:
 		_update_ambient_frame()
 		_spawn_upcoming_notes()
 		_update_active_notes()
+		_update_side_notes()
 		for track in side_tracks:
 			track.set_playback_time(gameplay_time, _get_note_travel_time())
 		_update_practice_beat()
@@ -680,9 +1284,14 @@ func _process(delta: float) -> void:
 
 
 func _set_lane_pressed(lane_index: int, pressed: bool) -> void:
-	var tint := LANE_COLORS[lane_index]
+	var tint := _get_visual_lane_tint(lane_index)
+	var receptor := lane_receptors[lane_index]
 	lane_panels[lane_index].add_theme_stylebox_override("panel", _make_lane_style(tint, pressed))
-	lane_receptors[lane_index].add_theme_stylebox_override("panel", _make_receptor_style(tint, pressed))
+	if use_gameplay_skin:
+		receptor.set_pressed(pressed)
+	else:
+		var receptor_panel := receptor as PanelContainer
+		receptor_panel.add_theme_stylebox_override("panel", _make_receptor_style(tint, pressed))
 	lane_labels[lane_index].add_theme_color_override("font_color", Color.WHITE if pressed else AuroraUi.TEXT)
 
 
@@ -692,41 +1301,48 @@ func _register_lane_input(lane_index: int) -> void:
 
 	var timing_offset := float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0
 	var judgment_time := gameplay_time + timing_offset
-	var closest_note: Dictionary = {}
-	var closest_error := INF
+	var earliest_note: Dictionary = {}
+	var earliest_time := INF
+	var earliest_error := INF
 	for note_entry in active_notes:
 		if int(note_entry["lane"]) != lane_index:
 			continue
 		if bool(note_entry.get("holding", false)):
 			continue
-		var error := absf(float(note_entry["time"]) - judgment_time)
-		if error < closest_error:
-			closest_error = error
-			closest_note = note_entry
+		var note_time := float(note_entry["time"])
+		var error := absf(note_time - judgment_time)
+		if error > MISS_WINDOW:
+			continue
+		# When timing windows overlap, consume notes in chart order so one tap
+		# cannot skip an earlier note for a slightly closer upcoming note.
+		if note_time < earliest_time or (is_equal_approx(note_time, earliest_time) and error < earliest_error):
+			earliest_time = note_time
+			earliest_error = error
+			earliest_note = note_entry
 
-	if closest_note.is_empty() or closest_error > MISS_WINDOW:
+	if earliest_note.is_empty():
 		return
-	if not str(closest_note.get("shift_id", "")).is_empty():
+	if not str(earliest_note.get("shift_id", "")).is_empty():
 		_try_start_shift_pair(
-			str(closest_note["shift_id"]),
+			str(earliest_note["shift_id"]),
 			judgment_time
 		)
 		return
 
-	var signed_error := judgment_time - float(closest_note["time"])
-	if float(closest_note.get("duration", 0.0)) >= HOLD_NOTE_MIN_DURATION:
-		_start_hold_note(closest_note, signed_error)
+	var signed_error := judgment_time - earliest_time
+	if float(earliest_note.get("duration", 0.0)) >= HOLD_NOTE_MIN_DURATION:
+		_start_hold_note(earliest_note, signed_error)
 		return
 
 	var judgment := _get_judgment_for_error(signed_error)
 	var timing_score := _get_timing_score(signed_error)
 	match judgment:
 		"PERFECT":
-			_judge_note(closest_note, judgment, 1.0, timing_score, AuroraUi.TEAL)
+			_judge_note(earliest_note, judgment, 1.0, timing_score, AuroraUi.TEAL)
 		"GREAT":
-			_judge_note(closest_note, judgment, 0.80, timing_score, AuroraUi.GOLD)
+			_judge_note(earliest_note, judgment, 0.80, timing_score, AuroraUi.GOLD)
 		_:
-			_judge_note(closest_note, "GOOD", 0.50, timing_score, AuroraUi.CORAL)
+			_judge_note(earliest_note, "GOOD", 0.50, timing_score, AuroraUi.CORAL)
 	_record_timing_sample(signed_error)
 	_show_timing_feedback(signed_error)
 
@@ -754,6 +1370,75 @@ func _register_lane_release(lane_index: int) -> void:
 
 	var timing_offset := float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0
 	_finish_hold_note(held_note, gameplay_time + timing_offset)
+
+
+func _register_side_input(side: int) -> void:
+	if gameplay_finished or start_gate_active:
+		return
+	var judgment_time := gameplay_time + float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0
+	var closest: Dictionary = {}
+	var closest_error := INF
+	for entry in side_note_entries:
+		if int(entry["side"]) != side or str(entry["state"]) != "pending":
+			continue
+		var error := absf(float(entry["time"]) - judgment_time)
+		if error < closest_error:
+			closest_error = error
+			closest = entry
+	if closest.is_empty() or closest_error > MISS_WINDOW:
+		return
+	var signed_error := judgment_time - float(closest["time"])
+	if float(closest.get("duration", 0.0)) >= HOLD_NOTE_MIN_DURATION:
+		closest["state"] = "holding"
+		var track = closest["track"]
+		track.set_note_holding(int(closest["track_index"]), true)
+		_show_judgment("DOBLE HOLD", AuroraUi.GOLD)
+		_record_timing_sample(signed_error)
+		_show_timing_feedback(signed_error)
+		return
+	_record_timing_sample(signed_error)
+	_show_timing_feedback(signed_error)
+	var judgment := _get_judgment_for_error(signed_error)
+	_judge_side_note(closest, judgment, 1.0 if judgment == "PERFECT" else 0.80 if judgment == "GREAT" else 0.50, _get_timing_score(signed_error))
+
+
+func _register_side_release(side: int) -> void:
+	if gameplay_finished:
+		return
+	for entry in side_note_entries:
+		if int(entry["side"]) == side and str(entry["state"]) == "holding":
+			_finish_side_hold(entry, gameplay_time + float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0)
+			return
+
+
+func _finish_side_hold(entry: Dictionary, release_time: float) -> void:
+	var start_time := float(entry["time"])
+	var duration := maxf(float(entry["duration"]), HOLD_NOTE_MIN_DURATION)
+	var release_error := release_time - start_time - duration
+	var result := _get_hold_release_result((release_time - start_time) / duration, release_error)
+	_record_timing_sample(release_error)
+	_show_timing_feedback(release_error)
+	_judge_side_note(entry, str(result["judgment"]), float(result["accuracy"]), int(result["score"]))
+
+
+func _update_side_notes() -> void:
+	var judgment_time := gameplay_time + float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0
+	for entry in side_note_entries:
+		var state := str(entry["state"])
+		if state == "pending" and judgment_time - float(entry["time"]) > MISS_WINDOW:
+			_judge_side_note(entry, "MISS", 0.0, 0)
+		elif state == "holding" and judgment_time - float(entry["time"]) - float(entry["duration"]) > GOOD_WINDOW:
+			_finish_side_hold(entry, judgment_time)
+
+
+func _judge_side_note(entry: Dictionary, judgment: String, accuracy_value: float, base_score: int) -> void:
+	if str(entry["state"]) == "done":
+		return
+	entry["state"] = "done"
+	var track = entry["track"]
+	track.resolve_note(int(entry["track_index"]))
+	var color := AuroraUi.CORAL if judgment == "MISS" else AuroraUi.TEAL if judgment == "PERFECT" else AuroraUi.GOLD
+	_record_judgment(judgment, accuracy_value, base_score, color, -1, true, 1200.0 if float(entry.get("duration", 0.0)) >= HOLD_NOTE_MIN_DURATION else 1000.0)
 
 
 func _are_shift_lanes_pressed(pair_id: String) -> bool:
@@ -885,16 +1570,16 @@ func _get_hold_release_result(progress: float, release_error: float) -> Dictiona
 		return {"judgment": "MISS", "accuracy": 0.0, "score": 0}
 
 	var absolute_error := absf(release_error)
-	var score := _get_timing_score(release_error, 1200.0, 1080.0, 900.0, 550.0, 200.0)
+	var hold_score := _get_timing_score(release_error, 1200.0, 1080.0, 900.0, 550.0, 200.0)
 	if absolute_error <= PERFECT_WINDOW:
-		return {"judgment": "PERFECT", "accuracy": 1.0, "score": score}
+		return {"judgment": "PERFECT", "accuracy": 1.0, "score": hold_score}
 	if absolute_error <= GREAT_WINDOW:
-		return {"judgment": "GREAT", "accuracy": 0.80, "score": score}
+		return {"judgment": "GREAT", "accuracy": 0.80, "score": hold_score}
 	if absolute_error <= GOOD_WINDOW:
-		return {"judgment": "GOOD", "accuracy": 0.50, "score": score}
+		return {"judgment": "GOOD", "accuracy": 0.50, "score": hold_score}
 
 	# Late releases preserve the combo while their score falls toward the miss limit.
-	return {"judgment": "GOOD", "accuracy": 0.25, "score": score}
+	return {"judgment": "GOOD", "accuracy": 0.25, "score": hold_score}
 
 
 func _get_judgment_for_error(error_seconds: float) -> String:
@@ -969,6 +1654,12 @@ func _initialize_gameplay() -> void:
 
 
 func _setup_audio_players() -> void:
+	countdown_sound_player = AudioStreamPlayer.new()
+	countdown_sound_player.name = "StartCountdownSound"
+	countdown_sound_player.bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
+	countdown_sound_player.volume_db = -2.0
+	add_child(countdown_sound_player)
+	last_countdown_value = 4
 	song_player = AudioStreamPlayer.new()
 	song_player.name = "SongAudio"
 	song_player.bus = "Music" if AudioServer.get_bus_index("Music") >= 0 else "Master"
@@ -1008,6 +1699,9 @@ func _build_start_gate() -> void:
 	start_gate_panel.offset_right = 250.0
 	start_gate_panel.offset_bottom = 76.0
 	start_gate_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if use_gameplay_skin:
+		start_gate_panel.z_index = 4
+		start_gate_panel.z_as_relative = false
 	start_gate_panel.add_theme_stylebox_override(
 		"panel",
 		AuroraUi.make_style(
@@ -1043,7 +1737,7 @@ func _build_start_gate() -> void:
 
 
 func _begin_start_countdown() -> void:
-	# The initial preparation is silent and black, with no countdown overlay.
+	# Keep the clean black preparation; cues follow the song clock below.
 	if not start_gate_active:
 		return
 	start_countdown_active = false
@@ -1060,14 +1754,25 @@ func _start_gameplay_media() -> void:
 	if media_started:
 		return
 	media_started = true
+	var song_gain := clampf(game_manager.current_song.audio_gain_db, -18.0, 12.0) if game_manager.current_song != null else 0.0
+	media_fade_tween = create_tween()
+	media_fade_tween.set_parallel(true)
+	media_fade_tween.set_trans(Tween.TRANS_SINE)
+	media_fade_tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
 	if background_video_player != null:
+		if song_player == null or song_player.stream == null:
+			background_video_player.volume_db = -48.0
 		background_video_player.play()
 		if game_manager.current_song != null:
 			background_video_player.stream_position = (
 				game_manager.current_song.background_video_start_seconds
 			)
+		if song_player == null or song_player.stream == null:
+			media_fade_tween.tween_property(background_video_player, "volume_db", song_gain, 0.65)
 	if song_player != null and song_player.stream != null:
+		song_player.volume_db = -48.0
 		song_player.play()
+		media_fade_tween.tween_property(song_player, "volume_db", song_gain, 0.65)
 	_apply_visual_settings()
 
 
@@ -1102,8 +1807,12 @@ func _create_click_stream(frequency: float, duration: float, amplitude: float) -
 func _update_song_clock(delta: float) -> void:
 	if not media_started:
 		gameplay_time += delta
+		var countdown_value := ceili(-gameplay_time)
+		if countdown_value >= 1 and countdown_value <= 3 and countdown_value < last_countdown_value:
+			_play_start_countdown_cue(countdown_value)
 		if gameplay_time >= 0.0:
 			gameplay_time = 0.0
+			_play_start_countdown_cue(0)
 			_start_gameplay_media()
 		return
 	if song_player != null and song_player.playing:
@@ -1132,7 +1841,17 @@ func _get_note_travel_time() -> float:
 
 
 func _get_preparation_duration() -> float:
-	return _get_note_travel_time() + 0.15 + EXTRA_PREPARATION_SECONDS
+	return maxf(3.05, _get_note_travel_time() + 0.15 + EXTRA_PREPARATION_SECONDS)
+
+
+func _play_start_countdown_cue(value: int) -> void:
+	last_countdown_value = value
+	if countdown_sound_player == null:
+		return
+	var bank = preload("res://src/audio/GameSoundBank.gd")
+	countdown_sound_player.stop()
+	countdown_sound_player.stream = bank.COUNTDOWN.get(value)
+	countdown_sound_player.play()
 
 
 func _spawn_upcoming_notes() -> void:
@@ -1181,18 +1900,18 @@ func _spawn_note(note_data: Dictionary) -> void:
 	if lane < 0 or lane >= lane_note_layers.size():
 		return
 	var is_shift := note_data.has("shift_id")
-	var tint := AuroraUi.GOLD if is_shift else LANE_COLORS[lane]
+	var tint := AuroraUi.GOLD if is_shift else _get_visual_lane_tint(lane)
 	var duration := float(note_data.get("duration", 0.0))
 	var is_hold := duration >= HOLD_NOTE_MIN_DURATION
 	var note := PanelContainer.new()
 	note.name = "ShiftHold" if is_shift and is_hold else "ShiftNote" if is_shift else "HoldNote" if is_hold else "TapNote"
-	note.anchor_left = 0.075
-	note.anchor_right = 0.925
+	note.anchor_left = 0.0
+	note.anchor_right = 1.0
 	note.offset_top = -NOTE_HALF_HEIGHT
 	note.offset_bottom = NOTE_HALF_HEIGHT
 	note.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var note_style := AuroraUi.make_style(
-		Color(tint.r, tint.g, tint.b, 0.52 if is_hold else 0.92),
+		Color(tint.r, tint.g, tint.b, 0.86 if is_hold else 0.92),
 		Color(0.92, 0.98, 1.0, 1.0),
 		0
 	)
@@ -1205,7 +1924,15 @@ func _spawn_note(note_data: Dictionary) -> void:
 	note_style.content_margin_right = 0.0
 	note_style.content_margin_bottom = 0.0
 	note.add_theme_stylebox_override("panel", note_style)
-	if is_hold:
+	if use_gameplay_skin:
+		note.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+		var visual := NEON_NOTE.new()
+		visual.name = "NeonNoteVisual"
+		visual.tint = tint
+		visual.is_hold = is_hold
+		note.add_child(visual)
+		visual.set_reduced_motion(bool(settings_manager.get_setting("reduced_motion", false)))
+	elif is_hold:
 		var hold_visual := Control.new()
 		hold_visual.name = "HoldVisual"
 		hold_visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1252,13 +1979,14 @@ func _update_active_notes() -> void:
 			active_notes.erase(note_entry)
 			continue
 		var layer := lane_note_layers[lane]
-		var receptor_y := maxf(
-			layer.size.y - RECEPTOR_TOP_OFFSET - HIT_LINE_GAP,
-			100.0
-		)
+		var receptor_y := maxf(layer.size.y - (SKIN_HIT_OFFSET if use_gameplay_skin else RECEPTOR_TOP_OFFSET + HIT_LINE_GAP), 100.0)
 		var note_time := float(note_entry["time"])
 		var duration := float(note_entry.get("duration", 0.0))
 		var is_hold := duration >= HOLD_NOTE_MIN_DURATION
+		if use_gameplay_skin:
+			var visual := note_node.get_node_or_null("NeonNoteVisual")
+			if visual != null:
+				visual.set_holding(bool(note_entry.get("holding", false)))
 		var progress := 1.0 - (note_time - gameplay_time) / travel_time
 		var note_y := lerpf(-NOTE_HALF_HEIGHT, receptor_y, progress)
 		if bool(note_entry.get("holding", false)):
@@ -1302,6 +2030,14 @@ func _update_active_notes() -> void:
 				)
 		elif judgment_time - note_time > MISS_WINDOW:
 			_judge_note(note_entry, "MISS", 0.0, 0, AuroraUi.CORAL)
+	if use_gameplay_skin:
+		for lane_index in range(lane_receptors.size()):
+			var holding := false
+			for entry in active_notes:
+				if int(entry["lane"]) == lane_index and bool(entry.get("holding", false)):
+					holding = true
+					break
+			lane_receptors[lane_index].set_holding(holding)
 
 
 func _judge_note(
@@ -1321,21 +2057,41 @@ func _judge_note(
 	var counts_as_one := not bool(note_entry.get("shift_secondary", false))
 	if not counts_as_one:
 		if judgment != "MISS":
-			_play_hit_effect(int(note_entry["lane"]), color)
+			_play_hit_effect(int(note_entry["lane"]), color, judgment)
 		return
+	_record_judgment(judgment, accuracy_value, base_score, color, int(note_entry["lane"]), not str(note_entry.get("shift_id", "")).is_empty(), 1200.0 if float(note_entry.get("duration", 0.0)) >= HOLD_NOTE_MIN_DURATION else 1000.0)
+
+
+func _record_judgment(judgment: String, accuracy_value: float, base_score: int, color: Color, lane_index: int, preserve_combo_on_miss: bool = false, maximum_note_score: float = 1000.0) -> void:
+	_set_hit_percentage(float(base_score) / maximum_note_score * 100.0 if judgment != "MISS" else 0.0)
 	judged_count += 1
 	accuracy_points += accuracy_value
 	if judgment == "MISS":
 		miss_count += 1
-		combo = 0
-		_reset_combo_feedback()
+		if not preserve_combo_on_miss:
+			combo = 0
+		score_streak = 0
+		fever_hits = 0
+		fever_level = 1
+		if not preserve_combo_on_miss:
+			_reset_combo_feedback()
 		_show_miss_timing_feedback()
-		_play_miss_effect(int(note_entry["lane"]))
+		if lane_index >= 0:
+			_play_miss_effect(lane_index)
 		_play_miss_sound()
 	else:
-		combo += 1
+		score_streak += 1
+		if fever_level < FEVER_MAX_LEVEL:
+			fever_hits += 1
+			if fever_hits >= FEVER_HITS_PER_LEVEL:
+				fever_level = mini(fever_level + 1, FEVER_MAX_LEVEL)
+				fever_hits = 0
+				fever_max_level = maxi(fever_max_level, fever_level)
+		var combo_gain := fever_level
+		combo += combo_gain
+		combo_earned += combo_gain
 		max_combo = maxi(max_combo, combo)
-		score += base_score + mini(combo * 5, 500)
+		score += base_score + mini(score_streak * 5, 500)
 		match judgment:
 			"PERFECT":
 				perfect_count += 1
@@ -1344,16 +2100,64 @@ func _judge_note(
 			_:
 				good_count += 1
 		_play_combo_feedback()
-		_play_hit_effect(int(note_entry["lane"]), color)
+		if lane_index >= 0:
+			_play_hit_effect(lane_index, color, judgment)
 
 	_show_judgment(judgment, color)
+	_refresh_fever_display()
 	_refresh_score_display()
 	_refresh_progress()
 
 
 func _show_judgment(text: String, color: Color) -> void:
+	if judgment_art != null:
+		var judgment_texture: Texture2D = judgment_art_textures.get(text)
+		var has_judgment_art := judgment_texture != null
+		judgment_art.texture = judgment_texture
+		judgment_art.visible = has_judgment_art
+		if use_gameplay_skin:
+			var art_width := 360.0
+			match text:
+				"GREAT": art_width = 240.0
+				"GOOD": art_width = 232.0
+				"MISS": art_width = 220.0
+			judgment_art.position.x = (712.0 - art_width) * 0.5
+			judgment_art.size.x = art_width
+		judgment_label.modulate = Color(1.0, 1.0, 1.0, 0.0) if has_judgment_art else Color.WHITE
 	judgment_label.text = text
 	judgment_label.add_theme_color_override("font_color", color)
+	_animate_judgment_feedback()
+
+
+func _set_hit_percentage(percentage: float) -> void:
+	if hit_precision_label == null:
+		return
+	var value := clampf(percentage, 0.0, 100.0)
+	hit_precision_label.text = "%d%%" % roundi(value)
+	hit_precision_label.visible = true
+	hit_precision_label.add_theme_color_override("font_color", Color(0.78, 1.0, 1.0) if value >= 95.0 else AuroraUi.GOLD if value >= 75.0 else AuroraUi.CORAL)
+
+
+func _animate_judgment_feedback() -> void:
+	if not use_gameplay_skin or judgment_art == null:
+		return
+	if judgment_feedback_tween != null and judgment_feedback_tween.is_valid():
+		judgment_feedback_tween.kill()
+	judgment_art.position.y = 454.0
+	judgment_art.modulate = Color.WHITE
+	hit_precision_label.scale = Vector2.ONE
+	if bool(settings_manager.get_setting("reduced_motion", false)):
+		return
+	judgment_art.position.y -= 5.0
+	judgment_art.modulate = Color(1.13, 1.13, 1.13, 0.84)
+	hit_precision_label.pivot_offset = hit_precision_label.size * 0.5
+	hit_precision_label.scale = Vector2.ONE * 1.10
+	judgment_feedback_tween = create_tween()
+	judgment_feedback_tween.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
+	judgment_feedback_tween.set_parallel(true)
+	judgment_feedback_tween.tween_property(judgment_art, "position:y", 454.0, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	judgment_feedback_tween.tween_property(judgment_art, "modulate", Color.WHITE, 0.18)
+	judgment_feedback_tween.tween_property(hit_precision_label, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 
 
 func _play_combo_feedback() -> void:
@@ -1397,6 +2201,7 @@ func _is_combo_milestone(value: int) -> bool:
 
 
 func _show_timing_feedback(error_seconds: float) -> void:
+	_set_hit_percentage(float(_get_timing_score(error_seconds)) / 10.0)
 	if timing_feedback_label == null:
 		return
 	var error_ms := roundi(error_seconds * 1000.0)
@@ -1434,7 +2239,7 @@ func _refresh_score_display() -> void:
 	combo_label.text = "%03d" % combo
 	score_label.text = "%07d" % score
 	var accuracy := 100.0 if judged_count == 0 else accuracy_points / float(judged_count) * 100.0
-	precision_label.text = "RATE  %.2f%%" % accuracy
+	precision_label.text = ("%.2f%%" if use_gameplay_skin else "RATE  %.2f%%") % accuracy
 
 
 func _refresh_progress() -> void:
@@ -1447,17 +2252,24 @@ func _refresh_progress() -> void:
 
 
 func _get_total_judgment_count() -> int:
-	return chart_notes.size() + chart_shift_notes.size()
+	return chart_notes.size() + chart_shift_notes.size() + chart_side_notes.size()
 
 
-func _play_hit_effect(lane_index: int, _color: Color) -> void:
+func _play_hit_effect(lane_index: int, _color: Color, judgment: String = "PERFECT") -> void:
 	if not bool(settings_manager.get_setting("show_hit_effects", true)):
 		return
 	var receptor := lane_receptors[lane_index]
+	if use_gameplay_skin:
+		var quality := 1.0 if judgment == "PERFECT" else 0.70 if judgment == "GREAT" else 0.42
+		receptor.flash_hit(quality)
+		return
+	var resting_tint := Color.WHITE
+	if use_gameplay_skin and not lane_pressed[lane_index]:
+		resting_tint = lane_receptor_tints[lane_index]
 	receptor.modulate = Color(1.45, 1.45, 1.45, 1.0)
 	var flash := receptor.create_tween()
 	flash.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
-	flash.tween_property(receptor, "modulate", Color.WHITE, 0.12)
+	flash.tween_property(receptor, "modulate", resting_tint, 0.12)
 
 	if bool(settings_manager.get_setting("screen_shake_enabled", true)) and not bool(settings_manager.get_setting("reduced_motion", false)):
 		frame_panel.pivot_offset = frame_panel.size * 0.5
@@ -1477,13 +2289,19 @@ func _play_miss_effect(lane_index: int) -> void:
 		previous_tween.kill()
 
 	var receptor := lane_receptors[lane_index]
+	if use_gameplay_skin:
+		receptor.flash_miss()
+		return
+	var resting_tint := Color.WHITE
+	if use_gameplay_skin and not lane_pressed[lane_index]:
+		resting_tint = lane_receptor_tints[lane_index]
 	receptor.modulate = Color(1.0, 0.26, 0.38, 1.0)
 	var flash := receptor.create_tween()
 	flash.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
 	flash.tween_property(
 		receptor,
 		"modulate",
-		Color.WHITE,
+		resting_tint,
 		maxf(miss_feedback_duration, 0.01)
 	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
 	lane_miss_feedback_tweens[lane_index] = flash
@@ -1540,6 +2358,15 @@ func _try_start_clear_celebration() -> void:
 	clear_celebration = PERFECT_PLAY.new()
 	clear_celebration.name = "PerfectPlayCelebration"
 	add_child(clear_celebration)
+	# The last hit feedback gives way to the compact clear badge.
+	if judgment_feedback_tween != null and judgment_feedback_tween.is_valid():
+		judgment_feedback_tween.kill()
+	judgment_label.hide()
+	if judgment_art != null:
+		judgment_art.hide()
+	if hit_precision_label != null:
+		hit_precision_label.hide()
+	timing_feedback_label.hide()
 	clear_celebration.play(bool(settings_manager.get_setting("reduced_motion", false)))
 
 
@@ -1574,6 +2401,9 @@ func _build_result_data() -> Dictionary:
 		"score": score,
 		"accuracy": accuracy,
 		"max_combo": max_combo,
+		"combo_earned": combo_earned,
+		"fever_reached": fever_max_level > 1,
+		"fever_max_level": fever_max_level,
 		"perfect": perfect_count,
 		"great": great_count,
 		"good": good_count,
@@ -1594,6 +2424,9 @@ func _update_ambient_frame() -> void:
 	var enabled := bool(settings_manager.get_setting("background_animation_enabled", true))
 	var reduced := bool(settings_manager.get_setting("reduced_motion", false))
 	var track_alpha := _get_cinematic_opacity()
+	if cabinet_art_overlay != null:
+		var lane_alpha := clampf(float(settings_manager.get_setting("lane_opacity", 0.82)), 0.0, 1.0)
+		cabinet_art_overlay.modulate = Color(1.0, 1.0, 1.0, lane_alpha * track_alpha)
 	if not enabled or reduced:
 		frame_panel.modulate = Color(1.0, 1.0, 1.0, track_alpha)
 		return
@@ -1608,11 +2441,26 @@ func _apply_visual_settings() -> void:
 	var show_labels := bool(settings_manager.get_setting("show_lane_labels", true))
 	for label in lane_labels:
 		label.visible = show_labels
+	if use_gameplay_skin:
+		for receptor in lane_receptors:
+			receptor.effects_enabled = bool(settings_manager.get_setting("show_hit_effects", true))
+			receptor.reduced_motion = bool(settings_manager.get_setting("reduced_motion", false))
+		for entry in active_notes:
+			var node := entry["node"] as Control
+			if is_instance_valid(node):
+				var visual := node.get_node_or_null("NeonNoteVisual")
+				if visual != null:
+					visual.set_reduced_motion(bool(settings_manager.get_setting("reduced_motion", false)))
 	if background_video_player != null:
 		var background_enabled := bool(settings_manager.get_setting("background_animation_enabled", true))
 		background_video_player.visible = background_enabled and media_started
 		background_video_player.modulate = Color.WHITE
-	var opacity := float(settings_manager.get_setting("lane_opacity", 0.82))
+	var opacity := clampf(float(settings_manager.get_setting("lane_opacity", 0.82)), 0.0, 1.0)
+	if cabinet_chrome_visual != null:
+		cabinet_chrome_visual.modulate = Color(1.0, 1.0, 1.0, opacity)
+	for frame_bar in cabinet_frame_bars:
+		if is_instance_valid(frame_bar):
+			frame_bar.modulate = Color(1.0, 1.0, 1.0, opacity)
 	frame_panel.add_theme_stylebox_override("panel", _make_playfield_frame_style())
 	var deck_style := control_deck.get_theme_stylebox("panel") as StyleBoxFlat
 	deck_style.bg_color.a = opacity
@@ -1678,6 +2526,9 @@ func _get_lane_mode() -> int:
 
 func _setup_pause_menu() -> void:
 	pause_menu = PAUSE_MENU_SCENE.instantiate() as PauseMenu
+	if use_gameplay_skin:
+		pause_menu.z_index = 5
+		pause_menu.z_as_relative = false
 	add_child(pause_menu)
 	pause_menu.restart_requested.connect(_restart_song)
 	pause_menu.song_select_requested.connect(_return_to_song_select)
@@ -1691,6 +2542,7 @@ func _restart_song() -> void:
 
 
 func _return_to_song_select() -> void:
+	_fade_gameplay_audio_out(0.45 if game_manager.editor_test_active else 0.22)
 	if game_manager.editor_test_active:
 		scene_manager.load_scene("editor")
 		return
@@ -1699,8 +2551,22 @@ func _return_to_song_select() -> void:
 
 
 func _return_to_main_menu() -> void:
+	_fade_gameplay_audio_out(0.22)
 	game_manager.stop_song()
 	scene_manager.load_scene("main_menu")
+
+
+func _fade_gameplay_audio_out(fade_seconds: float) -> void:
+	if media_fade_tween != null and media_fade_tween.is_valid():
+		media_fade_tween.kill()
+	media_fade_tween = create_tween()
+	media_fade_tween.set_parallel(true)
+	media_fade_tween.set_trans(Tween.TRANS_SINE)
+	media_fade_tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+	if song_player != null and song_player.playing:
+		media_fade_tween.tween_property(song_player, "volume_db", -48.0, fade_seconds)
+	if background_video_player != null and background_video_player.is_playing():
+		media_fade_tween.tween_property(background_video_player, "volume_db", -48.0, fade_seconds)
 
 
 func _open_pause_menu() -> void:
@@ -1715,16 +2581,44 @@ func _open_pause_menu() -> void:
 func _input(event: InputEvent) -> void:
 	if gameplay_finished:
 		return
-	if event is InputEventJoypadButton and event.pressed:
-		if input_manager.controller_event_matches(event, "confirm"):
-			if start_gate_active and not start_countdown_active:
-				_begin_start_countdown()
+	if event is InputEventJoypadButton:
+		if event.pressed:
+			if input_manager.controller_event_matches(event, "confirm"):
+				if start_gate_active and not start_countdown_active:
+					_begin_start_countdown()
+					get_viewport().set_input_as_handled()
+			elif input_manager.controller_event_matches(event, "pause"):
+				_open_pause_menu()
 				get_viewport().set_input_as_handled()
-		elif input_manager.controller_event_matches(event, "pause"):
-			_open_pause_menu()
-			get_viewport().set_input_as_handled()
+			elif input_manager.controller_event_matches(event, "shift_left"):
+				if not side_pressed[0]:
+					side_pressed[0] = true
+					_register_side_input(0)
+				get_viewport().set_input_as_handled()
+			elif input_manager.controller_event_matches(event, "shift_right"):
+				if not side_pressed[1]:
+					side_pressed[1] = true
+					_register_side_input(1)
+				get_viewport().set_input_as_handled()
+		else:
+			var side := -1
+			if int(event.button_index) == input_manager.get_controller_action_button("shift_left"):
+				side = 0
+			elif int(event.button_index) == input_manager.get_controller_action_button("shift_right"):
+				side = 1
+			if side >= 0:
+				side_pressed[side] = false
+				_register_side_release(side)
+				get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey and event.pressed and not event.echo:
+		if (event.keycode == KEY_SHIFT or event.physical_keycode == KEY_SHIFT) and event.location in [KEY_LOCATION_LEFT, KEY_LOCATION_RIGHT]:
+			var side := 0 if event.location == KEY_LOCATION_LEFT else 1
+			if not side_pressed[side]:
+				side_pressed[side] = true
+				_register_side_input(side)
+			get_viewport().set_input_as_handled()
+			return
 		match event.keycode:
 			KEY_SPACE:
 				if start_gate_active and not start_countdown_active:
@@ -1733,6 +2627,11 @@ func _input(event: InputEvent) -> void:
 			KEY_ESCAPE:
 				_open_pause_menu()
 				get_viewport().set_input_as_handled()
+	elif event is InputEventKey and not event.pressed and (event.keycode == KEY_SHIFT or event.physical_keycode == KEY_SHIFT) and event.location in [KEY_LOCATION_LEFT, KEY_LOCATION_RIGHT]:
+		var side := 0 if event.location == KEY_LOCATION_LEFT else 1
+		side_pressed[side] = false
+		_register_side_release(side)
+		get_viewport().set_input_as_handled()
 
 
 func _exit_tree() -> void:

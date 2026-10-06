@@ -8,9 +8,12 @@ signal transition_finished(target_scene: String)
 const DISPLAY_SECONDS := 5.0
 const SETTINGS_COVER_SECONDS := 0.18
 const SETTINGS_REVEAL_SECONDS := 0.42
+const LIBRARY_COVER_SECONDS := 0.24
+const LIBRARY_REVEAL_SECONDS := 0.42
 const GAMEPLAY_TIPS := [
 	"AJUSTA LA VELOCIDAD DE NOTAS DESDE OPCIONES.",
 	"LAS NOTAS ESPECIALES PIDEN DOS CARRILES A LA VEZ.",
+	"LOS RIELES LATERALES SE JUEGAN CON SHIFT IZQUIERDO Y DERECHO.",
 	"PUEDES PAUSAR EN CUALQUIER MOMENTO DESDE EL JUEGO.",
 	"UN HOLD SE TERMINA AL SOLTARLO CERCA DE SU FINAL.",
 ]
@@ -32,6 +35,10 @@ var pending_scene := ""
 var completion := Callable()
 var settings_reveal_started := false
 var settings_scan_line: ColorRect
+var library_reveal_started := false
+var library_top_shutter: Panel
+var library_bottom_shutter: Panel
+var library_title: Label
 
 
 func _ready() -> void:
@@ -45,9 +52,12 @@ func request_transition(target_scene: String, on_ready: Callable) -> bool:
 	completion = on_ready
 	elapsed = 0.0
 	settings_reveal_started = false
+	library_reveal_started = false
 	active_display_seconds = (
 		SETTINGS_COVER_SECONDS
 		if target_scene == "settings"
+		else LIBRARY_COVER_SECONDS
+		if target_scene in ["song_select", "main_menu"]
 		else DISPLAY_SECONDS
 	)
 	active = true
@@ -72,6 +82,15 @@ func _process(delta: float) -> void:
 			_update_settings_scan_line(progress)
 		if progress >= 1.0:
 			_begin_settings_reveal()
+		return
+	if pending_scene in ["song_select", "main_menu"]:
+		if _reduced_motion_enabled():
+			if overlay != null and is_instance_valid(overlay):
+				overlay.modulate.a = progress
+		else:
+			_update_library_shutters(progress)
+		if progress >= 1.0:
+			_begin_library_reveal()
 		return
 	_update_progress_bar(progress)
 	if progress_label != null:
@@ -120,6 +139,48 @@ func _finish_settings_reveal(scene_name: String) -> void:
 	transition_finished.emit(scene_name)
 
 
+func _begin_library_reveal() -> void:
+	if library_reveal_started:
+		return
+	library_reveal_started = true
+	var scene_name := pending_scene
+	var next_action := completion
+	completion = Callable()
+	set_process(false)
+	if next_action.is_valid():
+		next_action.call(scene_name)
+	if overlay == null or not is_instance_valid(overlay):
+		_finish_library_reveal(scene_name)
+		return
+	var reveal := create_tween()
+	reveal.set_trans(Tween.TRANS_SINE)
+	reveal.set_ease(Tween.EASE_OUT)
+	reveal.set_parallel(true)
+	if _reduced_motion_enabled():
+		reveal.tween_property(overlay, "modulate:a", 0.0, 0.20)
+	else:
+		if library_top_shutter != null and is_instance_valid(library_top_shutter):
+			reveal.tween_property(library_top_shutter, "offset_bottom", 0.0, LIBRARY_REVEAL_SECONDS)
+		if library_bottom_shutter != null and is_instance_valid(library_bottom_shutter):
+			reveal.tween_property(library_bottom_shutter, "offset_top", 0.0, LIBRARY_REVEAL_SECONDS)
+		if library_title != null and is_instance_valid(library_title):
+			reveal.tween_property(library_title, "modulate:a", 0.0, LIBRARY_REVEAL_SECONDS * 0.55)
+	reveal.finished.connect(_finish_library_reveal.bind(scene_name))
+
+
+func _finish_library_reveal(scene_name: String) -> void:
+	active = false
+	pending_scene = ""
+	library_reveal_started = false
+	if overlay != null and is_instance_valid(overlay):
+		overlay.queue_free()
+	overlay = null
+	library_top_shutter = null
+	library_bottom_shutter = null
+	library_title = null
+	transition_finished.emit(scene_name)
+
+
 func _complete_transition() -> void:
 	var scene_name := pending_scene
 	var next_action := completion
@@ -151,6 +212,9 @@ func _build_overlay(target_scene: String) -> void:
 	popup_layer.add_child(overlay)
 	if target_scene == "settings":
 		_build_settings_transition()
+		return
+	if target_scene in ["song_select", "main_menu"]:
+		_build_library_transition(target_scene)
 		return
 
 	var backdrop := ColorRect.new()
@@ -331,6 +395,70 @@ func _build_settings_transition() -> void:
 	settings_scan_line.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.58)
 	settings_scan_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	overlay.add_child(settings_scan_line)
+
+
+func _build_library_transition(target_scene: String) -> void:
+	library_top_shutter = Panel.new()
+	library_top_shutter.name = "LibraryTopShutter"
+	library_top_shutter.anchor_right = 1.0
+	var top_style := StyleBoxFlat.new()
+	top_style.bg_color = Color(0.002, 0.006, 0.026, 0.98)
+	top_style.border_color = AuroraUi.TEAL
+	top_style.border_width_bottom = 4
+	library_top_shutter.add_theme_stylebox_override("panel", top_style)
+	library_top_shutter.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(library_top_shutter)
+
+	library_bottom_shutter = Panel.new()
+	library_bottom_shutter.name = "LibraryBottomShutter"
+	library_bottom_shutter.anchor_top = 1.0
+	library_bottom_shutter.anchor_right = 1.0
+	library_bottom_shutter.anchor_bottom = 1.0
+	var bottom_style := StyleBoxFlat.new()
+	bottom_style.bg_color = Color(0.002, 0.006, 0.026, 0.98)
+	bottom_style.border_color = AuroraUi.VIOLET
+	bottom_style.border_width_top = 4
+	library_bottom_shutter.add_theme_stylebox_override("panel", bottom_style)
+	library_bottom_shutter.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(library_bottom_shutter)
+
+	library_title = AuroraUi.make_pixel_label("CABINA  //  MENÚ PRINCIPAL" if target_scene == "main_menu" else "AURORA  //  BIBLIOTECA DE CANCIONES", 17, AuroraUi.TEXT)
+	library_title.name = "LibraryTransitionTitle"
+	library_title.anchor_left = 0.5
+	library_title.anchor_top = 0.5
+	library_title.anchor_right = 0.5
+	library_title.anchor_bottom = 0.5
+	library_title.offset_left = -390.0
+	library_title.offset_top = -30.0
+	library_title.offset_right = 390.0
+	library_title.offset_bottom = 30.0
+	library_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	library_title.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	library_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	overlay.add_child(library_title)
+	if _reduced_motion_enabled():
+		_update_library_shutters(1.0)
+		overlay.modulate.a = 0.0
+	else:
+		_update_library_shutters(0.0)
+
+
+func _update_library_shutters(progress: float) -> void:
+	if overlay == null or not is_instance_valid(overlay):
+		return
+	var half_height := overlay.size.y * 0.5
+	var eased := 1.0 - pow(1.0 - clampf(progress, 0.0, 1.0), 2.0)
+	if library_top_shutter != null and is_instance_valid(library_top_shutter):
+		library_top_shutter.offset_bottom = half_height * eased
+	if library_bottom_shutter != null and is_instance_valid(library_bottom_shutter):
+		library_bottom_shutter.offset_top = -half_height * eased
+	if library_title != null and is_instance_valid(library_title):
+		library_title.modulate.a = clampf((progress - 0.55) / 0.45, 0.0, 1.0)
+
+
+func _reduced_motion_enabled() -> bool:
+	var manager = get_parent().get_node_or_null("SettingsManager")
+	return manager != null and bool(manager.get_setting("reduced_motion", false))
 
 
 func _update_settings_scan_line(progress: float) -> void:

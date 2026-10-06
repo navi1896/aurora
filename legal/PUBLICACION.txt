@@ -1,4 +1,4 @@
-AURORA 1.0.0 — INFORMACIÓN PARA LA PÁGINA DE DESCARGA
+AURORA 1.1.1 — INFORMACIÓN PARA LA PÁGINA DE DESCARGA
 ======================================================
 
 Descripción breve
@@ -11,11 +11,14 @@ videos y charts.
 
 Contenido de la descarga
 ------------------------
-- Aurora 1.0.0 para Windows x64.
+- Aurora 1.1.1 para Windows x64.
 - Juego de 4K, 6K y 8K.
-- Editor manual y generación base automática.
-- Notas normales y sostenidas.
+- Biblioteca con colecciones DJMAX y Aurora Mix.
+- Editor manual y generación base automática, con soporte para holds y Shift.
+- Campo de juego renovado y resultados de MAX COMBO animados.
 - Importación de MP3, OGG, WAV, OGV, MP4, MOV, MKV, WEBM, AVI y M4V.
+- Incluye un recorte breve de MAX COMBO suministrado por el propietario del
+  proyecto. Los derechos del sonido subyacente pertenecen a sus titulares.
 - FFmpeg portátil incluido; no requiere instalación adicional.
 - Créditos, licencias, fuentes correspondientes y hashes SHA-256 incluidos.
 
@@ -28,8 +31,10 @@ GNU LGPL versión 3 o posterior. La licencia, configuración, hashes, receta de
 verificación y enlaces al código fuente correspondiente acompañan a la
 descarga dentro de licenses/FFmpeg/.
 
-Aurora no incluye canciones ni videos de terceros. Quien importe o comparta
-contenido es responsable de contar con los permisos correspondientes.
+Aurora no incluye canciones completas ni videos de terceros. La distribución
+incluye el recorte breve de MAX COMBO identificado arriba. Quien importe o
+comparta cualquier otro contenido es responsable de contar con los permisos
+correspondientes.
 
 
 Privacidad

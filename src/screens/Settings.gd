@@ -74,7 +74,7 @@ var featured_artist_label: Label
 var featured_status_label: Label
 var audio_meter_bars: Dictionary = {}
 var audio_meter_accents: Dictionary = {}
-var cabinet_audio_strip: Control
+var music_volume_controls: Array[Dictionary] = []
 var cabinet_status_label: Label
 var cabinet_back_button: Button
 var cabinet_back_glow_material: ShaderMaterial
@@ -91,6 +91,7 @@ func _ready() -> void:
 	menu_music_manager = managers.get_node_or_null("MenuMusicManager") as MenuMusicManager
 	cache_maintenance = CACHE_MAINTENANCE_SERVICE.new()
 	input_manager.controller_connection_changed.connect(_on_controller_connection_changed)
+	settings_manager.setting_changed.connect(_on_setting_changed)
 	if menu_music_manager != null:
 		menu_music_manager.featured_song_changed.connect(_on_featured_song_changed)
 	setup_ui()
@@ -100,6 +101,7 @@ func _ready() -> void:
 func setup_ui() -> void:
 	audio_meter_bars.clear()
 	audio_meter_accents.clear()
+	music_volume_controls.clear()
 	header_title_label = null
 	header_subtitle_label = null
 	featured_cover = null
@@ -132,7 +134,7 @@ func setup_ui() -> void:
 	_build_cabinet_back_glow(interface)
 	_build_cabinet_navigation(interface)
 	_build_cabinet_content(interface)
-	_build_cabinet_bottom_strip(interface)
+	_build_cabinet_status_label(interface)
 	_show_category(current_category)
 	if bool(settings_manager.get_setting("reduced_motion", false)):
 		interface.modulate.a = 1.0
@@ -314,48 +316,6 @@ func _build_cabinet_content(parent: Control) -> void:
 		cabinet_columns.append(column)
 
 
-func _build_cabinet_bottom_strip(parent: Control) -> void:
-	cabinet_audio_strip = HBoxContainer.new()
-	cabinet_audio_strip.name = "CabinetAudioStrip"
-	cabinet_audio_strip.add_theme_constant_override("separation", 10)
-	_place_on_cabinet(cabinet_audio_strip, Rect2(655.0, 750.0, 717.0, 61.0))
-	parent.add_child(cabinet_audio_strip)
-	var menu_label := AuroraUi.make_pixel_label(AuroraLocale.text("MÚSICA MENÚ"), 12, AuroraUi.TEAL)
-	menu_label.custom_minimum_size.x = 152.0
-	menu_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	cabinet_audio_strip.add_child(menu_label)
-	var menu_slider := HSlider.new()
-	menu_slider.name = "MenuMusicVolume"
-	menu_slider.min_value = 0.0
-	menu_slider.max_value = 1.0
-	menu_slider.step = 0.01
-	menu_slider.value = float(settings_manager.get_setting("menu_music_volume", 0.58))
-	menu_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	menu_slider.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	menu_slider.custom_minimum_size.x = 180.0
-	menu_slider.custom_minimum_size.y = 22.0
-	menu_slider.add_theme_stylebox_override("slider", _cabinet_button_style(Color(0.0, 0.10, 0.16, 0.72), AuroraUi.TEAL))
-	menu_slider.add_theme_stylebox_override("grabber_area", _cabinet_button_style(Color(0.0, 0.72, 0.85, 0.68), Color.TRANSPARENT))
-	cabinet_audio_strip.add_child(menu_slider)
-	var menu_value := AuroraUi.make_pixel_label(_format_value(menu_slider.value, "percent"), 12, AuroraUi.TEXT)
-	menu_value.custom_minimum_size.x = 53.0
-	menu_value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	cabinet_audio_strip.add_child(menu_value)
-	menu_slider.value_changed.connect(_on_slider_changed.bind("menu_music_volume", menu_value, "percent"))
-	featured_title_label = AuroraUi.make_pixel_label("", 11, AuroraUi.TEXT)
-	featured_title_label.custom_minimum_size.x = 196.0
-	featured_title_label.custom_minimum_size.y = 22.0
-	featured_title_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	featured_title_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	featured_title_label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	cabinet_audio_strip.add_child(featured_title_label)
-	cabinet_status_label = AuroraUi.make_pixel_label("", 12, AuroraUi.TEAL)
-	cabinet_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	cabinet_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	_place_on_cabinet(cabinet_status_label, Rect2(690.0, 755.0, 640.0, 46.0))
-	parent.add_child(cabinet_status_label)
-
-
 func _add_settings_backdrop() -> void:
 	var artwork := TextureRect.new()
 	artwork.name = "SettingsCabinaArtwork"
@@ -366,6 +326,14 @@ func _add_settings_backdrop() -> void:
 	artwork.modulate = Color(0.56, 0.66, 0.95, 0.36)
 	artwork.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(artwork)
+
+
+func _build_cabinet_status_label(parent: Control) -> void:
+	cabinet_status_label = AuroraUi.make_pixel_label("", 12, AuroraUi.TEAL)
+	cabinet_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	cabinet_status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_place_on_cabinet(cabinet_status_label, Rect2(690.0, 755.0, 640.0, 46.0))
+	parent.add_child(cabinet_status_label)
 
 
 func _focus_current_category() -> void:
@@ -641,7 +609,6 @@ func _show_category(category: String) -> void:
 		AuroraUi.clear(cabinet_columns[index])
 		cabinet_column_scrolls[index].scroll_vertical = 0
 		cabinet_column_scrolls[index].visible = category != "audio"
-	cabinet_audio_strip.visible = category == "audio"
 	cabinet_status_label.visible = category != "audio"
 	cabinet_status_label.text = AuroraLocale.text("%s  //  AJUSTES GUARDADOS AUTOMÁTICAMENTE") % _get_category_label(category)
 	match category:
@@ -1021,6 +988,8 @@ func _build_cabinet_control_settings() -> void:
 		"confirm": "CONFIRMAR",
 		"back": "VOLVER",
 		"pause": "PAUSA / REPRODUCIR",
+		"shift_left": "SHIFT IZQUIERDO",
+		"shift_right": "SHIFT DERECHO",
 		"preview": "VISTA PREVIA",
 		"delete": "BORRAR",
 	}
@@ -1239,6 +1208,8 @@ func _add_cabinet_fader(
 	slider.add_theme_icon_override("grabber_highlight", handle)
 	slider.value_changed.connect(_on_slider_changed.bind(key, percentage, "percent"))
 	fader_area.add_child(slider)
+	if key == "music_volume":
+		_register_music_volume_control(slider, percentage)
 	var meter := VBoxContainer.new()
 	meter.custom_minimum_size = Vector2(16.0, 252.0)
 	meter.alignment = BoxContainer.ALIGNMENT_END
@@ -1282,7 +1253,7 @@ func _add_cabinet_fader(
 func _build_audio_settings() -> void:
 	_add_page_intro(
 		"SONIDO",
-		"La música del menú sigue la canción destacada y cambia con el carrusel.",
+		"Un solo control ajusta las canciones de partida y la pista destacada del menú.",
 		AuroraUi.CORAL
 	)
 	_build_featured_track_card()
@@ -1313,16 +1284,15 @@ func _build_audio_settings() -> void:
 	_add_audio_meter(master_card, "Master", AuroraUi.TEAL)
 
 	var music_card := _new_audio_mixer_card(cards, "02 // MÚSICA", AuroraUi.VIOLET)
-	_add_audio_slider(music_card, "Música del menú", "menu_music_volume", AuroraUi.VIOLET)
+	_add_audio_slider(music_card, "Música", "music_volume", AuroraUi.VIOLET)
 	music_card.add_child(
 		AuroraUi.make_label(
-			AuroraLocale.text("Pista que aparece en la pantalla principal."),
+			AuroraLocale.text("Canciones de partida y pista destacada del menú."),
 			10,
 			AuroraUi.MUTED
 		)
 	)
-	_add_audio_slider(music_card, "Música de canciones", "music_volume", AuroraUi.VIOLET)
-	_add_audio_meter(music_card, "MenuMusic", AuroraUi.VIOLET)
+	_add_audio_meter(music_card, "Music", AuroraUi.VIOLET)
 
 	var effects_card := _new_audio_mixer_card(cards, "03 // EFECTOS", AuroraUi.CORAL)
 	_add_audio_slider(effects_card, "Efectos", "sfx_volume", AuroraUi.CORAL)
@@ -1464,6 +1434,8 @@ func _add_audio_slider(parent: VBoxContainer, title: String, key: String, accent
 	slider.add_theme_stylebox_override("grabber_area_highlight", active_track)
 	slider.value_changed.connect(_on_slider_changed.bind(key, value_label, "percent"))
 	row.add_child(slider)
+	if key == "music_volume":
+		_register_music_volume_control(slider, value_label)
 
 
 func _add_audio_meter(parent: VBoxContainer, bus_name: String, accent: Color) -> void:
@@ -1517,9 +1489,9 @@ func _on_featured_song_changed(song: SongData, has_audio: bool) -> void:
 func _refresh_featured_status(has_audio: bool) -> void:
 	if featured_status_label == null or not is_instance_valid(featured_status_label):
 		return
-	var menu_volume := float(settings_manager.get_setting("menu_music_volume", 0.58))
-	if menu_volume <= 0.001:
-		featured_status_label.text = AuroraLocale.text("MÚSICA DEL MENÚ // SILENCIADA")
+	var music_volume := float(settings_manager.get_setting("music_volume", 0.85))
+	if music_volume <= 0.001:
+		featured_status_label.text = AuroraLocale.text("MÚSICA // SILENCIADA")
 		featured_status_label.add_theme_color_override("font_color", AuroraUi.MUTED)
 	elif has_audio:
 		featured_status_label.text = AuroraLocale.text("PREVIA ACTIVA // CAMBIA CON EL CARRUSEL")
@@ -1532,14 +1504,18 @@ func _refresh_featured_status(has_audio: bool) -> void:
 func _process(_delta: float) -> void:
 	for bus_name_variant in audio_meter_bars:
 		var bus_name := str(bus_name_variant)
-		var bus_index := AudioServer.get_bus_index(bus_name)
 		var bars: Array = audio_meter_bars[bus_name_variant]
 		var accent: Color = audio_meter_accents.get(bus_name_variant, AuroraUi.TEAL)
 		var level := 0.0
-		if bus_index >= 0:
-			var left_db := AudioServer.get_bus_peak_volume_left_db(bus_index, 0)
-			var right_db := AudioServer.get_bus_peak_volume_right_db(bus_index, 0)
-			level = clampf((maxf(left_db, right_db) + 42.0) / 42.0, 0.0, 1.0)
+		var monitored_buses: Array[String] = [bus_name]
+		if bus_name == "Music":
+			monitored_buses.append("MenuMusic")
+		for monitored_bus in monitored_buses:
+			var bus_index := AudioServer.get_bus_index(monitored_bus)
+			if bus_index >= 0:
+				var left_db := AudioServer.get_bus_peak_volume_left_db(bus_index, 0)
+				var right_db := AudioServer.get_bus_peak_volume_right_db(bus_index, 0)
+				level = maxf(level, clampf((maxf(left_db, right_db) + 42.0) / 42.0, 0.0, 1.0))
 		for index in range(bars.size()):
 			if not is_instance_valid(bars[index]):
 				continue
@@ -1762,6 +1738,8 @@ func _build_control_settings() -> void:
 		"confirm": "CONFIRMAR",
 		"back": "VOLVER",
 		"pause": "PAUSA / REPRODUCIR",
+		"shift_left": "SHIFT IZQUIERDO",
+		"shift_right": "SHIFT DERECHO",
 		"preview": "VISTA PREVIA",
 		"delete": "BORRAR",
 	}
@@ -2190,9 +2168,28 @@ func _on_slider_changed(value: float, key: String, value_label: Label, format: S
 	if format in ["integer", "milliseconds"]:
 		stored_value = roundi(value)
 	settings_manager.set_setting(key, stored_value)
-	if key == "menu_music_volume":
+	if key == "music_volume":
 		var has_audio := menu_music_manager != null and menu_music_manager.featured_audio_available
 		_refresh_featured_status(has_audio)
+
+
+func _register_music_volume_control(slider: Range, value_label: Label) -> void:
+	music_volume_controls.append({"slider": slider, "label": value_label})
+
+
+func _on_setting_changed(key: String, value) -> void:
+	if key != "music_volume":
+		return
+	var volume := float(value)
+	for control in music_volume_controls:
+		var slider := control.get("slider") as Range
+		var value_label := control.get("label") as Label
+		if is_instance_valid(slider):
+			slider.set_value_no_signal(volume)
+		if is_instance_valid(value_label):
+			value_label.text = _format_value(volume, "percent")
+	var has_audio := menu_music_manager != null and menu_music_manager.featured_audio_available
+	_refresh_featured_status(has_audio)
 
 
 func _on_segment_toggle_pressed(

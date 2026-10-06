@@ -33,7 +33,7 @@ func has_valid_file_chart() -> bool:
 
 
 func load_side_notes(bpm: float, _duration_seconds: float) -> Array[Dictionary]:
-	# Side tracks are visual/automatic. They never become extra playable lanes.
+	# Side tracks use the existing left/right Shift inputs without adding regular lanes.
 	var document_value = _read_chart_document()
 	if not is_valid_chart_document(document_value, key_count):
 		return []

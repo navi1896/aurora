@@ -33,6 +33,7 @@ const LANE_COLORS: Array[Color] = [
 var cinematic_sections: Array[Dictionary] = []
 var notes: Array[Dictionary] = []
 var shift_notes: Array[Dictionary] = []
+var side_notes: Array[Dictionary] = []
 var selected_note_ids: Array[int] = []
 var duration_seconds := 120.0
 var current_time := 0.0
@@ -106,6 +107,11 @@ func set_chart(
 
 func set_shift_notes(raw_shift_notes: Array) -> void:
 	shift_notes = ChartData.normalize_shift_notes(raw_shift_notes, key_count)
+	queue_redraw()
+
+
+func set_side_notes(raw_side_notes: Array) -> void:
+	side_notes = ChartData.normalize_side_notes(raw_side_notes)
 	queue_redraw()
 
 
@@ -403,6 +409,7 @@ func _draw() -> void:
 	_draw_cinematic_sections()
 	_draw_notes()
 	_draw_shift_notes()
+	_draw_side_notes()
 	_draw_playhead()
 	_draw_header()
 	if drag_mode == "marquee":
@@ -739,12 +746,27 @@ func _draw_shift_notes() -> void:
 		draw_string(
 			PIXEL_FONT,
 			Vector2(connector_x + 5.0, label_y),
-			"SHIFT",
+			"DOBLE",
 			HORIZONTAL_ALIGNMENT_LEFT,
 			-1.0,
 			7,
 			outline
 		)
+
+
+func _draw_side_notes() -> void:
+	for note in side_notes:
+		var start_time := float(note["time"])
+		var end_time := start_time + float(note.get("duration", 0.0))
+		if end_time < viewport_model.get_visible_start() or start_time > viewport_model.get_visible_end():
+			continue
+		var x := viewport_model.time_to_x(start_time)
+		var end_x := viewport_model.time_to_x(end_time)
+		var left_side := int(note["side"]) == 0
+		var y := HEADER_HEIGHT + 9.0 if left_side else size.y - 13.0
+		var color := AuroraUi.VIOLET if left_side else AuroraUi.TEAL
+		draw_rect(Rect2(x, y, maxf(end_x - x, 8.0), 8.0), Color(color.r, color.g, color.b, 0.84))
+		draw_string(PIXEL_FONT, Vector2(x + 3.0, y - 2.0), "L SHIFT" if left_side else "R SHIFT", HORIZONTAL_ALIGNMENT_LEFT, -1.0, 7, color)
 
 
 func _draw_playhead() -> void:

@@ -1,4 +1,4 @@
-AURORA 1.0.0 — CRÉDITOS Y AVISOS DE TERCEROS
+AURORA 1.1.1 — CRÉDITOS Y AVISOS DE TERCEROS
 ================================================
 
 Aurora
@@ -82,9 +82,18 @@ El texto completo se incluye en:
 licenses/PressStart2P/OFL.txt
 
 
+MAX COMBO cue
+-------------
+La distribución incluye un recorte breve de audio de DJMAX RESPECT V,
+proporcionado por el propietario del proyecto para el efecto MAX COMBO de
+Aurora. El audio no es un recurso original de Aurora; los derechos del sonido
+subyacente pertenecen a sus respectivos titulares. El archivo y su procedencia
+se documentan en assets/audio/djmax_trial/.
+
+
 Contenido importado por el usuario
 ----------------------------------
-Las canciones, videos, imágenes y charts que cada jugador importe o cree no
-forman parte de la distribución oficial de Aurora. Sus derechos y permisos
-siguen perteneciendo a sus respectivos autores. Cada usuario es responsable de
-contar con permiso para utilizar y compartir ese contenido.
+Las canciones completas, videos, imágenes y charts que cada jugador importe o
+cree no forman parte de la distribución oficial de Aurora. Sus derechos y
+permisos siguen perteneciendo a sus respectivos autores. Cada usuario es
+responsable de contar con permiso para utilizar y compartir ese contenido.

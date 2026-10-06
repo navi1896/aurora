@@ -2,6 +2,9 @@ extends Control
 
 class_name PauseMenu
 
+const SOUNDS := preload("res://src/audio/GameSoundBank.gd")
+const COUNTDOWN_DIAL := preload("res://src/screens/pause/ResumeCountdownDial.gd")
+
 signal restart_requested
 signal song_select_requested
 signal main_menu_requested
@@ -32,8 +35,11 @@ var settings_manager: SettingsManager
 var input_manager: InputManager
 var ui_feedback
 var resume_countdown_label: Label
-var resume_countdown_step_seconds := 0.45
+var resume_countdown_dial: Control
+var resume_countdown_player: AudioStreamPlayer
+var resume_countdown_step_seconds := 1.0
 var resume_in_progress := false
+var resume_countdown_token := 0
 var editor_test_mode := false
 var visual_sliders: Dictionary = {}
 var visual_values: Dictionary = {}
@@ -131,9 +137,13 @@ func _format_time(seconds: float) -> String:
 
 
 func open_menu() -> void:
+	resume_countdown_token += 1
 	resume_in_progress = false
+	resume_countdown_player.stop()
+	$Dimmer.color.a = 0.86
 	pause_margins.show()
 	resume_countdown_label.hide()
+	resume_countdown_dial.hide()
 	_refresh_controls()
 	show()
 	get_tree().paused = true
@@ -144,11 +154,14 @@ func close_menu() -> void:
 	if resume_in_progress or not visible:
 		return
 	if ui_feedback != null:
-		ui_feedback.play_confirm()
+		ui_feedback.play_resume()
 	resume_in_progress = true
+	resume_countdown_token += 1
 	pause_margins.hide()
+	$Dimmer.color.a = 0.55
 	resume_countdown_label.show()
-	_run_resume_countdown()
+	resume_countdown_dial.show()
+	_run_resume_countdown(resume_countdown_token)
 
 
 func _input(event: InputEvent) -> void:
@@ -171,6 +184,16 @@ func _input(event: InputEvent) -> void:
 
 
 func _build_resume_countdown() -> void:
+	resume_countdown_player = AudioStreamPlayer.new()
+	resume_countdown_player.name = "ResumeCountdownSound"
+	resume_countdown_player.process_mode = Node.PROCESS_MODE_ALWAYS
+	resume_countdown_player.bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
+	resume_countdown_player.volume_db = -2.0
+	add_child(resume_countdown_player)
+	resume_countdown_dial = COUNTDOWN_DIAL.new()
+	AuroraUi.fill(resume_countdown_dial)
+	add_child(resume_countdown_dial)
+	resume_countdown_dial.hide()
 	resume_countdown_label = AuroraUi.make_pixel_label("3", 96, AuroraUi.TEAL)
 	AuroraUi.fill(resume_countdown_label)
 	resume_countdown_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -183,22 +206,38 @@ func _build_resume_countdown() -> void:
 	resume_countdown_label.hide()
 
 
-func _run_resume_countdown() -> void:
+func _run_resume_countdown(token: int) -> void:
 	var step_seconds := maxf(resume_countdown_step_seconds, 0.01)
 	for value in [3, 2, 1]:
+		if token != resume_countdown_token or not is_inside_tree():
+			return
 		resume_countdown_label.text = str(value)
 		resume_countdown_label.add_theme_color_override("font_color", AuroraUi.TEAL)
+		resume_countdown_dial.begin_step(value, step_seconds, bool(settings_manager.get_setting("reduced_motion", false)))
+		_play_countdown_cue(value)
 		await get_tree().create_timer(step_seconds, true).timeout
+	if token != resume_countdown_token or not is_inside_tree():
+		return
 	resume_countdown_label.text = "GO!"
 	resume_countdown_label.add_theme_color_override("font_color", AuroraUi.GOLD)
-	await get_tree().create_timer(step_seconds * 0.75, true).timeout
-	_finish_resume()
+	resume_countdown_dial.begin_step(0, step_seconds, true)
+	_play_countdown_cue(0)
+	await get_tree().create_timer(0.12, true).timeout
+	if token == resume_countdown_token and is_inside_tree():
+		_finish_resume()
+
+
+func _play_countdown_cue(value: int) -> void:
+	resume_countdown_player.stop()
+	resume_countdown_player.stream = SOUNDS.COUNTDOWN.get(value)
+	resume_countdown_player.play()
 
 
 func _finish_resume() -> void:
 	get_tree().paused = false
 	resume_in_progress = false
 	resume_countdown_label.hide()
+	resume_countdown_dial.hide()
 	pause_margins.show()
 	hide()
 
@@ -304,14 +343,18 @@ func _request_main_menu() -> void:
 
 
 func _leave_pause_for_navigation() -> void:
+	resume_countdown_token += 1
+	resume_countdown_player.stop()
 	get_tree().paused = false
 	resume_in_progress = false
 	if resume_countdown_label != null:
 		resume_countdown_label.hide()
+		resume_countdown_dial.hide()
 	pause_margins.show()
 	hide()
 
 
 func _exit_tree() -> void:
+	resume_countdown_token += 1
 	if get_tree() != null:
 		get_tree().paused = false

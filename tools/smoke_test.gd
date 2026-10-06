@@ -135,26 +135,22 @@ func _run() -> void:
 	)
 	_expect(
 		ui_feedback_manager.feedback_player != null
-		and ui_feedback_manager.feedback_streams.size() >= 5
 		and ui_feedback_manager.feedback_player.bus == "SFX"
-		and ui_feedback_manager.feedback_streams.get("confirm", null) is AudioStreamWAV
-		and ui_feedback_manager.feedback_streams.get("loading", null) is AudioStreamWAV,
-		"La interfaz genera confirmaciones originales en el bus de efectos"
+		and ui_feedback_manager.feedback_streams.get("confirm", null) == null
+		and ui_feedback_manager.feedback_streams.get("loading", null) == null,
+		"La interfaz deja desactivados los efectos no aprobados"
 	)
-	var original_menu_volume := float(
-		settings_manager.get_setting("menu_music_volume", 0.72)
-	)
-	var original_song_volume := float(settings_manager.get_setting("music_volume", 0.85))
-	settings_manager.settings["menu_music_volume"] = 0.30
-	settings_manager.settings["music_volume"] = 0.80
+	var original_music_volume := float(settings_manager.get_setting("music_volume", 0.85))
+	settings_manager.settings["music_volume"] = 0.30
 	settings_manager.apply_audio_settings()
 	_expect(
-		AudioServer.get_bus_volume_db(AudioServer.get_bus_index("MenuMusic"))
-		< AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Music")),
-		"El mezclador controla el menú aparte de las canciones"
+		is_equal_approx(
+			AudioServer.get_bus_volume_db(AudioServer.get_bus_index("MenuMusic")),
+			AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Music"))
+		),
+		"El volumen de música controla a la vez el menú y las canciones"
 	)
-	settings_manager.settings["menu_music_volume"] = original_menu_volume
-	settings_manager.settings["music_volume"] = original_song_volume
+	settings_manager.settings["music_volume"] = original_music_volume
 	settings_manager.apply_audio_settings()
 	_expect(
 		str(settings_manager.DEFAULT_SETTINGS["resolution"]) == "1280x720",
@@ -439,7 +435,10 @@ func _run() -> void:
 			)
 			gameplay.settings_manager.settings["background_animation_enabled"] = true
 			gameplay._apply_visual_settings()
-		_expect(gameplay.get_node_or_null("PlayfieldFrame") != null, "Gameplay crea el playfield central")
+		_expect(
+			gameplay.find_child("PlayfieldFrame", true, false) != null,
+			"Gameplay crea el playfield central"
+		)
 		_expect(
 			not gameplay.start_gate_active
 			and not gameplay.start_countdown_active
@@ -491,13 +490,14 @@ func _run() -> void:
 				receptor_center_y > hit_line_center_y,
 				"Los indicadores de carril están debajo de la línea de impacto"
 			)
+			var reference_fit: float = gameplay.skin_canvas.scale.y
 			_expect(
-				line_to_receptor_gap >= 18.0 and line_to_receptor_gap <= 42.0,
-				"La línea deja entre una y dos notas de espacio antes de los receptores"
+				absf(line_to_receptor_gap - 10.0 * reference_fit) <= 2.0,
+				"La línea y los receptores conservan la separación del diseño"
 			)
 			_expect(
-				gameplay.hit_line.size.y >= 36.0 and gameplay.hit_line.size.y <= 44.0,
-				"La zona de impacto tiene aproximadamente tres cuartos de tecla"
+				absf(gameplay.hit_line.get_global_rect().size.y - 14.0 * reference_fit) <= 1.0,
+				"La línea de impacto conserva su grosor fino en la escala del juego"
 			)
 			_expect(
 				gameplay.control_deck.size.y <= 170.0,
@@ -594,12 +594,12 @@ func _run() -> void:
 		gameplay.miss_feedback_duration = 0.01
 		gameplay._play_miss_effect(0)
 		_expect(
-			gameplay.lane_receptors[0].modulate.r > gameplay.lane_receptors[0].modulate.g,
+			gameplay.lane_receptors[0].miss_energy > 0.0,
 			"Un MISS identifica visualmente el carril responsable"
 		)
-		await create_timer(0.05, true).timeout
+		await create_timer(0.30, true).timeout
 		_expect(
-			gameplay.lane_receptors[0].modulate.is_equal_approx(Color.WHITE),
+			gameplay.lane_receptors[0].miss_energy <= 0.0,
 			"El destello de MISS se limpia automáticamente"
 		)
 		gameplay.settings_manager.settings["show_hit_effects"] = previous_hit_effects
@@ -659,7 +659,7 @@ func _run() -> void:
 				"B/Circle continúa e inicia la cuenta regresiva"
 			)
 			_expect(gameplay.pause_menu.resume_countdown_label.visible, "La cuenta regresiva es visible")
-			await create_timer(0.15, true).timeout
+			await create_timer(0.25, true).timeout
 			_expect(not paused, "El juego se reanuda al terminar la cuenta regresiva")
 			_expect(not gameplay.pause_menu.visible, "El menú se oculta después de continuar")
 
@@ -1067,8 +1067,11 @@ func _run() -> void:
 		_expect(
 			editor.quick_lane_option.get_parent() == editor.manual_quick_tools_container
 			and editor.quick_add_hold_button.text == AuroraLocale.text("+ MANTENER")
-			and editor.quick_shift_pair_option.get_parent() == editor.manual_quick_tools_container
-			and editor.quick_add_shift_button.text == AuroraLocale.text("+ SHIFT HOLD")
+			and editor.quick_shift_pair_option.get_parent() == editor.manual_special_tools_container
+			and editor.quick_side_option.get_parent() == editor.manual_special_tools_container
+			and editor.quick_side_duration_spin.get_parent() == editor.manual_special_tools_container
+			and editor.quick_add_side_button.get_parent() == editor.manual_special_tools_container
+			and editor.quick_add_side_button.text == AuroraLocale.text("+ SHIFT LATERAL")
 			and editor.test_button.text == AuroraLocale.text("▶ PROBAR NIVEL")
 			and editor.package_version_edit != null
 			and not editor.package_version_edit.editable,

@@ -2,31 +2,60 @@ extends Node
 
 class_name UiFeedbackManager
 
+const SOUNDS := preload("res://src/audio/GameSoundBank.gd")
 const SAMPLE_RATE := 22050
 const GAP_SECONDS := 0.018
 
 var feedback_player: AudioStreamPlayer
 var feedback_streams: Dictionary = {}
+var last_navigation_msec := -1000
+var last_confirmation_msec := -1000
 
 
 func _ready() -> void:
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	feedback_player = AudioStreamPlayer.new()
 	feedback_player.name = "AuroraUiFeedback"
 	feedback_player.bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
-	feedback_player.volume_db = -8.0
+	feedback_player.volume_db = -2.0
 	add_child(feedback_player)
 	feedback_streams = {
-		"navigation": _create_sequence([[980.0, 0.022, 0.075], [1280.0, 0.032, 0.045]]),
-		"cabinet_click": _create_sequence([[1600.0, 0.008, 0.18], [220.0, 0.032, 0.16]]),
-		"confirm": _create_sequence([[330.0, 0.022, 0.06], [780.0, 0.045, 0.12], [1180.0, 0.070, 0.11]]),
-		"loading": _create_sequence([[220.0, 0.030, 0.05], [510.0, 0.045, 0.09], [940.0, 0.075, 0.11]]),
-		"pause": _create_sequence([[430.0, 0.060, 0.13], [320.0, 0.070, 0.11]]),
-		"clear": _create_sequence([
-			[620.0, 0.050, 0.12],
-			[830.0, 0.060, 0.14],
-			[1040.0, 0.110, 0.16],
-		]),
+		"navigation": SOUNDS.MENU_SELECT,
+		"song_navigation": SOUNDS.SONG_SELECT,
+		"cabinet_click": SOUNDS.CONFIRM,
+		"confirm": SOUNDS.CONFIRM,
+		"resume": SOUNDS.RESUME,
+		"loading": SOUNDS.LOADING,
+		"pause": SOUNDS.PAUSE,
+		"clear": SOUNDS.STAGE_CLEAR,
 	}
+	get_tree().node_added.connect(_on_node_added)
+	_bind_existing_buttons(get_tree().current_scene)
+
+
+func _on_node_added(node: Node) -> void:
+	if node is Button:
+		call_deferred("_bind_button", node)
+
+
+func _bind_existing_buttons(node: Node) -> void:
+	if node == null:
+		return
+	if node is Button:
+		_bind_button(node)
+	for child in node.get_children():
+		_bind_existing_buttons(child)
+
+
+func _bind_button(button: Button) -> void:
+	if not is_instance_valid(button):
+		return
+	if not button.mouse_entered.is_connected(play_navigation):
+		button.mouse_entered.connect(play_navigation)
+	if not button.focus_entered.is_connected(play_navigation):
+		button.focus_entered.connect(play_navigation)
+	if not button.pressed.is_connected(play_confirm):
+		button.pressed.connect(play_confirm)
 
 
 func play_navigation() -> void:
@@ -37,8 +66,16 @@ func play_cabinet_click() -> void:
 	_play("cabinet_click")
 
 
+func play_song_navigation() -> void:
+	_play("song_navigation")
+
+
 func play_confirm() -> void:
 	_play("confirm")
+
+
+func play_resume() -> void:
+	_play("resume")
 
 
 func play_loading() -> void:
@@ -55,6 +92,18 @@ func play_clear() -> void:
 
 func _play(kind: String) -> void:
 	if feedback_player == null:
+		return
+	var now := Time.get_ticks_msec()
+	if kind in ["navigation", "song_navigation"]:
+		if now - last_navigation_msec < 75 or now - last_confirmation_msec < 180:
+			return
+		last_navigation_msec = now
+	elif kind in ["confirm", "cabinet_click", "resume"]:
+		# Explicit screen callbacks and the generic button hook share one event.
+		if now - last_confirmation_msec < 100:
+			return
+		last_confirmation_msec = now
+	elif kind == "loading" and now - last_confirmation_msec < 180:
 		return
 	var stream := feedback_streams.get(kind, null) as AudioStreamWAV
 	if stream == null:

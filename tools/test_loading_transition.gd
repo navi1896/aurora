@@ -26,32 +26,27 @@ func _run() -> void:
 	if scenes != null and loading != null:
 		_expect(
 			loading.request_transition("settings", Callable(scenes, "_load_scene_immediately")),
-			"Solicita una transición de carga"
+			"Solicita la transición breve de configuración"
 		)
 		_expect(
-			popup_layer != null and popup_layer.get_node_or_null("LoadingTransition") != null,
-			"Muestra la capa de carga"
+			loading.active_display_seconds == LoadingTransitionManager.SETTINGS_COVER_SECONDS
+			and popup_layer != null
+			and popup_layer.get_node_or_null("LoadingTransition/SettingsTransitionCard") != null,
+			"Configuración usa su transición visual breve"
 		)
-		await process_frame
-		loading._process(LoadingTransitionManager.DISPLAY_SECONDS * 0.5)
+		loading._process(LoadingTransitionManager.SETTINGS_COVER_SECONDS + 0.01)
 		await process_frame
 		_expect(
-			loading.progress_track != null
-			and loading.progress_fill != null
-			and loading.progress_track.get_global_rect().encloses(
-				loading.progress_fill.get_global_rect()
-			)
-			and loading.progress_fill.size.x > 0.0
-			and loading.progress_fill.size.x < loading.progress_track.size.x,
-			"La barra de carga queda contenida y refleja el avance"
+			scenes.current_scene_name == "settings",
+			"La transición breve abre configuración"
 		)
-		loading._process(LoadingTransitionManager.DISPLAY_SECONDS + 0.01)
+		await create_timer(LoadingTransitionManager.SETTINGS_REVEAL_SECONDS + 0.1).timeout
 		await process_frame
-		_expect(scenes.current_scene_name == "settings", "Abre la escena al completar la carga")
 		_expect(
 			popup_layer != null and popup_layer.get_node_or_null("LoadingTransition") == null,
-			"Retira la capa cuando termina"
+			"Retira la transición breve al terminar"
 		)
+
 		var game_manager := app.get_node_or_null("Managers/GameManager") as GameManager
 		var cover_image := Image.create(16, 9, false, Image.FORMAT_RGBA8)
 		cover_image.fill(Color(0.1, 0.8, 0.95, 1.0))
@@ -62,7 +57,7 @@ func _run() -> void:
 			game_manager.current_song = cover_song
 		_expect(
 			loading.request_transition("gameplay", Callable(scenes, "_load_scene_immediately")),
-			"Solicita una carga de canción con portada"
+			"Solicita la carga de juego con portada"
 		)
 		await process_frame
 		var cover_view := popup_layer.get_node_or_null("LoadingTransition/LoadingCover") as TextureRect
@@ -72,8 +67,25 @@ func _run() -> void:
 			and cover_view.get_global_rect().size.y >= float(root.size.y) * 0.99,
 			"La portada ocupa la pantalla completa durante la carga"
 		)
+		loading._process(LoadingTransitionManager.DISPLAY_SECONDS * 0.5)
+		await process_frame
+		_expect(
+			loading.progress_track != null
+			and loading.progress_fill != null
+			and loading.progress_track.get_global_rect().encloses(
+				loading.progress_fill.get_global_rect()
+			)
+			and loading.progress_fill.size.x > 0.0
+			and loading.progress_fill.size.x < loading.progress_track.size.x,
+			"La transición de juego contiene la barra y refleja el avance"
+		)
 		loading._process(LoadingTransitionManager.DISPLAY_SECONDS + 0.01)
 		await process_frame
+		_expect(scenes.current_scene_name == "gameplay", "Abre el juego al completar la transición")
+		_expect(
+			popup_layer.get_node_or_null("LoadingTransition") == null,
+			"Retira la transición de juego al terminar"
+		)
 	if failures.is_empty():
 		print("LOADING TRANSITION TEST PASSED")
 		quit(0)

@@ -2,6 +2,9 @@ extends Control
 
 class_name Results
 
+const COMBO_CROWN := preload("res://src/screens/gameplay/ComboCrown.gd")
+const SCORE_REVEAL_SECONDS := 1.8
+
 var scene_manager: SceneManager
 var game_manager: GameManager
 var input_manager: InputManager
@@ -10,6 +13,9 @@ var buttons: Array[Button] = []
 var actions: Array[String] = []
 var selected_button := 0
 var new_record_label: Label
+var score_value_label: Label
+
+var score_reveal_tween: Tween
 
 
 func _ready() -> void:
@@ -25,16 +31,25 @@ func _ready() -> void:
 
 
 func _play_result_feedback() -> void:
-	if ui_feedback == null:
+	var score_target := int(game_manager.last_result.get("score", 0))
+	var settings = get_tree().current_scene.get_node("Managers/SettingsManager")
+	if bool(settings.get_setting("reduced_motion", false)):
+		_set_revealed_score(float(score_target))
 		return
-	var result := game_manager.last_result
-	if bool(result.get("clear_celebration_played", false)):
-		return
-	var total_notes := int(result.get("total_notes", 0))
-	if total_notes > 0 and int(result.get("max_combo", 0)) >= total_notes:
-		ui_feedback.play_clear()
-	else:
-		ui_feedback.play_confirm()
+	score_reveal_tween = create_tween()
+	score_reveal_tween.tween_method(
+		_set_revealed_score,
+		0.0,
+		float(score_target),
+		SCORE_REVEAL_SECONDS
+	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	await score_reveal_tween.finished
+	if is_inside_tree():
+		_set_revealed_score(float(score_target))
+
+func _set_revealed_score(value: float) -> void:
+	if is_instance_valid(score_value_label):
+		score_value_label.text = "%07d" % roundi(value)
 
 
 func setup_ui() -> void:
@@ -45,6 +60,8 @@ func setup_ui() -> void:
 	_build_background()
 	_build_header()
 	_build_result_card()
+	_build_result_chrome()
+	_build_cumulative_band()
 	_build_actions()
 	_build_footer()
 
@@ -95,10 +112,10 @@ func _build_header() -> void:
 	var title_box := VBoxContainer.new()
 	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(title_box)
-	var title := AuroraUi.make_pixel_label(AuroraLocale.text("RESULTADOS"), 24, AuroraUi.TEXT)
+	var title := AuroraUi.make_pixel_label(AuroraLocale.text("RESULTADOS"), 30, AuroraUi.TEXT)
 	title.autowrap_mode = TextServer.AUTOWRAP_OFF
 	title_box.add_child(title)
-	var subtitle := AuroraUi.make_pixel_label("AURORA // PERFORMANCE LINK", 8, AuroraUi.TEAL)
+	var subtitle := AuroraUi.make_pixel_label("CABINA // REGISTRO DE PARTIDA", 8, AuroraUi.TEAL)
 	subtitle.autowrap_mode = TextServer.AUTOWRAP_OFF
 	title_box.add_child(subtitle)
 
@@ -128,13 +145,13 @@ func _build_result_card() -> void:
 	var rank_color := _get_rank_color(rank)
 
 	var card := PanelContainer.new()
-	card.anchor_left = 0.15
+	card.anchor_left = 0.14
 	card.anchor_top = 0.16
-	card.anchor_right = 0.85
-	card.anchor_bottom = 0.72
+	card.anchor_right = 0.86
+	card.anchor_bottom = 0.705
 	var card_style := AuroraUi.make_style(
-		Color(0.006, 0.010, 0.032, 0.91),
-		Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.72),
+		Color(0.006, 0.010, 0.032, 0.96),
+		Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.88),
 		0
 	)
 	card_style.border_width_left = 2
@@ -152,18 +169,35 @@ func _build_result_card() -> void:
 	body.add_theme_constant_override("separation", 44)
 	card.add_child(body)
 
+	var rank_panel := PanelContainer.new()
+	rank_panel.custom_minimum_size.x = 390.0
+	var rank_style := AuroraUi.make_style(Color(0.018, 0.025, 0.064, 0.96), Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.8), 0)
+	rank_style.border_width_left = 2
+	rank_style.border_width_top = 2
+	rank_style.border_width_right = 2
+	rank_style.border_width_bottom = 2
+	rank_style.content_margin_left = 16.0
+	rank_style.content_margin_right = 16.0
+	rank_panel.add_theme_stylebox_override("panel", rank_style)
+	body.add_child(rank_panel)
 	var rank_box := VBoxContainer.new()
-	rank_box.custom_minimum_size.x = 390.0
 	rank_box.alignment = BoxContainer.ALIGNMENT_CENTER
 	rank_box.add_theme_constant_override("separation", 8)
-	body.add_child(rank_box)
+	rank_panel.add_child(rank_box)
 
 	var clear_status := _get_clear_status(result)
+	if int(result.get("total_notes", 0)) > 0 and int(result.get("miss", 0)) == 0:
+		var crown = COMBO_CROWN.new()
+		crown.custom_minimum_size = Vector2(160.0, 88.0)
+		crown.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		rank_box.add_child(crown)
 	var complete := AuroraUi.make_pixel_label(
 		clear_status,
-		10,
+		14,
 		_get_clear_status_color(clear_status)
 	)
+
+
 	complete.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	rank_box.add_child(complete)
 	if bool(game_manager.last_record_update.get("is_new_record", false)):
@@ -202,18 +236,21 @@ func _build_result_card() -> void:
 
 	var data_title := AuroraUi.make_pixel_label(
 		AuroraLocale.text("DATOS DE RENDIMIENTO"),
-		10,
+		12,
 		AuroraUi.VIOLET
 	)
 	data_title.autowrap_mode = TextServer.AUTOWRAP_OFF
 	data_box.add_child(data_title)
-	_add_stat(
+	score_value_label = _add_stat(
 		data_box,
 		AuroraLocale.text("PUNTUACIÓN"),
 		"%07d" % int(result.get("score", 0)),
 		AuroraUi.GOLD,
-		24
+		38
 	)
+	var settings = get_tree().current_scene.get_node("Managers/SettingsManager")
+	if not bool(settings.get_setting("reduced_motion", false)):
+		score_value_label.text = "0000000"
 	_add_rule(data_box)
 
 	var judgments := GridContainer.new()
@@ -227,7 +264,10 @@ func _build_result_card() -> void:
 	_add_stat_cell(judgments, AuroraLocale.text("FALLO"), str(result.get("miss", 0)), AuroraUi.CORAL)
 
 	_add_rule(data_box)
-	_add_stat(data_box, AuroraLocale.text("COMBO MÁXIMO"), str(result.get("max_combo", 0)), AuroraUi.TEXT)
+	_add_stat(data_box, AuroraLocale.text("COMBO MÁXIMO"), str(result.get("max_combo", 0)), AuroraUi.TEXT, 20)
+	_add_stat(data_box, AuroraLocale.text("COMBO GANADO"), "+%d" % int(result.get("combo_earned", 0)), AuroraUi.GOLD, 20)
+	var fever_level := clampi(int(result.get("fever_max_level", 2 if bool(result.get("fever_reached", false)) else 1)), 1, 5)
+	_add_stat(data_box, "FEVER", "NIVEL %d  ×%d" % [fever_level, fever_level], AuroraUi.TEAL, 16)
 	_add_timing_stat(data_box, result)
 	_add_stat(
 		data_box,
@@ -237,12 +277,82 @@ func _build_result_card() -> void:
 	)
 
 
+func _build_result_chrome() -> void:
+	for side in range(2):
+		var rail := ColorRect.new()
+		rail.anchor_left = 0.14 if side == 0 else 0.86
+		rail.anchor_top = 0.16
+		rail.anchor_right = rail.anchor_left
+		rail.anchor_bottom = 0.705
+		rail.offset_left = -9.0 if side == 0 else 3.0
+		rail.offset_right = -3.0 if side == 0 else 9.0
+		rail.color = AuroraUi.TEAL if side == 0 else AuroraUi.VIOLET
+		rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(rail)
+	var top_strip := ColorRect.new()
+	top_strip.anchor_left = 0.17
+	top_strip.anchor_top = 0.16
+	top_strip.anchor_right = 0.83
+	top_strip.anchor_bottom = 0.16
+	top_strip.offset_top = 7.0
+	top_strip.offset_bottom = 11.0
+	top_strip.color = AuroraUi.TEAL
+	top_strip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(top_strip)
+	for side in range(2):
+		var corner := ColorRect.new()
+		corner.anchor_left = 0.14 if side == 0 else 0.86
+		corner.anchor_top = 0.16
+		corner.anchor_right = corner.anchor_left
+		corner.anchor_bottom = 0.16
+		corner.offset_left = 0.0 if side == 0 else -50.0
+		corner.offset_right = 50.0 if side == 0 else 0.0
+		corner.offset_top = 0.0
+		corner.offset_bottom = 6.0
+		corner.color = AuroraUi.VIOLET if side == 0 else AuroraUi.TEAL
+		corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		add_child(corner)
+
+
+func _build_cumulative_band() -> void:
+	var result := game_manager.last_result
+	var band := PanelContainer.new()
+	band.anchor_left = 0.14
+	band.anchor_top = 0.716
+	band.anchor_right = 0.86
+	band.anchor_bottom = 0.765
+	var style := AuroraUi.make_style(Color(0.008, 0.018, 0.045, 0.96), AuroraUi.VIOLET, 0)
+	style.border_width_top = 2
+	style.border_width_bottom = 2
+	style.content_margin_left = 24.0
+	style.content_margin_right = 24.0
+	band.add_theme_stylebox_override("panel", style)
+	add_child(band)
+	var row := HBoxContainer.new()
+	band.add_child(row)
+	var caption := AuroraUi.make_pixel_label("ACIERTOS ACUMULADOS", 9, AuroraUi.TEAL)
+	caption.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	caption.autowrap_mode = TextServer.AUTOWRAP_OFF
+	caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(caption)
+	var total := AuroraUi.make_pixel_label("%d  +  %d  =  %d" % [
+		int(result.get("cumulative_combo_before", 0)),
+		int(result.get("cumulative_hits_earned", 0)) if not game_manager.editor_test_active else 0,
+		int(result.get("cumulative_combo_after", 0)),
+	], 14, AuroraUi.GOLD)
+	total.custom_minimum_size.x = 480.0
+	total.autowrap_mode = TextServer.AUTOWRAP_OFF
+	total.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	total.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(total)
+
+
 func _build_actions() -> void:
 	var action_row := HBoxContainer.new()
 	action_row.anchor_left = 0.20
-	action_row.anchor_top = 0.77
+	action_row.anchor_top = 0.79
 	action_row.anchor_right = 0.80
-	action_row.anchor_bottom = 0.86
+	action_row.anchor_bottom = 0.875
 	action_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	action_row.add_theme_constant_override("separation", 16)
 	add_child(action_row)
@@ -263,7 +373,7 @@ func _build_actions() -> void:
 		var button := data[0] as Button
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size = Vector2(250.0, 62.0)
-		AuroraUi.apply_pixel_font(button, 10)
+		AuroraUi.apply_pixel_font(button, 12)
 		action_row.add_child(button)
 		buttons.append(button)
 		actions.append(data[1])
@@ -367,10 +477,10 @@ func _add_stat(
 	value: String,
 	color: Color,
 	value_size: int = 16
-) -> void:
+) -> Label:
 	var row := HBoxContainer.new()
 	parent.add_child(row)
-	var left := AuroraUi.make_pixel_label(stat_name, 9, AuroraUi.MUTED)
+	var left := AuroraUi.make_pixel_label(stat_name, 11, AuroraUi.MUTED)
 	left.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	left.autowrap_mode = TextServer.AUTOWRAP_OFF
 	left.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -380,17 +490,18 @@ func _add_stat(
 	right.autowrap_mode = TextServer.AUTOWRAP_OFF
 	right.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	row.add_child(right)
+	return right
 
 
 func _add_stat_cell(parent: GridContainer, stat_name: String, value: String, color: Color) -> void:
 	var cell := HBoxContainer.new()
 	cell.custom_minimum_size.x = 260.0
 	parent.add_child(cell)
-	var label := AuroraUi.make_pixel_label(stat_name, 8, AuroraUi.MUTED)
+	var label := AuroraUi.make_pixel_label(stat_name, 10, AuroraUi.MUTED)
 	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	cell.add_child(label)
-	var number := AuroraUi.make_pixel_label(value, 15, color)
+	var number := AuroraUi.make_pixel_label(value, 22, color)
 	number.custom_minimum_size.x = 92.0
 	number.autowrap_mode = TextServer.AUTOWRAP_OFF
 	number.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT

@@ -20,6 +20,7 @@ var active_player_index := -1
 var using_video_preview := false
 var active_video_player_index := -1
 var fade_tween: Tween
+var transition_tween: Tween
 var preview_start := 0.0
 var preview_end := 0.0
 var pending_start_at_msec := 0
@@ -50,6 +51,9 @@ func _ready() -> void:
 		video_players.append(video_player)
 	if scene_manager != null:
 		scene_manager.scene_loaded.connect(_on_scene_loaded)
+		var transition = get_parent().get_node_or_null("LoadingTransitionManager")
+		if transition != null:
+			transition.transition_started.connect(_on_transition_started)
 		active_scene_name = scene_manager.current_scene_name
 		if active_scene_name in MENU_SCREENS:
 			ensure_featured_song()
@@ -141,6 +145,59 @@ func _on_scene_loaded(scene_name: String) -> void:
 		_fade_out_players()
 
 
+func _on_transition_started(_target_scene: String) -> void:
+	if active_scene_name not in MENU_SCREENS:
+		return
+	var playing_players: Array[AudioStreamPlayer] = []
+	var playing_video_players: Array[VideoStreamPlayer] = []
+	for player in players:
+		if player.playing:
+			playing_players.append(player)
+	for player in video_players:
+		if player.is_playing():
+			playing_video_players.append(player)
+	if playing_players.is_empty() and playing_video_players.is_empty():
+		return
+	if fade_tween != null and fade_tween.is_valid():
+		fade_tween.kill()
+	if transition_tween != null and transition_tween.is_valid():
+		transition_tween.kill()
+	transition_tween = create_tween()
+	transition_tween.set_parallel(true)
+	transition_tween.set_trans(Tween.TRANS_SINE)
+	for player in playing_players:
+		transition_tween.tween_property(player, "volume_db", -30.0, 0.25)
+	for player in playing_video_players:
+		transition_tween.tween_property(player, "volume_db", -30.0, 0.25)
+
+
+func _restore_menu_volume() -> void:
+	var target := clampf(featured_song.audio_gain_db, -18.0, 6.0) if featured_song != null else 0.0
+	for index in range(players.size()):
+		if index != active_player_index and players[index].playing:
+			_stop_faded_player(players[index])
+	for index in range(video_players.size()):
+		if index != active_video_player_index and video_players[index].is_playing():
+			_stop_faded_video_player(video_players[index])
+	var active_player: AudioStreamPlayer
+	var active_video_player: VideoStreamPlayer
+	if active_player_index >= 0 and players[active_player_index].playing:
+		active_player = players[active_player_index]
+	if using_video_preview and active_video_player_index >= 0 and video_players[active_video_player_index].is_playing():
+		active_video_player = video_players[active_video_player_index]
+	if active_player == null and active_video_player == null:
+		return
+	if transition_tween != null and transition_tween.is_valid():
+		transition_tween.kill()
+	transition_tween = create_tween()
+	transition_tween.set_parallel(true)
+	transition_tween.set_trans(Tween.TRANS_SINE)
+	if active_player != null:
+		transition_tween.tween_property(players[active_player_index], "volume_db", target, 0.55)
+	if active_video_player != null:
+		transition_tween.tween_property(video_players[active_video_player_index], "volume_db", target, 0.55)
+
+
 func _play_featured_song() -> void:
 	if featured_song == null or song_manager == null:
 		_fade_out_players()
@@ -155,6 +212,7 @@ func _play_featured_song() -> void:
 			if active.playing and active.stream == featured_song.audio:
 				preview_start = start
 				preview_end = end
+				_restore_menu_volume()
 				return
 		_start_crossfade(featured_song, start, end, CROSSFADE_SECONDS)
 		return
@@ -170,6 +228,7 @@ func _play_featured_song() -> void:
 		):
 			preview_start = video_start
 			preview_end = video_end
+			_restore_menu_volume()
 			return
 		_start_video_preview(featured_song, video_start, video_end)
 		return
@@ -301,6 +360,8 @@ func _stop_faded_video_player(player: VideoStreamPlayer) -> void:
 
 
 func _fade_out_players() -> void:
+	if transition_tween != null and transition_tween.is_valid():
+		transition_tween.kill()
 	if fade_tween != null and fade_tween.is_valid():
 		fade_tween.kill()
 	var playing_players: Array[AudioStreamPlayer] = []

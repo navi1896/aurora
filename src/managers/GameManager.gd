@@ -4,6 +4,7 @@ class_name GameManager
 
 const PERSONAL_RECORDS_PATH := "user://personal_records.json"
 const PERSONAL_RECORDS_VERSION := 1
+const CUMULATIVE_COMBO_PATH := "user://cumulative_combo.json"
 
 var is_playing := false
 var current_song: SongData
@@ -11,6 +12,7 @@ var current_chart: ChartData
 var last_result: Dictionary = {}
 var last_record_update: Dictionary = {}
 var personal_records: Dictionary = {}
+var cumulative_combo := 0
 var editor_test_active := false
 var editor_test_project_path := ""
 var requested_editor_project_path := ""
@@ -18,6 +20,7 @@ var requested_editor_project_path := ""
 
 func _ready() -> void:
 	_load_personal_records()
+	_load_cumulative_combo()
 
 
 func start_song(song: SongData, chart: ChartData) -> bool:
@@ -51,8 +54,20 @@ func can_start_song(song: SongData, chart: ChartData) -> bool:
 
 
 func complete_song(result: Dictionary, save_personal_record: bool = true) -> void:
+	if not is_playing:
+		return
 	last_result = result.duplicate(true)
 	last_record_update.clear()
+	last_result["cumulative_combo_before"] = cumulative_combo
+	var successful_hits := maxi(
+		int(result.get("perfect", 0)) + int(result.get("great", 0)) + int(result.get("good", 0)),
+		0
+	)
+	last_result["cumulative_hits_earned"] = successful_hits
+	if not editor_test_active:
+		cumulative_combo += successful_hits
+		_save_cumulative_combo()
+	last_result["cumulative_combo_after"] = cumulative_combo
 	if save_personal_record and not editor_test_active:
 		last_record_update = record_personal_result(
 			current_song,
@@ -60,6 +75,27 @@ func complete_song(result: Dictionary, save_personal_record: bool = true) -> voi
 			last_result
 		)
 	is_playing = false
+
+
+func _load_cumulative_combo() -> void:
+	cumulative_combo = 0
+	if not FileAccess.file_exists(CUMULATIVE_COMBO_PATH):
+		return
+	var file := FileAccess.open(CUMULATIVE_COMBO_PATH, FileAccess.READ)
+	if file == null:
+		return
+	var parsed = JSON.parse_string(file.get_as_text())
+	if parsed is Dictionary:
+		cumulative_combo = maxi(int(parsed.get("total", 0)), 0)
+
+
+func _save_cumulative_combo() -> void:
+	var file := FileAccess.open(CUMULATIVE_COMBO_PATH, FileAccess.WRITE)
+	if file == null:
+		push_warning("No se pudo guardar el combo acumulado")
+		return
+	file.store_string(JSON.stringify({"version": 1, "total": cumulative_combo}))
+	file.flush()
 
 
 func stop_song() -> void:

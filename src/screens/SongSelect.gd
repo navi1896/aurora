@@ -14,6 +14,7 @@ const LOCAL_PACKAGE_BATCH_PANEL := preload(
 )
 const SONG_PACKAGE_SERVICE := preload("res://src/packages/SongPackageService.gd")
 const PREVIEW_FADE_SECONDS := 0.5
+const PREVIEW_EXTRA_DURATION_SECONDS := 10.0
 const PREVIEW_SILENT_DB := -48.0
 const DEFAULT_SONG_ICON := preload("res://assets/menu/ui/music_note.png")
 
@@ -26,6 +27,7 @@ const DEFAULT_SONG_ICON := preload("res://assets/menu/ui/music_note.png")
 @onready var song_list_header: Label = $LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/SongListHeader
 @onready var search_field: LineEdit = $LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/FilterRow/SearchField
 @onready var filter_option: OptionButton = $LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/FilterRow/FilterOption
+@onready var collection_option: OptionButton = $LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/FilterRow/CollectionOption
 @onready var song_scroll: ScrollContainer = $LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/SongScroll
 @onready var song_list: VBoxContainer = $LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/SongScroll/SongList
 @onready var preview_cover: TextureRect = $LibraryMargins/PageLayout/LibraryBody/PreviewPanel/PreviewMargins/PreviewLayout/PreviewCover
@@ -55,6 +57,7 @@ static var remembered_song_id := ""
 static var remembered_chart_signature := ""
 static var remembered_search_text := ""
 static var remembered_filter_index := 0
+static var remembered_collection_id := ""
 
 var scene_manager: SceneManager
 var game_manager: GameManager
@@ -139,6 +142,11 @@ func _ready() -> void:
 	filter_option.add_item(AuroraLocale.text("TODAS"))
 	filter_option.add_item(AuroraLocale.text("FAVORITAS"))
 	filter_option.add_item(AuroraLocale.text("RECIENTES"))
+	collection_option.tooltip_text = AuroraLocale.text(
+		"FILTRA POR ARCHIVO DJMAX O POR AURORA MIX, TU GALERÍA DE YOUTUBE"
+	)
+	collection_option.item_selected.connect(_on_collection_filter_selected)
+	_setup_collection_filter()
 	search_field.text = remembered_search_text
 	filter_option.select(clampi(remembered_filter_index, 0, 2))
 	_setup_delete_dialog()
@@ -886,7 +894,7 @@ func _select_song(index: int, focus_button: bool) -> void:
 	selected_song_index = index
 	if song_changed:
 		if ui_feedback != null:
-			ui_feedback.play_navigation()
+			ui_feedback.play_song_navigation()
 		selected_chart_index = 0
 	_refresh_selection()
 	if song_changed:
@@ -910,7 +918,10 @@ func _refresh_selection() -> void:
 	preview_cover.texture = song.cover
 	preview_title.text = song.title.to_upper()
 	preview_artist.text = song.artist.to_upper()
-	preview_meta.text = AuroraLocale.text("DURACION %s") % song.get_duration_text()
+	preview_meta.text = "%s  //  %s" % [
+		AuroraLocale.text(SongData.collection_label(song.collection_id)),
+		AuroraLocale.text("DURACION %s") % song.get_duration_text(),
+	]
 	_populate_mode_buttons(song)
 	_update_chart_selection()
 	call_deferred("_update_library_layout")
@@ -963,7 +974,7 @@ func _select_chart(index: int) -> void:
 		return
 	selected_chart_index = index
 	if ui_feedback != null:
-		ui_feedback.play_navigation()
+		ui_feedback.play_song_navigation()
 	_update_chart_selection()
 	_remember_library_state()
 
@@ -1036,7 +1047,7 @@ func _queue_center_song_selection() -> void:
 
 
 func _center_song_selection(generation: int) -> void:
-	if generation != recenter_generation or song_buttons.is_empty():
+	if not is_inside_tree() or generation != recenter_generation or song_buttons.is_empty():
 		return
 	var row_height := song_buttons[selected_song_index].size.y
 	var separation := float(song_list.get_theme_constant("separation"))
@@ -1051,7 +1062,10 @@ func _center_song_selection(generation: int) -> void:
 			song_buttons.size()
 		)
 		song_list.move_child(song_buttons[song_index], visual_slot + 1)
-	await get_tree().process_frame
+	var tree := get_tree()
+	if tree == null:
+		return
+	await tree.process_frame
 	if generation != recenter_generation or not is_inside_tree():
 		return
 	var selected_button := song_buttons[selected_song_index]
@@ -1103,10 +1117,10 @@ func _start_selected_song() -> void:
 		return
 	_add_recent_song(song)
 	_remember_library_state()
-	_stop_preview()
 	if not game_manager.start_song(song, chart):
 		preview_status.text = AuroraLocale.text("NO SE PUDO INICIAR EL CHART")
 		return
+	_fade_preview_for_exit(4.6)
 	if ui_feedback != null:
 		ui_feedback.play_confirm()
 	scene_manager.load_scene("gameplay")
@@ -1156,9 +1170,10 @@ func _start_preview(song: SongData) -> void:
 		preview_status.text = AuroraLocale.text("DEMO SIN AUDIO")
 		return
 	var start_seconds := clampf(song.preview_start_seconds, 0.0, song.duration_seconds)
+	var preview_duration := maxf(song.preview_duration_seconds, 1.0) + PREVIEW_EXTRA_DURATION_SECONDS
 	preview_end_seconds = minf(
 		song.duration_seconds,
-		start_seconds + song.preview_duration_seconds
+		start_seconds + preview_duration
 	)
 	var segment_duration := maxf(preview_end_seconds - start_seconds, 0.1)
 	var fade_duration := minf(PREVIEW_FADE_SECONDS, segment_duration * 0.5)
@@ -1283,6 +1298,26 @@ func _stop_preview() -> void:
 		preview_button.text = AuroraLocale.text("▶ VISTA PREVIA")
 
 
+func _fade_preview_for_exit(fade_seconds: float) -> void:
+	preview_request_token += 1
+	if preview_fade_timer != null:
+		preview_fade_timer.stop()
+	if preview_finish_timer != null:
+		preview_finish_timer.stop()
+	preview_loop_song = null
+	if preview_fade_tween != null and preview_fade_tween.is_valid():
+		preview_fade_tween.kill()
+	if not preview_audio.playing and not preview_video.is_playing():
+		return
+	preview_fade_tween = create_tween()
+	preview_fade_tween.set_parallel(true)
+	preview_fade_tween.set_trans(Tween.TRANS_SINE)
+	if preview_audio.playing:
+		preview_fade_tween.tween_property(preview_audio, "volume_db", PREVIEW_SILENT_DB, fade_seconds)
+	if preview_video.is_playing():
+		preview_fade_tween.tween_property(preview_video, "volume_db", PREVIEW_SILENT_DB, fade_seconds)
+
+
 func _on_search_changed(value: String) -> void:
 	remembered_search_text = value
 	_apply_song_filter()
@@ -1290,6 +1325,66 @@ func _on_search_changed(value: String) -> void:
 
 func _on_filter_selected(index: int) -> void:
 	remembered_filter_index = clampi(index, 0, 2)
+	_apply_song_filter()
+
+
+func _setup_collection_filter() -> void:
+	collection_option.clear()
+	collection_option.add_item(AuroraLocale.text("TODAS LAS COLECCIONES"))
+	collection_option.set_item_metadata(0, "")
+
+	var available_ids: Array[String] = []
+	for song in all_songs:
+		var collection_id := SongData.resolve_collection_id(
+			song.collection_id,
+			str(song.song_id).trim_prefix("package_")
+		)
+		if collection_id not in available_ids:
+			available_ids.append(collection_id)
+
+	var collection_ids: Array[String] = []
+	for preferred_id in [
+		SongData.COLLECTION_DJMAX_ARCHIVE,
+		SongData.COLLECTION_AURORA_MIX,
+	]:
+		if preferred_id in available_ids:
+			collection_ids.append(preferred_id)
+			available_ids.erase(preferred_id)
+	available_ids.sort()
+	collection_ids.append_array(available_ids)
+
+	var selected_index := 0
+	var found_remembered_collection := remembered_collection_id.is_empty()
+	for collection_id in collection_ids:
+		var count := 0
+		for song in all_songs:
+			if SongData.resolve_collection_id(
+				song.collection_id,
+				str(song.song_id).trim_prefix("package_")
+			) == collection_id:
+				count += 1
+		var item_index := collection_option.item_count
+		collection_option.add_item(
+			"%s  //  %d" % [
+				AuroraLocale.text(SongData.collection_label(collection_id)),
+				count,
+			]
+		)
+		collection_option.set_item_metadata(item_index, collection_id)
+		if collection_id == remembered_collection_id:
+			selected_index = item_index
+			found_remembered_collection = true
+	if not found_remembered_collection:
+		remembered_collection_id = ""
+	collection_option.select(selected_index)
+
+
+func _on_collection_filter_selected(index: int) -> void:
+	if index < 0 or index >= collection_option.item_count:
+		return
+	remembered_collection_id = str(
+		collection_option.get_item_metadata(index)
+	)
 	_apply_song_filter()
 
 
@@ -1312,6 +1407,7 @@ func _apply_song_filter() -> void:
 			for candidate in all_songs:
 				if (
 					str(candidate.song_id) == str(recent_id)
+					and _song_matches_collection(candidate)
 					and _song_matches_search(candidate, query)
 				):
 					songs.append(candidate)
@@ -1319,6 +1415,8 @@ func _apply_song_filter() -> void:
 	else:
 		for candidate in all_songs:
 			if filter_option.selected == 1 and str(candidate.song_id) not in favorite_ids:
+				continue
+			if not _song_matches_collection(candidate):
 				continue
 			if _song_matches_search(candidate, query):
 				songs.append(candidate)
@@ -1342,7 +1440,22 @@ func _song_matches_search(song: SongData, query: String) -> bool:
 	return (
 		song.title.to_lower().contains(query)
 		or song.artist.to_lower().contains(query)
+		or SongData.collection_label(song.collection_id).to_lower().contains(query)
 	)
+
+
+func _song_matches_collection(song: SongData) -> bool:
+	if collection_option == null or collection_option.selected < 0:
+		return true
+	var selected_collection := str(
+		collection_option.get_item_metadata(collection_option.selected)
+	)
+	if selected_collection.is_empty():
+		return true
+	return SongData.resolve_collection_id(
+		song.collection_id,
+		str(song.song_id).trim_prefix("package_")
+	) == selected_collection
 
 
 func _toggle_selected_favorite() -> void:
@@ -1387,7 +1500,7 @@ func _edit_selected_song() -> void:
 		if all_songs.is_empty():
 			_remember_library_state()
 			preview_request_token += 1
-			_stop_preview()
+			_fade_preview_for_exit(4.6)
 			game_manager.request_editor_project("")
 			scene_manager.load_scene("editor")
 		return
@@ -1426,7 +1539,7 @@ func _edit_selected_song() -> void:
 		remembered_chart_signature = _chart_signature(chart)
 	preserve_remembered_selection_on_exit = true
 	preview_request_token += 1
-	_stop_preview()
+	_fade_preview_for_exit(4.6)
 	game_manager.request_editor_project(
 		str(edit_result.get("project_path", ""))
 	)
@@ -1600,7 +1713,7 @@ func _cancel_delete_selected_song() -> void:
 
 
 func _return_to_menu() -> void:
-	_stop_preview()
+	_fade_preview_for_exit(0.22)
 	scene_manager.load_scene("main_menu")
 
 

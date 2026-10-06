@@ -1,15 +1,24 @@
 extends Control
 
-## End-of-song celebration; owned by Gameplay so audio stops on exit/retry.
+## MAX COMBO celebration using the cropped source animation atlas.
 signal finished
 
-const DURATION := 4.0
-const SAMPLE_RATE := 22050
+const DURATION := 4.35 # 2.32 s sound cue plus about 2 s of visual tail from the reference.
+const MAX_COMBO_ATLAS := preload("res://assets/gameplay/ui/max_combo_animation_atlas_rgba.png")
+const SOUNDS := preload("res://src/audio/GameSoundBank.gd")
+const DESIGN_SIZE := Vector2(1672.0, 941.0)
+const FRAME_WIDTH := 480
+const FRAME_HEIGHT := 425
+const FRAME_COLUMNS := 8
+const FRAME_COUNT := 104
+const FRAME_RATE := 30.0
+const BADGE_SIZE := Vector2(350.0, 310.0)
 var elapsed := 0.0
 var reduced_motion := false
 var running := false
 var audio_player: AudioStreamPlayer
-var display_font: SystemFont
+var badge: TextureRect
+var badge_texture: AtlasTexture
 
 
 static func qualifies(result: Dictionary) -> bool:
@@ -19,17 +28,28 @@ static func qualifies(result: Dictionary) -> bool:
 
 
 func _ready() -> void:
-	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	AuroraUi.fill(self)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	display_font = SystemFont.new()
-	display_font.font_names = PackedStringArray(["Arial", "Helvetica", "sans-serif"])
-	display_font.font_weight = 900
-	display_font.font_stretch = 75
+	z_index = 40
+	z_as_relative = false
+	badge_texture = AtlasTexture.new()
+	badge_texture.atlas = MAX_COMBO_ATLAS
+	badge_texture.region = Rect2(Vector2.ZERO, Vector2(FRAME_WIDTH, FRAME_HEIGHT))
+	badge_texture.filter_clip = true
+	badge = TextureRect.new()
+	badge.name = "MaxComboBadgeImage"
+	badge.texture = badge_texture
+	badge.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	badge.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	badge.modulate = Color(1.0, 1.0, 1.0, 0.0)
+	badge.pivot_offset = BADGE_SIZE * 0.5
+	add_child(badge)
 	audio_player = AudioStreamPlayer.new()
 	audio_player.name = "PerfectPlaySound"
 	audio_player.bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
-	audio_player.stream = _create_celebration_stream()
-	audio_player.volume_db = -6.0
+	audio_player.stream = SOUNDS.PERFECT_COMBO
+	audio_player.volume_db = 5.8
 	add_child(audio_player)
 	set_process(false)
 
@@ -41,14 +61,17 @@ func play(reduce_motion: bool = false) -> void:
 	elapsed = 0.0
 	running = true
 	show()
-	audio_player.play()
+	if audio_player.stream != null:
+		audio_player.play()
+	else:
+		push_error("MAX COMBO cue failed to load from GameSoundBank.PERFECT_COMBO.")
 	set_process(true)
-	queue_redraw()
+	_update_badge()
 
 
 func _process(delta: float) -> void:
 	elapsed += delta
-	queue_redraw()
+	_update_badge()
 	if elapsed >= DURATION:
 		complete()
 
@@ -60,84 +83,32 @@ func complete() -> void:
 	set_process(false)
 	audio_player.stop()
 	hide()
-	queue_redraw()
 	finished.emit()
 
 
-func _draw() -> void:
-	if not running or display_font == null:
+func _update_badge() -> void:
+	if badge == null:
 		return
+	var unit := minf(size.x / DESIGN_SIZE.x, size.y / DESIGN_SIZE.y)
+	var fit_top := (size.y - DESIGN_SIZE.y * unit) * 0.5
+	var enter := 1.0 if reduced_motion else smoothstep(0.0, 0.28, elapsed)
 	var fade := clampf((DURATION - elapsed) / 0.45, 0.0, 1.0)
-	var enter := clampf(elapsed / 0.16, 0.0, 1.0)
-	var settle := smoothstep(1.45, 1.9, elapsed)
-	var unit := minf(size.x / 1920.0, size.y / 1080.0)
-	var center := Vector2(size.x * 0.5, size.y * 0.40)
-	var zoom := lerpf(1.0, 0.70, settle)
-	if not reduced_motion:
-		zoom *= lerpf(1.18, 1.0, 1.0 - pow(1.0 - enter, 3.0))
-	else:
-		zoom = 0.85
-	# A restrained stage wash keeps the original playfield visible underneath.
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0.0, 0.0, 0.015, 0.34 * enter * fade))
-	var tint_alpha := enter * fade
-	draw_set_transform(center, 0.0, Vector2.ONE * unit * zoom)
-	var badge := enter if reduced_motion else settle
-	if badge > 0.0:
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(-225, -110), Vector2(220, -174), Vector2(154, 8),
-			Vector2(197, 177), Vector2(-16, 128), Vector2(-228, 203), Vector2(-167, 25),
-		]), Color(0.95, 0.02, 0.43, badge * tint_alpha))
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(35, -147), Vector2(220, -174), Vector2(154, 8),
-			Vector2(197, 177), Vector2(-16, 128),
-		]), Color(0.46, 0.02, 0.85, badge * tint_alpha))
-		var crown := PackedVector2Array([
-			Vector2(-89, -175), Vector2(-127, -248), Vector2(-56, -212),
-			Vector2(-20, -272), Vector2(14, -219), Vector2(79, -267), Vector2(46, -185),
-		])
-		draw_colored_polygon(crown, Color(1.0, 0.92, 0.13, badge * tint_alpha))
-	# Both baselines rise to the right like the checked DJMAX reference.
-	var skew := Transform2D(Vector2(0.80, -0.22), Vector2(0.0, 1.0), center)
-	skew.x *= unit * zoom
-	skew.y *= unit * zoom
-	draw_set_transform_matrix(skew)
-	_draw_word("PERFECT", Vector2(-230, -12), 94, tint_alpha)
-	_draw_word("PLAY", Vector2(-145, 94), 108, tint_alpha)
-	draw_set_transform(center, 0.0, Vector2.ONE * unit * zoom)
-	if not reduced_motion:
-		var sparkle := maxf(0.0, 1.0 - absf(elapsed - 0.42) / 0.38) * fade
-		if sparkle > 0.0:
-			var at := Vector2(5, -5)
-			draw_line(at - Vector2(85, 0), at + Vector2(85, 0), Color(1, 0.86, 0.42, sparkle), 3.0)
-			draw_line(at - Vector2(0, 30), at + Vector2(0, 30), Color(1, 1, 1, sparkle), 3.0)
-			draw_circle(at, 7.0, Color(1, 1, 1, sparkle))
-	draw_set_transform(Vector2.ZERO)
-
-
-func _draw_word(word: String, position: Vector2, font_size: int, alpha: float) -> void:
-	draw_string_outline(display_font, position + Vector2(3, 4), word, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, 7, Color(0.025, 0.005, 0.045, 0.8 * alpha))
-	draw_string(display_font, position, word, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size, Color(1, 1, 1, alpha))
-
-
-func _create_celebration_stream() -> AudioStreamWAV:
-	# Efecto original de Aurora: una celebración luminosa de la misma duración
-	# que la animación, sin audio de DJMAX.
-	const DURATION_SECONDS := DURATION
-	var sample_count := roundi(DURATION_SECONDS * SAMPLE_RATE)
-	var bytes := PackedByteArray()
-	bytes.resize(sample_count * 2)
-	for sample_index in range(sample_count):
-		var time := float(sample_index) / SAMPLE_RATE
-		var envelope := minf(time / 0.018, 1.0) * pow(maxf(0.0, 1.0 - time / DURATION_SECONDS), 1.35)
-		var sweep := lerpf(540.0, 1680.0, clampf(time / 0.34, 0.0, 1.0))
-		var tone := sin(TAU * sweep * time) + 0.26 * sin(TAU * sweep * 2.01 * time)
-		var shimmer := sin(TAU * 2460.0 * time) * exp(-pow((time - 0.31) / 0.11, 2.0)) * 0.22
-		var chime := sin(TAU * 1320.0 * time) * exp(-time * 1.5) * 0.10
-		var value := (tone * 0.12 + shimmer + chime) * envelope
-		bytes.encode_s16(sample_index * 2, clampi(roundi(value * 32767.0), -32768, 32767))
-	var stream := AudioStreamWAV.new()
-	stream.format = AudioStreamWAV.FORMAT_16_BITS
-	stream.mix_rate = SAMPLE_RATE
-	stream.stereo = false
-	stream.data = bytes
-	return stream
+	var drift := 0.0 if reduced_motion else -9.0 * (1.0 - enter)
+	var scale_factor := 1.0 if reduced_motion else 0.94 + 0.06 * enter
+	var center := Vector2(size.x * 0.5, fit_top + (155.0 + drift) * unit)
+	badge.size = BADGE_SIZE * unit
+	badge.pivot_offset = badge.size * 0.5
+	badge.position = center - badge.size * 0.5
+	badge.scale = Vector2.ONE * scale_factor
+	var frame_index := (
+		FRAME_COUNT - 1
+		if reduced_motion
+		else mini(floori(elapsed * FRAME_RATE), FRAME_COUNT - 1)
+	)
+	var frame_column := frame_index % FRAME_COLUMNS
+	var frame_row := int(frame_index / FRAME_COLUMNS)
+	badge_texture.region = Rect2(
+		Vector2(frame_column * FRAME_WIDTH, frame_row * FRAME_HEIGHT),
+		Vector2(FRAME_WIDTH, FRAME_HEIGHT)
+	)
+	badge.modulate = Color(1.0, 1.0, 1.0, enter * fade)

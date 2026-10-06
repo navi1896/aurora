@@ -1,4 +1,4 @@
-AURORA 1.0.0
+AURORA 1.1.1
 ============
 
 1. Extrae todo el contenido del ZIP.
@@ -22,6 +22,8 @@ Controles
 ---------
 - Compatible con teclado y mandos Xbox/PlayStation.
 - Las asignaciones se pueden cambiar desde CONFIGURACIÓN > CONTROLES.
+- La descarga incluye un recorte breve de audio de MAX COMBO suministrado para
+  ese efecto; no incluye canciones completas ni videos de terceros.
 
 Créditos y licencias
 --------------------
@@ -35,3 +37,5 @@ Notas
 - Aurora funciona de forma local y no incluye cuentas, anuncios ni analítica.
 - Las canciones, videos y charts importados son responsabilidad de quien los
   utiliza y no forman parte de la distribución oficial de Aurora.
+- El efecto MAX COMBO es un recorte de DJMAX RESPECT V. Su procedencia se explica
+  en LICENCIAS.txt.

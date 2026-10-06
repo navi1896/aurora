@@ -203,6 +203,10 @@ func _load_package_staging(package_root: String) -> void:
 	)
 	song.title = str(song_document.get("title", "Paquete Aurora"))
 	song.artist = str(song_document.get("artist", "Aurora Creator"))
+	song.collection_id = SongData.resolve_collection_id(
+		str(song_document.get("collection_id", "")),
+		package_id
+	)
 	song.audio_gain_db = clampf(
 		float(song_document.get("audio_gain_db", 0.0)),
 		-18.0,
@@ -425,6 +429,10 @@ func _load_editor_project(project_path: String) -> void:
 	song.song_id = StringName("editor_%s" % folder_name)
 	song.title = str(metadata.get("title", "Nuevo nivel"))
 	song.artist = str(metadata.get("artist", "Aurora Creator"))
+	song.collection_id = SongData.resolve_collection_id(
+		str(metadata.get("collection_id", "")),
+		str(parsed.get("package_id", ""))
+	)
 	song.audio_gain_db = clampf(
 		float(metadata.get("audio_gain_db", 0.0)),
 		-18.0,
@@ -552,6 +560,10 @@ func prepare_song_for_editor(song: SongData, chart: ChartData) -> Dictionary:
 		"metadata": {
 			"title": song.title,
 			"artist": song.artist,
+			"collection_id": SongData.resolve_collection_id(
+				song.collection_id,
+				str(song.song_id).trim_prefix("package_")
+			),
 			"audio_gain_db": clampf(song.audio_gain_db, -18.0, 12.0),
 			"difficulty": _editor_difficulty_id(chart.difficulty_name),
 			"difficulty_level": clampi(chart.difficulty_level, 1, 20),
@@ -659,6 +671,10 @@ func update_package_from_editor_project(project_path: String) -> Dictionary:
 	var metadata: Dictionary = project.get("metadata", {})
 	song_document["title"] = str(metadata.get("title", source_song.title)).strip_edges()
 	song_document["artist"] = str(metadata.get("artist", source_song.artist)).strip_edges()
+	song_document["collection_id"] = SongData.resolve_collection_id(
+		str(metadata.get("collection_id", source_song.collection_id)),
+		str(manifest.get("package_id", ""))
+	)
 	song_document["audio_gain_db"] = clampf(
 		float(metadata.get("audio_gain_db", source_song.audio_gain_db)),
 		-18.0,

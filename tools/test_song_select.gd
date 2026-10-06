@@ -26,6 +26,7 @@ func _run() -> void:
 	var game_manager := app.get_node("Managers/GameManager") as GameManager
 	var input_manager := app.get_node("Managers/InputManager") as InputManager
 	var alpha := _make_song("alpha", "Aurora Lights", "Navi")
+	alpha.collection_id = SongData.COLLECTION_DJMAX_ARCHIVE
 	var alpha_hard := ChartData.new()
 	alpha_hard.key_count = 6
 	alpha_hard.difficulty_name = "HARD"
@@ -46,6 +47,23 @@ func _run() -> void:
 		_finish()
 		return
 	_expect(
+		screen.collection_option.item_count == 3
+		and str(screen.collection_option.get_item_metadata(1))
+		== SongData.COLLECTION_DJMAX_ARCHIVE
+		and str(screen.collection_option.get_item_metadata(2))
+		== SongData.COLLECTION_AURORA_MIX,
+		"La biblioteca separa Archivo DJMAX y Aurora Mix"
+	)
+	screen.collection_option.select(1)
+	screen._on_collection_filter_selected(1)
+	_expect(
+		screen.songs.size() == 1 and screen.songs[0].song_id == &"alpha",
+		"El filtro de colección solo muestra sus canciones"
+	)
+	screen.collection_option.select(0)
+	screen._on_collection_filter_selected(0)
+	_expect(screen.songs.size() == 3, "Todas las colecciones vuelve a mostrar la biblioteca")
+	_expect(
 		screen.share_package_button != null
 		and screen.share_package_button.get_parent().name == "ActionButtons"
 		and screen.share_package_button.get_global_rect().end.x <= float(
@@ -54,7 +72,7 @@ func _run() -> void:
 		"COMPARTIR NIVEL queda visible en la biblioteca a 1280x720"
 	)
 	_expect(
-		screen.import_package_button.text == AuroraLocale.text("INSTALAR NIVEL")
+		screen.import_package_button.text == AuroraLocale.text("INSTALAR NIVELES")
 		and "USB" in screen.import_package_button.tooltip_text
 		and screen.share_package_button.text == AuroraLocale.text("COMPARTIR NIVEL"),
 		"La biblioteca separa con claridad instalar y compartir archivos .aurora"
@@ -63,7 +81,8 @@ func _run() -> void:
 	await process_frame
 	_expect(
 		screen.share_panel != null
-		and screen.share_panel.song_selector != null
+		and screen.share_panel.song_list != null
+		and screen.share_panel.export_view.visible
 		and screen.share_panel.export_button != null
 		and screen.share_panel.save_dialog.use_native_dialog,
 		"COMPARTIR NIVEL abre el flujo local dentro del juego"

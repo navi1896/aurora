@@ -78,7 +78,7 @@ var notes: Array[Dictionary] = []
 var shift_notes: Array[Dictionary] = []
 var cinematic_sections: Array[Dictionary] = []
 var cinematic_section_editor: VBoxContainer
-var side_notes: Array[Dictionary] = [] # Imported automatic tracks; preserve when editing the four-key chart.
+var side_notes: Array[Dictionary] = [] # Playable Shift rails; preserve imported chart data while editing.
 var active_recording_holds: Dictionary = {}
 var video_path := ""
 var video_source_path := ""
@@ -133,10 +133,12 @@ var automatic_mode_label: Label
 var manual_mode_button: Button
 var automatic_mode_button: Button
 var manual_tools_container: HBoxContainer
-var manual_quick_tools_container: HBoxContainer
-var automatic_tools_container: HBoxContainer
+var manual_quick_tools_container: FlowContainer
+var manual_special_tools_container: FlowContainer
+var manual_workspace_container: VBoxContainer
+var automatic_tools_container: FlowContainer
 var automatic_generate_step: Control
-var shared_tools_container: HBoxContainer
+var shared_tools_container: FlowContainer
 var key_step_panel: PanelContainer
 var difficulty_step_panel: PanelContainer
 var level_step_panel: PanelContainer
@@ -156,6 +158,8 @@ var confirmation_dialog: ConfirmationDialog
 var recording_countdown_label: Label
 var title_edit: LineEdit
 var artist_edit: LineEdit
+var collection_option: OptionButton
+var collection_id := SongData.COLLECTION_AURORA_MIX
 var package_version_edit: LineEdit
 var bpm_spin: SpinBox
 var duration_spin: SpinBox
@@ -164,12 +168,17 @@ var key_count_option: OptionButton
 var difficulty_option: OptionButton
 var difficulty_level_spin: SpinBox
 var density_option: OptionButton
-var key_legend: HBoxContainer
+var key_legend: FlowContainer
 var quick_lane_option: OptionButton
 var quick_add_tap_button: Button
 var quick_add_hold_button: Button
 var quick_shift_pair_option: OptionButton
 var quick_add_shift_button: Button
+var quick_side_option: OptionButton
+var quick_side_duration_spin: SpinBox
+var quick_add_side_button: Button
+var quick_update_side_button: Button
+var quick_remove_side_button: Button
 var recording_snap_toggle: CheckButton
 var tap_bpm_button: Button
 var tap_bpm_use_button: Button
@@ -178,6 +187,11 @@ var tap_bpm_result_label: Label
 var chart_difficulty_result_label: Label
 var chart_difficulty_summary_label: Label
 var chart_difficulty_use_button: Button
+var chart_difficulty_container: VBoxContainer
+var manual_notes_heading: Label
+var manual_legend_heading: Label
+var manual_special_heading: Label
+var shared_tools_heading: Label
 var properties_panel: PanelContainer
 var properties_scroll: ScrollContainer
 var properties_title_label: Label
@@ -328,6 +342,8 @@ func _setup_ui() -> void:
 	var margin := AuroraUi.make_margin(30, 18, 30, 18)
 	add_child(margin)
 	var page := VBoxContainer.new()
+	page.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	page.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	page.add_theme_constant_override("separation", 8)
 	margin.add_child(page)
 
@@ -381,17 +397,20 @@ func _setup_ui() -> void:
 
 
 func _build_header(page: VBoxContainer) -> void:
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 10)
+	var header := VBoxContainer.new()
+	header.add_theme_constant_override("separation", 5)
 	page.add_child(header)
+	var identity_row := HBoxContainer.new()
+	identity_row.add_theme_constant_override("separation", 10)
+	header.add_child(identity_row)
 
 	back_button = _make_tool_button(AuroraLocale.text("◀ VOLVER"), 132.0)
 	back_button.pressed.connect(_request_leave_editor)
-	header.add_child(back_button)
+	identity_row.add_child(back_button)
 
 	var title_box := VBoxContainer.new()
 	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	header.add_child(title_box)
+	identity_row.add_child(title_box)
 	var title := AuroraUi.make_pixel_label(
 		AuroraLocale.text("EDITOR DE NIVELES"),
 		18,
@@ -400,8 +419,8 @@ func _build_header(page: VBoxContainer) -> void:
 	title_box.add_child(title)
 	title_box.add_child(
 		AuroraUi.make_pixel_label(
-			AuroraLocale.text("VIDEO + AUDIO // GRABACION DE CHART"),
-			7,
+			AuroraLocale.text("1. CARGA VIDEO/AUDIO  →  2. CREA NOTAS  →  3. AJUSTA, PRUEBA Y EXPORTA"),
+			9,
 			AuroraUi.TEAL
 		)
 	)
@@ -410,40 +429,60 @@ func _build_header(page: VBoxContainer) -> void:
 	dirty_label.custom_minimum_size.x = 200.0
 	dirty_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	dirty_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	header.add_child(dirty_label)
+	identity_row.add_child(dirty_label)
+
+	var project_actions := HBoxContainer.new()
+	project_actions.name = "ProjectActions"
+	project_actions.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	project_actions.alignment = BoxContainer.ALIGNMENT_END
+	project_actions.add_theme_constant_override("separation", 8)
+	header.add_child(project_actions)
 
 	new_project_button = _make_tool_button(AuroraLocale.text("NUEVO"), 110.0)
+	new_project_button.tooltip_text = AuroraLocale.text(
+		"INICIA UN PROYECTO VACÍO. SI HAY CAMBIOS, TE PEDIRÁ GUARDARLOS."
+	)
 	new_project_button.pressed.connect(_request_new_project)
-	header.add_child(new_project_button)
+	new_project_button.custom_minimum_size.y = 36.0
+	project_actions.add_child(new_project_button)
 	open_project_button = _make_tool_button(
 		AuroraLocale.text("ABRIR PROYECTO"),
 		150.0
 	)
 	open_project_button.pressed.connect(_request_open_project_dialog)
-	header.add_child(open_project_button)
+	open_project_button.tooltip_text = AuroraLocale.text(
+		"ABRE UN PROYECTO DEL EDITOR Y RESTAURA SU CHART Y SUS MEDIOS."
+	)
+	open_project_button.custom_minimum_size.y = 36.0
+	project_actions.add_child(open_project_button)
 	save_project_button = _make_tool_button(
 		AuroraLocale.text("GUARDAR"),
 		130.0,
 		true
 	)
 	save_project_button.pressed.connect(_save_project)
-	header.add_child(save_project_button)
+	save_project_button.tooltip_text = AuroraLocale.text(
+		"GUARDA EL PROYECTO EDITABLE EN TU ESPACIO LOCAL."
+	)
+	save_project_button.custom_minimum_size.y = 36.0
+	project_actions.add_child(save_project_button)
 	package_export_button = _make_tool_button(
 		AuroraLocale.text("EXPORTAR .AURORA"),
 		184.0
 	)
 	package_export_button.tooltip_text = AuroraLocale.text(
-		"CREAR UN PAQUETE PORTÁTIL PARA COMPARTIR"
+		"CREA UN PAQUETE .AURORA PARA INSTALAR O COMPARTIR EL NIVEL."
 	)
 	package_export_button.pressed.connect(_request_export_package)
-	header.add_child(package_export_button)
+	package_export_button.custom_minimum_size.y = 36.0
+	project_actions.add_child(package_export_button)
 
 
 func _build_preview(workspace: VBoxContainer) -> void:
 	preview_panel = AuroraUi.make_panel(Color(0.006, 0.010, 0.030, 0.96))
 	preview_panel.name = "PreviewPanel"
 	preview_panel.custom_minimum_size.y = 220.0
-	preview_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	preview_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	workspace.add_child(preview_panel)
 
 	var preview_stage := Control.new()
@@ -511,7 +550,7 @@ func _build_preview(workspace: VBoxContainer) -> void:
 	preview_badge.add_child(preview_badge_row)
 	media_status_label = AuroraUi.make_pixel_label(
 		AuroraLocale.text("VIDEO REQUERIDO"),
-		7,
+		9,
 		AuroraUi.CORAL
 	)
 	media_status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -553,61 +592,23 @@ func _build_preview(workspace: VBoxContainer) -> void:
 	preview_audio_button.toggled.connect(_set_preview_audio_enabled)
 	preview_badge_row.add_child(preview_audio_button)
 
-	var transport := HBoxContainer.new()
-	transport.add_theme_constant_override("separation", 10)
+	var transport := VBoxContainer.new()
+	transport.add_theme_constant_override("separation", 6)
 	workspace.add_child(transport)
+	var transport_controls := HBoxContainer.new()
+	transport_controls.add_theme_constant_override("separation", 10)
+	transport.add_child(transport_controls)
 	play_button = _make_tool_button(AuroraLocale.text("▶ REPRODUCIR"), 150.0, true)
 	play_button.pressed.connect(_toggle_preview)
-	transport.add_child(play_button)
+	transport_controls.add_child(play_button)
 	var stop_button := _make_tool_button(AuroraLocale.text("■ DETENER"), 132.0)
 	stop_button.pressed.connect(_stop_preview)
-	transport.add_child(stop_button)
-	time_label = AuroraUi.make_pixel_label("00:00.000 / 02:00.000", 8, AuroraUi.GOLD)
+	transport_controls.add_child(stop_button)
+	time_label = AuroraUi.make_pixel_label("00:00.000 / 02:00.000", 10, AuroraUi.GOLD)
 	time_label.custom_minimum_size.x = 210.0
 	time_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	transport.add_child(time_label)
-	var gain_caption := AuroraUi.make_pixel_label(
-		AuroraLocale.text("VOLUMEN"),
-		7,
-		AuroraUi.TEAL
-	)
-	gain_caption.tooltip_text = AuroraLocale.text(
-		"AJUSTE PROPIO DE ESTA CANCION; NO MODIFICA EL ARCHIVO ORIGINAL"
-	)
-	gain_caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	transport.add_child(gain_caption)
-	audio_gain_slider = HSlider.new()
-	audio_gain_slider.name = "SongVolumeSlider"
-	audio_gain_slider.custom_minimum_size.x = 132.0
-	audio_gain_slider.min_value = -18.0
-	audio_gain_slider.max_value = 12.0
-	audio_gain_slider.step = 0.5
-	audio_gain_slider.value = song_gain_db
-	audio_gain_slider.tooltip_text = AuroraLocale.text(
-		"SUBE O BAJA SOLO ESTA CANCION. VALORES ALTOS PUEDEN SATURAR EL AUDIO."
-	)
-	audio_gain_slider.value_changed.connect(_set_song_gain_db)
-	transport.add_child(audio_gain_slider)
-	audio_gain_label = AuroraUi.make_pixel_label("0.0 dB", 8, AuroraUi.GOLD)
-	audio_gain_label.name = "SongVolumeLabel"
-	audio_gain_label.custom_minimum_size.x = 56.0
-	audio_gain_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	audio_gain_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	transport.add_child(audio_gain_label)
-	audio_gain_reset_button = _make_tool_button(AuroraLocale.text("0 dB"), 56.0)
-	audio_gain_reset_button.name = "ResetSongVolume"
-	audio_gain_reset_button.tooltip_text = AuroraLocale.text(
-		"RESTAURA EL VOLUMEN ORIGINAL DE ESTA CANCION"
-	)
-	audio_gain_reset_button.pressed.connect(_reset_song_gain)
-	transport.add_child(audio_gain_reset_button)
-	seek_slider = HSlider.new()
-	seek_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	seek_slider.min_value = 0.0
-	seek_slider.max_value = duration_seconds
-	seek_slider.step = 0.001
-	seek_slider.value_changed.connect(_seek_preview)
-	transport.add_child(seek_slider)
+	transport_controls.add_child(time_label)
+	transport_controls.add_child(AuroraUi.spacer(1))
 	preview_toggle_button = _make_tool_button(
 		AuroraLocale.text("OCULTAR VIDEO"),
 		142.0
@@ -617,7 +618,57 @@ func _build_preview(workspace: VBoxContainer) -> void:
 		"OCULTA SOLO EL VIDEO PARA DAR MAS ESPACIO A LA LINEA DE TIEMPO"
 	)
 	preview_toggle_button.pressed.connect(_toggle_preview_panel)
-	transport.add_child(preview_toggle_button)
+	transport_controls.add_child(preview_toggle_button)
+	var seek_row := HBoxContainer.new()
+	seek_row.add_theme_constant_override("separation", 8)
+	transport.add_child(seek_row)
+	var gain_caption := AuroraUi.make_pixel_label(
+		AuroraLocale.text("GANANCIA DE ESTA CANCIÓN"),
+		9,
+		AuroraUi.TEAL
+	)
+	gain_caption.custom_minimum_size.x = 166.0
+	gain_caption.autowrap_mode = TextServer.AUTOWRAP_OFF
+	gain_caption.tooltip_text = AuroraLocale.text(
+		"AJUSTE PROPIO DE ESTA CANCION; NO MODIFICA EL ARCHIVO ORIGINAL"
+	)
+	gain_caption.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	seek_row.add_child(gain_caption)
+	audio_gain_slider = HSlider.new()
+	audio_gain_slider.name = "SongVolumeSlider"
+	audio_gain_slider.custom_minimum_size.x = 148.0
+	audio_gain_slider.min_value = -18.0
+	audio_gain_slider.max_value = 12.0
+	audio_gain_slider.step = 0.5
+	audio_gain_slider.value = song_gain_db
+	audio_gain_slider.tooltip_text = AuroraLocale.text(
+		"SUBE O BAJA SOLO ESTA CANCION. VALORES ALTOS PUEDEN SATURAR EL AUDIO."
+	)
+	audio_gain_slider.value_changed.connect(_set_song_gain_db)
+	seek_row.add_child(audio_gain_slider)
+	audio_gain_label = AuroraUi.make_pixel_label("0.0 dB", 8, AuroraUi.GOLD)
+	audio_gain_label.name = "SongVolumeLabel"
+	audio_gain_label.custom_minimum_size.x = 56.0
+	audio_gain_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	audio_gain_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	seek_row.add_child(audio_gain_label)
+	audio_gain_reset_button = _make_tool_button(AuroraLocale.text("0 dB"), 56.0)
+	audio_gain_reset_button.name = "ResetSongVolume"
+	audio_gain_reset_button.tooltip_text = AuroraLocale.text(
+		"VUELVE A 0 dB, EL NIVEL ORIGINAL DE ESTA CANCIÓN."
+	)
+	audio_gain_reset_button.pressed.connect(_reset_song_gain)
+	seek_row.add_child(audio_gain_reset_button)
+	seek_slider = HSlider.new()
+	seek_slider.tooltip_text = AuroraLocale.text(
+		"MUEVE EL CURSOR DE REPRODUCCIÓN PARA REVISAR UN MOMENTO DEL MEDIO."
+	)
+	seek_slider.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	seek_slider.min_value = 0.0
+	seek_slider.max_value = duration_seconds
+	seek_slider.step = 0.001
+	seek_slider.value_changed.connect(_seek_preview)
+	seek_row.add_child(seek_slider)
 
 	audio_player = AudioStreamPlayer.new()
 	audio_player.name = "EditorAudioPreview"
@@ -657,6 +708,16 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	)
 	creation_toggle_button.pressed.connect(_toggle_creation_panel)
 	mode_row.add_child(creation_toggle_button)
+	var mode_help := AuroraUi.make_label(
+		AuroraLocale.text(
+			"Automático crea una base editable con tus ajustes. Manual te permite colocar y grabar cada nota. Después puedes corregirlo todo en la línea de tiempo."
+		),
+		10,
+		AuroraUi.MUTED
+	)
+	mode_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	mode_help.custom_minimum_size.y = 27.0
+	content.add_child(mode_help)
 
 	# Se conservan como controles ocultos para proyectos y pruebas antiguas.
 	creation_mode_switch = CheckButton.new()
@@ -676,9 +737,12 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	creation_tools_container.add_theme_constant_override("separation", 6)
 	content.add_child(creation_tools_container)
 
-	automatic_tools_container = HBoxContainer.new()
+	automatic_tools_container = HFlowContainer.new()
 	automatic_tools_container.name = "AutomaticQuickSetup"
+	automatic_tools_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	automatic_tools_container.add_theme_constant_override("separation", 8)
+	automatic_tools_container.add_theme_constant_override("h_separation", 8)
+	automatic_tools_container.add_theme_constant_override("v_separation", 8)
 	creation_tools_container.add_child(automatic_tools_container)
 	var key_step := _make_editor_step(
 		automatic_tools_container,
@@ -749,29 +813,60 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	generate_button.pressed.connect(_generate_automatic_chart)
 	generate_box.add_child(generate_button)
 
+	manual_workspace_container = VBoxContainer.new()
+	manual_workspace_container.name = "ManualWorkspace"
+	manual_workspace_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	manual_workspace_container.add_theme_constant_override("separation", 6)
+	creation_tools_container.add_child(manual_workspace_container)
 	manual_tools_container = HBoxContainer.new()
 	manual_tools_container.name = "ManualTools"
 	manual_tools_container.add_theme_constant_override("separation", 8)
-	creation_tools_container.add_child(manual_tools_container)
+	manual_workspace_container.add_child(manual_tools_container)
 	record_button = _make_tool_button(AuroraLocale.text("● GRABAR NOTAS"), 166.0)
 	record_button.custom_minimum_size.y = 36.0
 	record_button.toggle_mode = true
+	record_button.tooltip_text = AuroraLocale.text(
+		"INICIA UNA CUENTA ATRÁS. REPRODUCE EL MEDIO Y PULSA LAS TECLAS DE CARRIL PARA GRABAR NOTAS Y HOLDS."
+	)
 	record_button.pressed.connect(_toggle_recording)
 	manual_tools_container.add_child(record_button)
 	var manual_tools_help := AuroraUi.make_pixel_label(
-		AuroraLocale.text("REPRODUCE Y USA LAS TECLAS DE CARRIL"),
-		7,
+		AuroraLocale.text("Reproduce el medio y pulsa las teclas asignadas a cada carril."),
+		9,
 		AuroraUi.MUTED
 	)
-	manual_tools_help.autowrap_mode = TextServer.AUTOWRAP_OFF
+	manual_tools_help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	manual_tools_help.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	manual_tools_help.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	manual_tools_container.add_child(manual_tools_help)
 
-	manual_quick_tools_container = HBoxContainer.new()
+	manual_legend_heading = AuroraUi.make_pixel_label(
+		AuroraLocale.text("TECLADO DE CARRILES"),
+		9,
+		AuroraUi.TEAL
+	)
+	manual_workspace_container.add_child(manual_legend_heading)
+	key_legend = HFlowContainer.new()
+	key_legend.name = "LaneKeyLegend"
+	key_legend.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	key_legend.add_theme_constant_override("h_separation", 6)
+	key_legend.add_theme_constant_override("v_separation", 6)
+	key_legend.tooltip_text = AuroraLocale.text(
+		"CADA TECLA CORRESPONDE AL CARRIL CON EL MISMO ORDEN, DE IZQUIERDA A DERECHA."
+	)
+	manual_workspace_container.add_child(key_legend)
+	manual_notes_heading = AuroraUi.make_pixel_label(
+		AuroraLocale.text("AÑADIR NOTAS // ELIGE CARRIL Y TIPO"),
+		9,
+		AuroraUi.TEAL
+	)
+	manual_workspace_container.add_child(manual_notes_heading)
+	manual_quick_tools_container = HFlowContainer.new()
 	manual_quick_tools_container.name = "ManualQuickTools"
-	manual_quick_tools_container.add_theme_constant_override("separation", 8)
-	creation_tools_container.add_child(manual_quick_tools_container)
+	manual_quick_tools_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	manual_quick_tools_container.add_theme_constant_override("h_separation", 8)
+	manual_quick_tools_container.add_theme_constant_override("v_separation", 8)
+	manual_workspace_container.add_child(manual_quick_tools_container)
 	recording_snap_toggle = CheckButton.new()
 	recording_snap_toggle.name = "RecordingSnapToggle"
 	recording_snap_toggle.custom_minimum_size = Vector2(202.0, 34.0)
@@ -792,6 +887,9 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	quick_add_tap_button = _make_tool_button(AuroraLocale.text("+ NOTA"), 116.0, true)
 	quick_add_tap_button.custom_minimum_size.y = 34.0
 	quick_add_tap_button.name = "QuickAddTap"
+	quick_add_tap_button.tooltip_text = AuroraLocale.text(
+		"AÑADE UNA NOTA CORTA EN EL TIEMPO ACTUAL DEL VIDEO."
+	)
 	quick_add_tap_button.pressed.connect(_add_quick_note.bind(false))
 	manual_quick_tools_container.add_child(quick_add_tap_button)
 	quick_add_hold_button = _make_tool_button(AuroraLocale.text("+ MANTENER"), 142.0)
@@ -802,32 +900,93 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	)
 	quick_add_hold_button.pressed.connect(_add_quick_note.bind(true))
 	manual_quick_tools_container.add_child(quick_add_hold_button)
+	manual_special_heading = AuroraUi.make_pixel_label(
+		AuroraLocale.text("NOTAS ESPECIALES // DOBLE HOLD Y SHIFT LATERAL"),
+		9,
+		AuroraUi.TEAL
+	)
+	manual_special_heading.tooltip_text = AuroraLocale.text(
+		"EL DOBLE HOLD USA DOS CARRILES EXTERIORES; SHIFT LATERAL USA UNA TECLA SHIFT."
+	)
+	manual_workspace_container.add_child(manual_special_heading)
+	manual_special_tools_container = HFlowContainer.new()
+	manual_special_tools_container.name = "ManualSpecialNoteTools"
+	manual_special_tools_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	manual_special_tools_container.add_theme_constant_override("h_separation", 8)
+	manual_special_tools_container.add_theme_constant_override("v_separation", 8)
+	manual_workspace_container.add_child(manual_special_tools_container)
 	quick_shift_pair_option = OptionButton.new()
 	quick_shift_pair_option.name = "QuickShiftPair"
 	quick_shift_pair_option.custom_minimum_size = Vector2(152.0, 34.0)
 	quick_shift_pair_option.tooltip_text = AuroraLocale.text(
-		"ELIGE DOS CARRILES QUE SE DEBEN PULSAR AL MISMO TIEMPO"
+		"ELIGE LOS DOS CARRILES EXTERIORES DE LA IZQUIERDA O DERECHA"
 	)
 	AuroraUi.apply_pixel_font(quick_shift_pair_option, 7)
-	manual_quick_tools_container.add_child(quick_shift_pair_option)
-	quick_add_shift_button = _make_tool_button(AuroraLocale.text("+ SHIFT HOLD"), 142.0)
+	manual_special_tools_container.add_child(quick_shift_pair_option)
+	quick_add_shift_button = _make_tool_button(AuroraLocale.text("+ DOBLE HOLD"), 142.0)
 	quick_add_shift_button.custom_minimum_size.y = 34.0
 	quick_add_shift_button.name = "QuickAddShift"
 	quick_add_shift_button.tooltip_text = AuroraLocale.text(
 		"CREA UNA NOTA ESPECIAL PARA DOS TECLAS A LA VEZ"
 	)
 	quick_add_shift_button.pressed.connect(_add_quick_shift_note)
-	manual_quick_tools_container.add_child(quick_add_shift_button)
-	manual_quick_tools_container.add_child(AuroraUi.spacer(1))
+	manual_special_tools_container.add_child(quick_add_shift_button)
+	quick_side_option = OptionButton.new()
+	quick_side_option.name = "QuickShiftSide"
+	quick_side_option.custom_minimum_size = Vector2(142.0, 34.0)
+	quick_side_option.add_item("L SHIFT", 0)
+	quick_side_option.add_item("R SHIFT", 1)
+	quick_side_option.tooltip_text = AuroraLocale.text(
+		"ELIGE QUÉ TECLA SHIFT ACTIVARÁ EL HOLD LATERAL."
+	)
+	AuroraUi.apply_pixel_font(quick_side_option, 7)
+	manual_special_tools_container.add_child(quick_side_option)
+	quick_side_duration_spin = SpinBox.new()
+	quick_side_duration_spin.name = "QuickShiftDuration"
+	quick_side_duration_spin.custom_minimum_size = Vector2(116.0, 34.0)
+	quick_side_duration_spin.min_value = MIN_HOLD_DURATION
+	quick_side_duration_spin.max_value = 16.0
+	quick_side_duration_spin.step = 0.01
+	quick_side_duration_spin.value = 1.0
+	quick_side_duration_spin.suffix = " s"
+	quick_side_duration_spin.tooltip_text = AuroraLocale.text(
+		"DURACIÓN DEL HOLD LATERAL EN SEGUNDOS."
+	)
+	manual_special_tools_container.add_child(quick_side_duration_spin)
+	quick_add_side_button = _make_tool_button(AuroraLocale.text("+ SHIFT LATERAL"), 176.0)
+	quick_add_side_button.custom_minimum_size.y = 34.0
+	quick_add_side_button.tooltip_text = AuroraLocale.text("AÑADE UN HOLD LATERAL CON SHIFT IZQUIERDO O DERECHO")
+	quick_add_side_button.pressed.connect(_add_quick_side_note)
+	manual_special_tools_container.add_child(quick_add_side_button)
+	quick_update_side_button = _make_tool_button(AuroraLocale.text("DURACIÓN SHIFT"), 176.0)
+	quick_update_side_button.custom_minimum_size.y = 34.0
+	quick_update_side_button.tooltip_text = AuroraLocale.text("CAMBIA LA DURACIÓN DEL SHIFT LATERAL MÁS CERCANO AL CURSOR")
+	quick_update_side_button.pressed.connect(_update_quick_side_note)
+	manual_special_tools_container.add_child(quick_update_side_button)
+	quick_remove_side_button = _make_tool_button(AuroraLocale.text("- SHIFT LATERAL"), 176.0)
+	quick_remove_side_button.custom_minimum_size.y = 34.0
+	quick_remove_side_button.tooltip_text = AuroraLocale.text("QUITA EL SHIFT LATERAL MÁS CERCANO AL CURSOR")
+	quick_remove_side_button.pressed.connect(_remove_quick_side_note)
+	manual_special_tools_container.add_child(quick_remove_side_button)
+	shared_tools_heading = AuroraUi.make_pixel_label(
+		AuroraLocale.text("CAMBIOS Y SELECCIÓN"),
+		9,
+		AuroraUi.TEAL
+	)
+	manual_workspace_container.add_child(shared_tools_heading)
 
-	shared_tools_container = HBoxContainer.new()
+	shared_tools_container = HFlowContainer.new()
 	shared_tools_container.name = "SharedTools"
-	shared_tools_container.add_theme_constant_override("separation", 8)
-	creation_tools_container.add_child(shared_tools_container)
+	shared_tools_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	shared_tools_container.add_theme_constant_override("h_separation", 8)
+	shared_tools_container.add_theme_constant_override("v_separation", 8)
+	manual_workspace_container.add_child(shared_tools_container)
 	undo_button = _make_tool_button(AuroraLocale.text("DESHACER"), 122.0)
+	undo_button.tooltip_text = AuroraLocale.text("DESHACE EL ÚLTIMO CAMBIO DEL CHART.")
 	undo_button.pressed.connect(_undo_chart_action)
 	shared_tools_container.add_child(undo_button)
 	redo_button = _make_tool_button(AuroraLocale.text("REHACER"), 112.0)
+	redo_button.tooltip_text = AuroraLocale.text("REAPLICA EL CAMBIO QUE ACABAS DE DESHACER.")
 	redo_button.pressed.connect(_redo_chart_action)
 	shared_tools_container.add_child(redo_button)
 	snap_selection_button = _make_tool_button(
@@ -854,16 +1013,17 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 	delete_selection_button.pressed.connect(_timeline_delete_selection)
 	shared_tools_container.add_child(delete_selection_button)
 	clear_button = _make_tool_button(AuroraLocale.text("LIMPIAR"), 112.0)
-	clear_button.tooltip_text = AuroraLocale.text("BORRA TODAS LAS NOTAS DEL CHART")
+	clear_button.tooltip_text = AuroraLocale.text(
+		"BORRA TODAS LAS NOTAS. AURORA TE PEDIRÁ CONFIRMAR."
+	)
 	clear_button.pressed.connect(_request_clear_notes)
 	shared_tools_container.add_child(clear_button)
-	shared_tools_container.add_child(AuroraUi.spacer(1))
 	for compact_button in [undo_button, redo_button, snap_selection_button, delete_selection_button, clear_button]:
 		compact_button.custom_minimum_size.y = 34.0
 
 	automatic_generation_help_label = AuroraUi.make_pixel_label(
 		AuroraLocale.text("PUEDES GENERAR AHORA Y AJUSTAR LAS NOTAS DESPUÉS"),
-		7,
+		9,
 		AuroraUi.TEAL
 	)
 	automatic_generation_help_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -873,43 +1033,63 @@ func _build_creation_controls(workspace: VBoxContainer) -> void:
 
 func _build_timeline(workspace: VBoxContainer) -> void:
 	var timeline_panel := AuroraUi.make_panel(Color(0.008, 0.012, 0.035, 0.96))
-	timeline_panel.custom_minimum_size.y = 238.0
+	timeline_panel.custom_minimum_size.y = 266.0
 	timeline_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	workspace.add_child(timeline_panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
 	timeline_panel.add_child(box)
-	var header := HBoxContainer.new()
-	header.add_theme_constant_override("separation", 5)
-	box.add_child(header)
+	var timeline_header := VBoxContainer.new()
+	timeline_header.add_theme_constant_override("separation", 5)
+	box.add_child(timeline_header)
+	var title_row := HBoxContainer.new()
+	title_row.add_theme_constant_override("separation", 8)
+	timeline_header.add_child(title_row)
 	var timeline_title := AuroraUi.make_pixel_label(
-		AuroraLocale.text("TIMELINE // DOBLE CLIC CREA // ARRASTRA EDITA"),
-		7,
+		AuroraLocale.text("LÍNEA DE TIEMPO"),
+		10,
 		AuroraUi.TEAL
 	)
 	timeline_title.autowrap_mode = TextServer.AUTOWRAP_OFF
 	timeline_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	timeline_title.tooltip_text = AuroraLocale.text(
-		"CTRL+C/V/D COPIAR, PEGAR Y DUPLICAR // SUPR BORRAR // CTRL+RUEDA ZOOM"
+		"DOBLE CLIC AÑADE NOTA. ARRASTRA PARA MOVER; ARRASTRA EL BORDE DE UN HOLD PARA CAMBIAR SU DURACIÓN. CTRL+C/V/D COPIA, PEGA Y DUPLICA; SUPR BORRA; CTRL+RUEDA AJUSTA EL ZOOM."
 	)
-	header.add_child(timeline_title)
+	title_row.add_child(timeline_title)
 	test_button = _make_tool_button(AuroraLocale.text("▶ PROBAR NIVEL"), 136.0, true)
 	test_button.name = "TestLevelButton"
-	test_button.custom_minimum_size.y = 28.0
+	test_button.custom_minimum_size.y = 32.0
+	test_button.tooltip_text = AuroraLocale.text(
+		"ABRE UNA PARTIDA DE PRUEBA CON EL CHART ACTUAL."
+	)
 	test_button.pressed.connect(_test_chart)
-	header.add_child(test_button)
-	note_count_label = AuroraUi.make_pixel_label("000 NOTAS", 7, AuroraUi.TEAL)
+	title_row.add_child(test_button)
+	note_count_label = AuroraUi.make_pixel_label("000 NOTAS", 9, AuroraUi.TEAL)
 	note_count_label.name = "TimelineNoteCount"
-	note_count_label.custom_minimum_size.x = 104.0
+	note_count_label.custom_minimum_size.x = 160.0
 	note_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	note_count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	header.add_child(note_count_label)
+	title_row.add_child(note_count_label)
+	var controls_row := HBoxContainer.new()
+	controls_row.add_theme_constant_override("separation", 6)
+	timeline_header.add_child(controls_row)
+	var timeline_help := AuroraUi.make_label(
+		AuroraLocale.text(
+			"Doble clic: añadir nota  ·  Arrastra: mover  ·  Arrastra el borde: cambiar duración"
+		),
+		9,
+		AuroraUi.MUTED
+	)
+	timeline_help.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	timeline_help.autowrap_mode = TextServer.AUTOWRAP_OFF
+	timeline_help.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	controls_row.add_child(timeline_help)
 	waveform_toggle_button = _make_tool_button(
 		AuroraLocale.text("ONDA"),
 		72.0
 	)
 	waveform_toggle_button.name = "WaveformToggle"
-	waveform_toggle_button.custom_minimum_size.y = 28.0
+	waveform_toggle_button.custom_minimum_size.y = 32.0
 	waveform_toggle_button.toggle_mode = true
 	waveform_toggle_button.set_pressed_no_signal(
 		waveform_visible
@@ -920,10 +1100,10 @@ func _build_timeline(workspace: VBoxContainer) -> void:
 	waveform_toggle_button.toggled.connect(
 		_on_waveform_visibility_toggled
 	)
-	header.add_child(waveform_toggle_button)
+	controls_row.add_child(waveform_toggle_button)
 	waveform_status_label = AuroraUi.make_pixel_label(
 		AuroraLocale.text("NO DISPONIBLE"),
-		7,
+		8,
 		AuroraUi.MUTED
 	)
 	waveform_status_label.name = "WaveformStatus"
@@ -934,10 +1114,10 @@ func _build_timeline(workspace: VBoxContainer) -> void:
 	waveform_status_label.vertical_alignment = (
 		VERTICAL_ALIGNMENT_CENTER
 	)
-	header.add_child(waveform_status_label)
+	controls_row.add_child(waveform_status_label)
 	timeline_snap_option = OptionButton.new()
 	timeline_snap_option.name = "TimelineSnap"
-	timeline_snap_option.custom_minimum_size = Vector2(68.0, 28.0)
+	timeline_snap_option.custom_minimum_size = Vector2(68.0, 32.0)
 	timeline_snap_option.tooltip_text = AuroraLocale.text(
 		"DIVISIÓN DE LA CUADRÍCULA PARA CREAR, MOVER O AJUSTAR NOTAS"
 	)
@@ -946,26 +1126,28 @@ func _build_timeline(workspace: VBoxContainer) -> void:
 	timeline_snap_option.select(2)
 	AuroraUi.apply_pixel_font(timeline_snap_option, 7)
 	timeline_snap_option.item_selected.connect(_on_timeline_snap_selected)
-	header.add_child(timeline_snap_option)
+	controls_row.add_child(timeline_snap_option)
 	var zoom_out := _make_tool_button("−", 28.0)
-	zoom_out.custom_minimum_size.y = 28.0
+	zoom_out.custom_minimum_size.y = 32.0
 	zoom_out.add_theme_font_size_override("font_size", 15)
+	zoom_out.tooltip_text = AuroraLocale.text("ALEJA LA LÍNEA DE TIEMPO")
 	zoom_out.pressed.connect(_adjust_timeline_zoom.bind(0.8))
-	header.add_child(zoom_out)
+	controls_row.add_child(zoom_out)
 	timeline_zoom_label = AuroraUi.make_pixel_label(
 		"100 PX/S",
-		7,
+		9,
 		AuroraUi.MUTED
 	)
 	timeline_zoom_label.custom_minimum_size.x = 62.0
 	timeline_zoom_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	timeline_zoom_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	header.add_child(timeline_zoom_label)
+	controls_row.add_child(timeline_zoom_label)
 	var zoom_in := _make_tool_button("+", 28.0)
-	zoom_in.custom_minimum_size.y = 28.0
+	zoom_in.custom_minimum_size.y = 32.0
 	zoom_in.add_theme_font_size_override("font_size", 15)
+	zoom_in.tooltip_text = AuroraLocale.text("ACERCA LA LÍNEA DE TIEMPO")
 	zoom_in.pressed.connect(_adjust_timeline_zoom.bind(1.25))
-	header.add_child(zoom_in)
+	controls_row.add_child(zoom_in)
 	timeline = ChartTimeline.new()
 	timeline.name = "ChartTimeline"
 	timeline.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -1039,9 +1221,13 @@ func _refresh_quick_shift_options() -> void:
 		return
 	var previous_pair := maxi(quick_shift_pair_option.selected, 0)
 	quick_shift_pair_option.clear()
-	for lane_a in range(key_count):
-		for lane_b in range(lane_a + 1, key_count):
-			quick_shift_pair_option.add_item("SHIFT %d + %d" % [lane_a + 1, lane_b + 1])
+	var pairs := [[0, 1], [key_count - 2, key_count - 1]]
+	for pair in pairs:
+		if pair[0] < 0 or pair[1] >= key_count:
+			continue
+		var index := quick_shift_pair_option.item_count
+		quick_shift_pair_option.add_item("DOBLE %d + %d" % [pair[0] + 1, pair[1] + 1])
+		quick_shift_pair_option.set_item_metadata(index, pair)
 	quick_shift_pair_option.select(
 		clampi(previous_pair, 0, maxi(quick_shift_pair_option.item_count - 1, 0))
 	)
@@ -1075,10 +1261,18 @@ func _refresh_note_edit_controls() -> void:
 		quick_add_hold_button,
 		quick_shift_pair_option,
 		quick_add_shift_button,
+		quick_side_option,
+		quick_side_duration_spin,
+		quick_add_side_button,
+		quick_update_side_button,
+		quick_remove_side_button,
 		recording_snap_toggle,
 	]:
 		if control != null:
-			control.disabled = not quick_add_available
+			if control is SpinBox:
+				(control as SpinBox).editable = quick_add_available
+			else:
+				control.disabled = not quick_add_available
 
 
 func _add_quick_note(create_hold: bool) -> void:
@@ -1128,17 +1322,7 @@ func _add_quick_shift_note() -> void:
 		return
 	if quick_shift_pair_option == null or quick_shift_pair_option.item_count <= 0:
 		return
-	var pair_index := quick_shift_pair_option.selected
-	var pair_count := 0
-	var lanes: Array = []
-	for lane_a in range(key_count):
-		for lane_b in range(lane_a + 1, key_count):
-			if pair_count == pair_index:
-				lanes = [lane_a, lane_b]
-				break
-			pair_count += 1
-		if not lanes.is_empty():
-			break
+	var lanes: Array = quick_shift_pair_option.get_item_metadata(quick_shift_pair_option.selected)
 	if lanes.size() != 2:
 		return
 	var shift_duration := maxf(timeline.get_snap_seconds(), MIN_HOLD_DURATION)
@@ -1152,7 +1336,63 @@ func _add_quick_shift_note() -> void:
 	})
 	shift_notes = ChartData.normalize_shift_notes(shift_notes, key_count)
 	_refresh_editor_state()
-	_set_status(AuroraLocale.text("SHIFT HOLD AÑADIDO // PULSA AMBOS CARRILES"))
+	_set_status(AuroraLocale.text("DOBLE HOLD AÑADIDO // PULSA AMBOS CARRILES"))
+
+
+func _add_quick_side_note() -> void:
+	if creation_mode != "manual" or not _has_media():
+		_set_status(AuroraLocale.text("USA MODO MANUAL CON UN MEDIO CARGADO"), true)
+		return
+	var side := quick_side_option.selected
+	var hold_duration := maxf(float(quick_side_duration_spin.value), MIN_HOLD_DURATION)
+	if preview_time >= duration_seconds - hold_duration:
+		_set_status(AuroraLocale.text("MUEVE EL CURSOR ANTES DEL FINAL DEL MEDIO"), true)
+		return
+	side_notes.append({"time": snappedf(preview_time, 0.001), "side": side, "duration": snappedf(hold_duration, 0.001)})
+	side_notes = ChartData.normalize_side_notes(side_notes)
+	_refresh_editor_state()
+	_set_status(AuroraLocale.text("SHIFT LATERAL AÑADIDO // PULSA EL SHIFT CORRESPONDIENTE"))
+
+
+func _update_quick_side_note() -> void:
+	var index := _find_side_note_near_cursor()
+	if index < 0:
+		_set_status(AuroraLocale.text("NO HAY SHIFT LATERAL CERCA DEL CURSOR"), true)
+		return
+	var duration := maxf(float(quick_side_duration_spin.value), MIN_HOLD_DURATION)
+	if float(side_notes[index]["time"]) + duration > duration_seconds:
+		_set_status(AuroraLocale.text("EL SHIFT TERMINARÍA DESPUÉS DEL MEDIO"), true)
+		return
+	side_notes[index]["duration"] = snappedf(duration, 0.001)
+	side_notes = ChartData.normalize_side_notes(side_notes)
+	_refresh_editor_state()
+	_set_status(AuroraLocale.text("DURACIÓN DE SHIFT ACTUALIZADA"))
+
+
+func _remove_quick_side_note() -> void:
+	if side_notes.is_empty():
+		return
+	var closest_index := _find_side_note_near_cursor()
+	if closest_index < 0:
+		_set_status(AuroraLocale.text("NO HAY SHIFT LATERAL CERCA DEL CURSOR"), true)
+		return
+	side_notes.remove_at(closest_index)
+	_refresh_editor_state()
+	_set_status(AuroraLocale.text("SHIFT LATERAL ELIMINADO"))
+
+
+func _find_side_note_near_cursor() -> int:
+	var side := quick_side_option.selected
+	var closest_index := -1
+	var closest_distance := INF
+	for index in range(side_notes.size()):
+		if int(side_notes[index]["side"]) != side:
+			continue
+		var distance := absf(float(side_notes[index]["time"]) - preview_time)
+		if distance < closest_distance:
+			closest_distance = distance
+			closest_index = index
+	return closest_index if closest_distance <= maxf(timeline.get_snap_seconds(), 0.20) else -1
 
 
 func _on_timeline_marquee_requested(
@@ -1400,6 +1640,20 @@ func _build_properties(body: HBoxContainer) -> void:
 	artist_edit.name = "ArtistEdit"
 	title_edit.text_changed.connect(_on_metadata_text_changed)
 	artist_edit.text_changed.connect(_on_metadata_text_changed)
+	collection_option = OptionButton.new()
+	collection_option.name = "SongCollection"
+	collection_option.custom_minimum_size = Vector2(188.0, 38.0)
+	collection_option.tooltip_text = AuroraLocale.text(
+		"ARCHIVO DJMAX AGRUPA LOS NIVELES DE DJMAX; AURORA MIX, TU GALERÍA DE YOUTUBE."
+	)
+	AuroraUi.apply_pixel_font(collection_option, 7)
+	_setup_collection_options()
+	collection_option.item_selected.connect(_on_song_collection_selected)
+	_make_summary_control_row(
+		automatic_summary_container,
+		AuroraLocale.text("COLECCIÓN"),
+		collection_option
+	)
 	manual_gameplay_summary_container = VBoxContainer.new()
 	manual_gameplay_summary_container.name = "ManualGameplaySummary"
 	manual_gameplay_summary_container.add_theme_constant_override("separation", 6)
@@ -1443,6 +1697,9 @@ func _build_properties(body: HBoxContainer) -> void:
 	density_option.add_item(AuroraLocale.text("INTENSA"))
 	density_option.selected = automatic_density
 	density_option.custom_minimum_size = Vector2(150.0, 40.0)
+	density_option.tooltip_text = AuroraLocale.text(
+		"DEFINE CUÁNTAS NOTAS PROPONE LA GENERACIÓN AUTOMÁTICA."
+	)
 	AuroraUi.apply_pixel_font(density_option, 8)
 	density_option.item_selected.connect(_on_density_selected)
 	_make_summary_control_row(
@@ -1455,6 +1712,9 @@ func _build_properties(body: HBoxContainer) -> void:
 	automatic_holds_toggle.text = AuroraLocale.text("ACTIVADOS")
 	automatic_holds_toggle.set_pressed_no_signal(automatic_holds_enabled)
 	automatic_holds_toggle.custom_minimum_size = Vector2(150.0, 40.0)
+	automatic_holds_toggle.tooltip_text = AuroraLocale.text(
+		"PERMITE QUE EL CHART AUTOMÁTICO INCLUYA NOTAS LARGAS QUE SE MANTIENEN."
+	)
 	AuroraUi.apply_pixel_font(automatic_holds_toggle, 8)
 	automatic_holds_toggle.toggled.connect(_on_automatic_holds_toggled)
 	_make_summary_control_row(
@@ -1469,6 +1729,9 @@ func _build_properties(body: HBoxContainer) -> void:
 	)
 	advanced_settings_button.name = "AdvancedSettingsButton"
 	advanced_settings_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	advanced_settings_button.tooltip_text = AuroraLocale.text(
+		"MUESTRA BPM, DENSIDAD, HOLDS Y LA HERRAMIENTA TAP BPM."
+	)
 	advanced_settings_button.pressed.connect(_toggle_advanced_settings)
 	automatic_summary_container.add_child(advanced_settings_button)
 
@@ -1564,13 +1827,34 @@ func _build_properties(body: HBoxContainer) -> void:
 	)
 	chart_difficulty_use_button = _make_tool_button(AuroraLocale.text("USAR 01"), 0.0)
 	chart_difficulty_use_button.disabled = true
+	chart_difficulty_use_button.tooltip_text = AuroraLocale.text(
+		"APLICA EL NIVEL ESTIMADO AL CHART. PUEDES CAMBIARLO DESPUÉS."
+	)
 	chart_difficulty_use_button.pressed.connect(_use_chart_difficulty_estimate)
-	gameplay_properties_container.add_child(chart_difficulty_result_label)
-	gameplay_properties_container.add_child(chart_difficulty_summary_label)
-	gameplay_properties_container.add_child(chart_difficulty_use_button)
-	key_legend = HBoxContainer.new()
-	key_legend.add_theme_constant_override("separation", 6)
-	manual_properties_container.add_child(key_legend)
+	chart_difficulty_container = VBoxContainer.new()
+	chart_difficulty_container.name = "ChartDifficultyEstimate"
+	chart_difficulty_container.add_theme_constant_override("separation", 6)
+	chart_difficulty_container.add_child(HSeparator.new())
+	chart_difficulty_container.add_child(
+		AuroraUi.make_pixel_label(
+			AuroraLocale.text("ESTIMAR NIVEL DEL CHART"),
+			9,
+			AuroraUi.TEAL
+		)
+	)
+	chart_difficulty_container.add_child(
+		AuroraUi.make_label(
+			AuroraLocale.text(
+				"Calcula una sugerencia a partir de las notas. Revísala antes de aplicarla; no cambia la velocidad."
+			),
+			10,
+			AuroraUi.MUTED
+		)
+	)
+	chart_difficulty_container.add_child(chart_difficulty_result_label)
+	chart_difficulty_container.add_child(chart_difficulty_summary_label)
+	chart_difficulty_container.add_child(chart_difficulty_use_button)
+	controls.add_child(chart_difficulty_container)
 	_refresh_quick_lane_options()
 	_refresh_tap_bpm_display()
 	_refresh_chart_difficulty_analysis()
@@ -1688,20 +1972,38 @@ func _refresh_mode_visibility() -> void:
 		manual_tools_container.visible = not automatic_mode
 	if manual_quick_tools_container != null:
 		manual_quick_tools_container.visible = not automatic_mode
+	if manual_special_heading != null:
+		manual_special_heading.visible = not automatic_mode
+	if manual_special_tools_container != null:
+		manual_special_tools_container.visible = not automatic_mode
+	if manual_legend_heading != null:
+		manual_legend_heading.visible = not automatic_mode
+	if key_legend != null:
+		key_legend.visible = not automatic_mode
+	if manual_notes_heading != null:
+		manual_notes_heading.visible = not automatic_mode
 	if automatic_tools_container != null:
 		automatic_tools_container.visible = automatic_mode
 	if generate_button != null:
 		generate_button.visible = automatic_mode
 	if automatic_generate_step != null:
 		automatic_generate_step.visible = automatic_mode
+	if shared_tools_heading != null:
+		shared_tools_heading.visible = true
 	if shared_tools_container != null:
-		shared_tools_container.visible = not automatic_mode
+		shared_tools_container.visible = true
 	for manual_button in [
-		undo_button,
-		redo_button,
-		snap_selection_button,
-		delete_selection_button,
-		clear_button,
+		record_button,
+		quick_lane_option,
+		quick_add_tap_button,
+		quick_add_hold_button,
+		quick_shift_pair_option,
+		quick_add_shift_button,
+		quick_side_option,
+		quick_side_duration_spin,
+		quick_add_side_button,
+		quick_update_side_button,
+		quick_remove_side_button,
 	]:
 		if manual_button != null:
 			manual_button.visible = not automatic_mode
@@ -1892,7 +2194,7 @@ func _make_mode_card(text: String) -> Button:
 
 
 func _make_editor_step(
-	parent: HBoxContainer,
+	parent: Container,
 	caption: String,
 	minimum_width: float
 ) -> VBoxContainer:
@@ -1911,7 +2213,7 @@ func _make_editor_step(
 	var step_box := VBoxContainer.new()
 	step_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	step_box.add_theme_constant_override("separation", 5)
-	step_box.add_child(AuroraUi.make_pixel_label(caption, 7, AuroraUi.TEAL))
+	step_box.add_child(AuroraUi.make_pixel_label(caption, 8, AuroraUi.TEAL))
 	step_panel.add_child(step_box)
 	return step_box
 
@@ -1941,6 +2243,54 @@ func _make_summary_control_row(
 	row.add_child(caption_label)
 	control.size_flags_horizontal = Control.SIZE_SHRINK_END
 	row.add_child(control)
+
+
+func _setup_collection_options() -> void:
+	if collection_option == null:
+		return
+	collection_option.clear()
+	var collection_ids: Array[String] = [
+		SongData.COLLECTION_DJMAX_ARCHIVE,
+		SongData.COLLECTION_AURORA_MIX,
+	]
+	if song_manager != null:
+		for song in song_manager.get_all_songs():
+			var existing_id := SongData.resolve_collection_id(
+				song.collection_id,
+				str(song.song_id).trim_prefix("package_")
+			)
+			if existing_id not in collection_ids:
+				collection_ids.append(existing_id)
+	for id in collection_ids:
+		var item_index := collection_option.item_count
+		collection_option.add_item(
+			AuroraLocale.text(SongData.collection_label(id))
+		)
+		collection_option.set_item_metadata(item_index, id)
+	_select_song_collection(collection_id)
+
+
+func _select_song_collection(value: String, fallback_package_id: String = "") -> void:
+	collection_id = SongData.resolve_collection_id(value, fallback_package_id)
+	if collection_option == null:
+		return
+	for index in range(collection_option.item_count):
+		if str(collection_option.get_item_metadata(index)) == collection_id:
+			collection_option.select(index)
+			return
+	var item_index := collection_option.item_count
+	collection_option.add_item(
+		AuroraLocale.text(SongData.collection_label(collection_id))
+	)
+	collection_option.set_item_metadata(item_index, collection_id)
+	collection_option.select(item_index)
+
+
+func _on_song_collection_selected(index: int) -> void:
+	if collection_option == null or index < 0 or index >= collection_option.item_count:
+		return
+	collection_id = str(collection_option.get_item_metadata(index))
+	_refresh_dirty_state()
 
 
 func _add_line_edit(parent: VBoxContainer, caption: String, value: String) -> LineEdit:
@@ -4512,6 +4862,7 @@ func _refresh_editor_state() -> void:
 			timeline_state.selected_note_ids
 		)
 		timeline.set_shift_notes(shift_notes)
+		timeline.set_side_notes(side_notes)
 		timeline.cinematic_sections = cinematic_sections.duplicate(true)
 		timeline.set_playhead(preview_time)
 		_on_timeline_zoom_changed(timeline.viewport_model.pixels_per_second)
@@ -4673,6 +5024,7 @@ func _make_project_document(chart_path: String = "") -> Dictionary:
 		"metadata": {
 			"title": title_edit.text.strip_edges(),
 			"artist": artist_edit.text.strip_edges(),
+			"collection_id": collection_id,
 			"audio_gain_db": song_gain_db,
 			"difficulty": _get_difficulty_id(),
 			"difficulty_level": int(difficulty_level_spin.value),
@@ -4778,6 +5130,10 @@ func _apply_project_snapshot(
 	var metadata: Dictionary = parsed.get("metadata", {})
 	title_edit.text = str(metadata.get("title", "Nuevo nivel"))
 	artist_edit.text = str(metadata.get("artist", "Aurora Creator"))
+	_select_song_collection(
+		str(metadata.get("collection_id", "")),
+		package_id
+	)
 	_set_song_gain_db(float(metadata.get("audio_gain_db", 0.0)))
 	_select_difficulty(str(metadata.get("difficulty", "NORMAL")))
 	bpm_spin.value = clampf(float(metadata.get("bpm", 128.0)), 40.0, 300.0)
@@ -4879,6 +5235,7 @@ func _new_project() -> void:
 	package_version = DEFAULT_PACKAGE_VERSION
 	source_song_id = ""
 	source_chart_signature = ""
+	_select_song_collection(SongData.COLLECTION_AURORA_MIX)
 	_set_song_gain_db(0.0)
 	video_player.stream = null
 	audio_player.stream = null
@@ -4961,6 +5318,7 @@ func _test_chart() -> void:
 	song.song_id = StringName("editor_%s" % project_id)
 	song.title = title_edit.text.strip_edges()
 	song.artist = artist_edit.text.strip_edges()
+	song.collection_id = collection_id
 	song.audio_gain_db = song_gain_db
 	song.bpm = float(bpm_spin.value)
 	song.duration_seconds = duration_seconds

@@ -281,6 +281,14 @@ focus_mode = 2
 theme_override_fonts/font = ExtResource("6_font")
 theme_override_font_sizes/font_size = 10
 
+[node name="CollectionOption" type="OptionButton" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout/FilterRow"]
+custom_minimum_size = Vector2(224, 44)
+layout_mode = 2
+focus_mode = 2
+mouse_default_cursor_shape = 2
+theme_override_fonts/font = ExtResource("6_font")
+theme_override_font_sizes/font_size = 9
+
 [node name="SongScroll" type="ScrollContainer" parent="LibraryMargins/PageLayout/LibraryBody/SongListPanel/SongListMargins/SongListLayout"]
 layout_mode = 2
 size_flags_vertical = 3

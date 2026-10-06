@@ -1270,6 +1270,9 @@ func migrate_editor_v3_to_manifest(
 			"artist": str(
 				metadata.get("artist", "Aurora Creator")
 			).strip_edges(),
+			"collection_id": str(
+				metadata.get("collection_id", "aurora_mix")
+			).strip_edges().to_lower(),
 			"bpm": float(metadata.get("bpm", 128.0)),
 			"duration_seconds": float(
 				metadata.get("duration_seconds", 120.0)

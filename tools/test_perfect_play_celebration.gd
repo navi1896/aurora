@@ -95,7 +95,12 @@ func _run() -> void:
 		quit(1)
 		return
 	check(effect.audio_player.playing and effect.audio_player.bus == "SFX", "Original sound plays through effects volume")
-	check(absf(effect.audio_player.stream.get_length() - 4.0) < 0.02, "Sound is four seconds")
+	check(
+		effect.audio_player.stream.get_length() > 1.5
+		and effect.audio_player.stream.get_length() < 3.0
+		and EFFECT.DURATION >= 4.0,
+		"The original cue and full-length visual celebration have separate durations"
+	)
 	game._check_level_finished()
 	check(game.clear_celebration == effect, "Duplicate finish does not replay effect")
 	var audio_before: float = game.song_player.get_playback_position()
