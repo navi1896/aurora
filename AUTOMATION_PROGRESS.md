@@ -253,3 +253,207 @@
   permanecen centrados y no invaden los botones ni los ajustes.
 - Validado con revisión de scripts, comprobaciones de formato y proporción de avance, y prueba
   integral `SMOKE TEST PASSED`.
+
+## 2026-09-12 — Adaptación 4K de notas laterales importadas
+
+- A petición del usuario se incorporó `side_notes` para taps y mantener laterales
+  automáticos, independientes de los cuatro carriles jugables. No requieren teclas
+  adicionales ni aumentan score, combo, precisión o total de notas jugables.
+- Indicadores rectangulares originales y estrechos fuera del campo de juego;
+  aviso `LATERALES: AUTO`. No se descargó ni copió arte de otro juego.
+- Se conservan al guardar/reabrir, recuperar borradores, exportar/importar paquetes
+  `.aurora` y preparar una copia editable desde biblioteca. No se sobrescribieron
+  canciones, partidas, paquetes ni cambios ajenos de addons/comunidad.
+- Pruebas específicas `AUTO SIDE NOTES PASSED` y `AUTO SIDE FLOW PASSED`, comprobación
+  visual en un perfil aislado y pruebas existentes de charts, guardado, recuperación,
+  exportación e integración de biblioteca: PASSED. Prueba integral `SMOKE TEST PASSED`.
+- Evidencia visual fuera del proyecto:
+  `E:\Juego_Musica_Assets\DJMAX\Metadata\auto_side_playfield.png`.
+- Importación DJMAX todavía INCOMPLETA: 44 canciones / 132 referencias seleccionadas,
+  10 patrones públicos decodificados a pulsos pero sin instalación, 1 evento de fuente
+  no definido y 121 patrones sin geometría pública declarada. Los ensayos de extracción
+  de video y ajuste uniforme no se aceptaron como originales listos para jugar.
+- Secret Dejavu NM: 287 cabezas contrastadas contra dos franjas de la grabación;
+  audio NM/HD/MX alineado con el BGA local. Eso no certifica todas las notas de las
+  tres dificultades ni sustituye los archivos de timing originales.
+- Informe y pendientes:
+  `C:\Users\ivana\Documents\Codex\2026-07-23\referenced-chatgpt-conversation-this-is-untrusted\DJMAX_IMPORT_RESEARCH_2026-09-12.md`.
+- No se publicó, no se hizo commit/push y no se añadieron niveles DJMAX incompletos
+  a la biblioteca real.
+
+## 2026-09-12 — Primera canción DJMAX de prueba: Secret Dejavu 4K
+
+- Tras aceptar el usuario reconstrucción desde grabaciones por no disponer de
+  charts originales, se añadió solo Secret Dejavu — DINY con NM/Normal 04,
+  HD/Difícil 06 y MX/Máxima 10. Siempre cuatro teclas: 287 / 514 / 807 cabezas
+  jugables y 11 / 7 / 22 mantener. HD contiene dos laterales automáticos.
+- NM contrastada con geometría pública y dos franjas del video; HD/MX usan
+  eventos vistos a 60 FPS. No se generaron notas aleatorias ni por BPM y no se
+  aplicó el snap uniforme rechazado. Tiempos de precisión limitada por video,
+  no identidad certificada con los archivos originales. HD conserva una
+  discrepancia abierta de un evento contra el catálogo: 516 observados contando
+  laterales frente a 517 declarados. No se rellenó ese evento sin evidencia.
+- MP4 original intacto; OGV compatible de 122.27625 s compartido entre los tres
+  charts, conservando aproximadamente 2.65 s de outro después de los últimos
+  mantener. Conversión corrupta inicial rechazada y apartada fuera de biblioteca;
+  conversor LGPL 6.1.3 existente produjo un video válido.
+- Decodificación integral sin errores, SSIM en cuatro puntos > 0.971 y audio
+  convertido sin desplazamiento nuevo: PASSED. Exportación, integridad e
+  importación .aurora en perfiles aislados: PASSED.
+- Simulación funcional completa de las tres dificultades sin misses/holds
+  atascados; primera sección con reproducción real de video/audio y evidencia
+  visual: PASSED. Las pruebas sintéticas no certifican fidelidad musical.
+  Comprobación de scripts y `SMOKE TEST PASSED`.
+- Paquete e instalación en HDD E:, con una unión nueva de la biblioteca real
+  hacia `E:\Juego_Musica_Assets\DJMAX\Aurora_Installed\djmax-secret-dejavu`.
+  Comprobación final de descubrimiento de tres dificultades/medios, solo lectura:
+  PASSED. No se sobrescribió biblioteca, ajustes, partidas ni cambios ajenos.
+- Paquete compartible:
+  `E:\Juego_Musica_Assets\DJMAX\Aurora_Packages\Secret-Dejavu-4K-NM-HD-MX-v1.0.0.aurora`.
+  Informe/evidencias fuera del proyecto en DJMAX_IMPORT_RESEARCH_2026-09-12.md y
+  `E:\Juego_Musica_Assets\DJMAX\Metadata`. Las otras 43 canciones siguen pendientes.
+- No se publicó, no se hizo commit/push, no se instaló software y no se exportó
+  un nuevo ZIP del juego. Para probar el soporte nuevo usar el proyecto Godot
+  actual; un EXE anterior no se considera actualizado por esta instalación.
+
+## 2026-09-13 — Segunda canción DJMAX solicitada: glory MAX 4K
+
+- Se añadió únicamente glory MAX -to the MAXimum- — TAK: NM/Normal 06,
+  HD/Difícil 08 y MX/Máxima 12. Cuatro teclas, 403 / 608 / 941 cabezas
+  jugables y 27 / 60 / 60 mantener. HD tiene tres laterales automáticos;
+  MX doce. Los totales contando especiales coinciden con 403 / 611 / 953
+  del catálogo. No se inventó Fácil ni se generaron notas por BPM/azar.
+- MX conserva pulsos y longitudes públicos contrastados contra todas las
+  cabezas de la grabación; NM/HD usan observaciones a 60 FPS en dos franjas.
+  Descanso NM de BGA a pantalla completa y cartel PERFECT PLAY excluidos del
+  detector; una nota HD derecha oculta abajo por Side Track revisada visualmente.
+  Alineación sonora espectral en inicio/mitad/final con dispersión <=10 ms.
+  Precisión limitada por video y calibración: no identidad certificada con
+  archivos de chart originales. Originales y biblioteca previa intactos.
+- OGV compatible compartido, duración 155.039637 s y unos 4.81 s finales
+  sin teclas conservados. FFmpeg LGPL 6.1.3 existente; decodificación completa
+  sin errores, SSIM >0.940 y audio convertido sin nuevo desfase: PASSED.
+- Exportación, SHA-256, importación aislada, tres charts válidos, simulación
+  completa de taps/releases sin misses/holds pendientes y ocho segundos
+  reales por dificultad: PASSED. Capturas específicas de mantener y laterales
+  revisadas en Godot. Comprobación de scripts y SMOKE TEST PASSED.
+  Un error del fixture visual al omitir carga de medios fue corregido en el
+  fixture y la repetición pasó; no se modificó gameplay ni configuración real.
+- Paquete compartible en HDD:
+  `E:\Juego_Musica_Assets\DJMAX\Aurora_Packages\Glory-MAX-4K-NM-HD-MX-v1.0.0.aurora`
+  (46.36 MiB); SHA-256
+  `37D041FA9D3BB47517CFBDE3A1CEEEAF28C7D75CE363481E9A67CC65F5985ACE`.
+  Instalación HDD `Aurora_Installed\djmax-glory-max`, con una unión nueva
+  única desde la biblioteca real. Descubrimiento final de tres charts y
+  medios con SongManager, solo lectura: PASSED. Secret Dejavu y datos
+  previos no se reemplazaron.
+- Informe actualizado y evidencia fuera del proyecto en
+  DJMAX_IMPORT_RESEARCH_2026-09-12.md y `E:\Juego_Musica_Assets\DJMAX\Metadata`.
+  No se publicó, no se hizo commit/push ni se reconstruyó ZIP del juego.
+  Para ver el soporte de laterales usar el proyecto Godot actual.
+  Estado total: dos canciones preparadas, 42 canciones / 126 patrones pendientes.
+
+## 2026-09-13 — Tercera canción DJMAX solicitada: Utopiosphere 4K
+
+- Ejecución manual 06:40:18Z–06:53:49Z (00:40:18–00:53:49,
+  America/Mexico_City), una canción; cola horaria marcada EN_CURSO antes de
+  trabajar y ahora INSTALADA, sin duplicación ni otra ejecución activa.
+- Utopiosphere — Mili: NM/Normal 04, HD/Difícil 06, MX/Máxima 10.
+  Cuatro teclas; 278 / 455 / 761 notas jugables, 18 / 13 / 34 mantener
+  y 0 / 1 / 6 laterales automáticos. Totales con especiales 278 / 456 / 767
+  coinciden con el catálogo. No Fácil inventada, BPM/azar ni snap uniforme.
+- Reconstrucción de tres referencias 4B/60 FPS en dos franjas; receptor
+  calibrado visualmente. Dos cabezas MX ocultas abajo y un mantener MX
+  fragmentado por Side Track revisados sin añadir falsos eventos de texto.
+  Alineación sonora independiente inicio/mitad/final: correlación >=0.957,
+  dispersión 0.25 ms. Precisión limitada por cuadros/calibración; coincidir
+  en conteo no certifica identidad exacta con los charts originales.
+- MP4 local intacto, OGV compatible con FFmpeg LGPL 6.1.3 ya existente;
+  duración 133.0039 s, aproximadamente 5.62 s finales sin teclas conservados.
+  Decodificación integral sin corrupción, SSIM >0.985 y audio convertido
+  sin nueva deriva: PASSED. Portada extraída del BGA autorizado.
+- Scripts, SMOKE TEST, exportación/integridad/importación aislada: PASSED.
+  Simulación completa de taps/releases sin misses ni mantener pendientes;
+  nueve tramos reales de 8 s (inicio/mitad/final por dificultad) sin misses,
+  reloj natural. Capturas de biblioteca, cuatro carriles, mantener, laterales
+  y reproducción revisadas. Preparación y límite de resultados: PASSED.
+  Pruebas funcionales sintéticas, no certificación de fidelidad musical.
+- Paquete compartible en HDD E:
+  `E:\Juego_Musica_Assets\DJMAX\Aurora_Packages\Utopiosphere-4K-NM-HD-MX-v1.0.0.aurora`
+  (40.51 MiB), SHA-256
+  `4E975EF8C338B6CDDAB3237EDEEF3D798B15E32ED1BC4C511C8331DDC43AFD42`.
+  Instalación activa `Aurora_Installed\djmax-utopiosphere`, unión nueva única
+  desde biblioteca real. Descubrimiento final SongManager, tres charts y medios
+  válidos, solo lectura: PASSED. Originales/partidas/ajustes previos preservados.
+- No cambios funcionales de código, software instalado, publicación, commit/push
+  ni nuevo ZIP. Usar proyecto Godot actual; no afirmar EXE antiguo actualizado.
+  Informe DJMAX_IMPORT_RESEARCH_2026-09-12.md y cola AURORA_SONG_INSTALL_QUEUE.md,
+  fuera del proyecto; evidencia/scripts en Metadata del HDD.
+  Estado actual: tres instaladas, 41 canciones / 123 patrones pendientes.
+
+## 2026-09-15 — Preparación ampliada y confirmaciones de interfaz
+
+- La entrada de cualquier canción ahora añade 2.5 segundos a la preparación
+  negra existente antes de iniciar audio, video y notas. No muestra cuenta
+  regresiva y conserva el campo de juego listo para acomodar las manos.
+- Se añadió `UiFeedbackManager`: sonidos sintéticos originales, breves y con
+  volumen moderado en el bus SFX para navegación, confirmar, pausa y resultado
+  de combo máximo. No se incorporaron sonidos, música ni recursos de terceros;
+  los sonidos propios del nivel no se modificaron.
+- Integrado en menú, biblioteca, vista previa, inicio, pausa y resultados. La
+  comprobación `run_smoke_test.ps1` ejecutada con Godot 4.8-dev4 terminó en
+  `SMOKE TEST PASSED`, incluida la presencia del manager y la preparación extra.
+- No se creó ZIP, versión, paquete de actualización, commit, push ni publicación.
+- *Waiting for you* se completó después fuera del proyecto: Normal04 376 notas,
+  Difícil08 595 y Máxima05 1,132, con seis notas SC ocultas por el video excluidas
+  en vez de inventadas. Medio, paquete, simulación aislada, smoke y descubrimiento
+  de solo lectura en la biblioteca real: PASSED. Paquete compartible:
+  `E:\Juego_Musica_Assets\DJMAX\Aurora_Packages\Waiting-for-You-4K-NM-HD-SC-v1.0.0.aurora`.
+- *ANiMA* se completó después fuera del proyecto: Normal06 448 notas,
+  Difícil09 686 y Máxima14 964; 8/11/19 mantener y ningún lateral. Los conteos
+  observables coinciden con el catálogo y se excluyeron PERFECT PLAY/resultados.
+  Medio, sincronía, paquete, simulación aislada, nueve tramos reales, smoke y
+  descubrimiento de solo lectura en la biblioteca real: PASSED. Paquete:
+  `E:\Juego_Musica_Assets\DJMAX\Aurora_Packages\ANiMA-4K-NM-HD-MX-v1.0.0.aurora`.
+- *YUBIKIRI-GENMAN* se completó después fuera del proyecto: Normal04 399 notas,
+  Difícil08 859 y Máxima01 986; 7/11/23 mantener y ningún lateral. El último
+  hold real y el corte previo a PERFECT PLAY se revisaron visualmente. Medio,
+  sincronía, paquete, simulación aislada, nueve tramos reales, smoke y lectura
+  desde la biblioteca real: PASSED. Paquete:
+  `E:\Juego_Musica_Assets\DJMAX\Aurora_Packages\YUBIKIRI-GENMAN-4K-NM-HD-SC-v1.0.0.aurora`.
+- *Running girl* se completó después fuera del proyecto: Normal05 328 notas,
+  Difícil07 417 y Máxima03 725; 11/23/45 mantener. En SC se verificaron
+  visualmente tres notas finales cuya banda superior queda oculta por efectos;
+  la excepción está documentada y no se rellenó por BPM ni azar. Medio,
+  sincronía, paquete, simulación aislada, nueve tramos reales, smoke y lectura
+  desde la biblioteca real: PASSED. Paquete:
+  `E:\Juego_Musica_Assets\DJMAX\Aurora_Packages\Running-girl-4K-NM-HD-SC-v1.0.0.aurora`.
+
+## 2026-09-17 — Comet Coaster instalado
+
+- *Comet Coaster* — DJ Noriken & aran quedó instalada en 4K como Normal05,
+  Difícil10 y Máxima13: 468/790/1,176 notas y 44/68/66 mantener. La adaptación
+  conserva únicamente las cabezas observables en referencias completas; 10/16/7
+  eventos ambiguos o fusionados no se rellenaron. NM/HD superaron la alineación
+  de envolvente; MX tiene hasta 20 ms de deriva bajo un offset fijo y se declara
+  como limitación, sin estirar ni modificar los tiempos del chart.
+- El BGA autorizado se convirtió a Theora/Vorbis 1280×720/30FPS, con
+  decodificación limpia, SSIM mínimo 0.986559 y audio convertido sin deriva.
+  Paquete validado e instalado: `Comet-Coaster-4K-NM-HD-MX-v1.0.0.aurora`.
+  La importación aislada, simulación PERFECT de los tres charts, nueve tramos
+  reales, outro, biblioteca real y SMOKE TEST: PASSED.
+
+## 2026-09-17 — DIE IN instalada
+
+- *DIE IN* — TAK x Sobrem quedó instalada en 4K como Normal07, Difícil10 y
+  Máxima15: 418/717/1,182 notas y 36/68/41 mantener. Se conservaron solo
+  eventos verificables; 3/9/14 cabezas ambiguas o fusionadas no se rellenaron
+  y no se fabricó una trayectoria lateral automática para MX.
+- El BGA autorizado quedó intacto y se convirtió a Theora/Vorbis 1280×720/30FPS
+  desde la fuente de 24FPS, con decodificación limpia, SSIM mínimo 0.978542 y
+  audio convertido sin deriva. El paquete validado e instalado es
+  `DIE-IN-4K-NM-HD-MX-v1.0.0.aurora`.
+- La importación aislada, simulación PERFECT de los tres charts, nueve tramos
+  reales, preparación negra, outro, descubrimiento de solo lectura y SMOKE TEST
+  terminaron en PASS. No hubo cambios funcionales de código, publicación, commit,
+  push, release ni ZIP del juego.

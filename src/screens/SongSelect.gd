@@ -13,6 +13,9 @@ const LOCAL_PACKAGE_BATCH_PANEL := preload(
 	"res://src/screens/song_select/LocalPackageBatchPanel.gd"
 )
 const SONG_PACKAGE_SERVICE := preload("res://src/packages/SongPackageService.gd")
+const GAMEPLAY_APPEARANCE_INVENTORY := preload(
+	"res://src/screens/song_select/GameplayAppearanceInventory.gd"
+)
 const PREVIEW_FADE_SECONDS := 0.5
 const PREVIEW_EXTRA_DURATION_SECONDS := 10.0
 const PREVIEW_SILENT_DB := -48.0
@@ -101,6 +104,8 @@ var preserve_remembered_selection_on_exit := false
 var share_panel: Control
 var package_install_panel: Control
 var preview_content_scroll: ScrollContainer
+var inventory_button: Button
+var inventory_panel: Control
 
 
 func _ready() -> void:
@@ -150,6 +155,7 @@ func _ready() -> void:
 	search_field.text = remembered_search_text
 	filter_option.select(clampi(remembered_filter_index, 0, 2))
 	_setup_delete_dialog()
+	_setup_inventory_button()
 	_refresh_note_speed()
 	song_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_SHOW_NEVER
 	song_scroll.resized.connect(_queue_center_song_selection)
@@ -224,7 +230,62 @@ func _apply_localized_texts() -> void:
 	favorite_button.text = AuroraLocale.text("☆ FAVORITA")
 	edit_button.text = AuroraLocale.text("EDITAR CANCION")
 	delete_button.text = AuroraLocale.text("BORRAR CANCION")
+	if inventory_button != null:
+		inventory_button.text = AuroraLocale.text("INVENTARIO")
+		inventory_button.tooltip_text = AuroraLocale.text(
+			"PREVISUALIZA Y EQUIPA LOS ASPECTOS DE AURORA, DJMAX, QUAVER, FNF Y TU DISEÑO PROPIO"
+		)
 	_refresh_controls_hint()
+
+
+func _setup_inventory_button() -> void:
+	var footer := controls_label.get_parent() as HBoxContainer
+	inventory_button = Button.new()
+	inventory_button.name = "AppearanceInventoryButton"
+	inventory_button.text = AuroraLocale.text("INVENTARIO")
+	inventory_button.tooltip_text = AuroraLocale.text(
+		"PREVISUALIZA Y EQUIPA LOS ASPECTOS DE AURORA, DJMAX, QUAVER, FNF Y TU DISEÑO PROPIO"
+	)
+	inventory_button.custom_minimum_size = Vector2(164.0, 30.0)
+	inventory_button.focus_mode = Control.FOCUS_ALL
+	inventory_button.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+	AuroraUi.apply_pixel_font(inventory_button, 9)
+	inventory_button.add_theme_color_override("font_color", AuroraUi.TEXT)
+	inventory_button.add_theme_color_override("font_hover_color", AuroraUi.GOLD)
+	inventory_button.add_theme_color_override("font_focus_color", AuroraUi.GOLD)
+	inventory_button.add_theme_stylebox_override(
+		"normal",
+		AuroraUi.make_style(Color(0.015, 0.02, 0.055, 0.94), Color(0.34, 0.31, 0.24, 0.8), 0)
+	)
+	inventory_button.add_theme_stylebox_override(
+		"hover",
+		AuroraUi.make_style(Color(0.20, 0.13, 0.025, 0.92), Color(1.0, 0.74, 0.23, 0.96), 0)
+	)
+	inventory_button.add_theme_stylebox_override(
+		"focus",
+		AuroraUi.make_style(Color(0.20, 0.13, 0.025, 0.92), Color(1.0, 0.74, 0.23, 0.96), 0)
+	)
+	inventory_button.pressed.connect(_open_appearance_inventory)
+	footer.add_child(inventory_button)
+	footer.move_child(inventory_button, version_label.get_index())
+
+
+func _open_appearance_inventory() -> void:
+	if inventory_panel != null and is_instance_valid(inventory_panel):
+		return
+	inventory_panel = GAMEPLAY_APPEARANCE_INVENTORY.new() as Control
+	inventory_panel.name = "GameplayAppearanceInventory"
+	inventory_panel.call("setup", settings_manager, input_manager)
+	inventory_panel.connect("close_requested", _close_appearance_inventory)
+	add_child(inventory_panel)
+
+
+func _close_appearance_inventory() -> void:
+	if inventory_panel != null and is_instance_valid(inventory_panel):
+		inventory_panel.queue_free()
+	inventory_panel = null
+	if inventory_button != null and is_instance_valid(inventory_button):
+		inventory_button.grab_focus()
 
 
 func _on_input_device_changed(_using_controller: bool) -> void:
@@ -649,6 +710,23 @@ func _exit_tree() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if inventory_panel != null and is_instance_valid(inventory_panel):
+		if inventory_panel.has_method("is_custom_editor_open") and bool(inventory_panel.call("is_custom_editor_open")):
+			return
+		var close_inventory: bool = (
+			event is InputEventJoypadButton
+			and event.pressed
+			and input_manager.controller_event_matches(event, "back")
+		) or (
+			event is InputEventKey
+			and event.pressed
+			and not event.echo
+			and event.keycode == KEY_ESCAPE
+		)
+		if close_inventory:
+			_close_appearance_inventory()
+			get_viewport().set_input_as_handled()
+		return
 	if _is_package_import_active():
 		var requested_back: bool = (
 			event is InputEventJoypadButton
@@ -811,7 +889,9 @@ func _input(event: InputEvent) -> void:
 
 
 func _uses_library_shortcuts(focused_control: Control) -> bool:
-	return focused_control == null or song_buttons.has(focused_control)
+	if focused_control == null:
+		return true
+	return focused_control is Button and song_buttons.has(focused_control as Button)
 
 
 func _is_note_speed_control(focused_control: Control) -> bool:

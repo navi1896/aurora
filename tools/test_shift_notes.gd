@@ -15,6 +15,24 @@ func _initialize() -> void:
 	_expect(chart.version == 5, "El chart con Shift se guarda como versión 5")
 	_expect(ChartData.is_valid_chart_document(chart, 4), "Acepta pares Shift de dos carriles")
 	_expect(chart.get("shift_notes", []) == shifts, "Conserva tiempos, carriles y holds Shift")
+	var duplicate_regular_lane := chart.duplicate(true)
+	duplicate_regular_lane.notes.append({"time": 2.0, "lane": 0, "duration": 0.0})
+	_expect(
+		not ChartData.is_valid_chart_document(duplicate_regular_lane, 4),
+		"Rechaza una nota normal simultánea con un Shift en el mismo carril"
+	)
+	var regular_during_shift_hold := chart.duplicate(true)
+	regular_during_shift_hold.notes.append({"time": 2.5, "lane": 3, "duration": 0.0})
+	_expect(
+		not ChartData.is_valid_chart_document(regular_during_shift_hold, 4),
+		"Rechaza una nota normal dentro de un hold Shift del mismo carril"
+	)
+	var regular_on_other_lane := chart.duplicate(true)
+	regular_on_other_lane.notes.append({"time": 2.5, "lane": 2, "duration": 0.0})
+	_expect(
+		ChartData.is_valid_chart_document(regular_on_other_lane, 4),
+		"Permite una nota simultánea en un carril no ocupado por Shift"
+	)
 
 	var duplicate_lane_chart := {
 		"version": 5,

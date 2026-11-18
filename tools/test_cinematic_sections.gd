@@ -23,35 +23,36 @@ func _expect(condition: bool, label: String) -> void:
 func _run() -> void:
 	root.size = Vector2i(1280, 720)
 	AudioServer.set_bus_mute(0, true)
-	var sections := [{"start": 3.0, "end": 8.0}]
-	var notes := [{"time": 1.0, "lane": 0, "duration": 0.5}, {"time": 10.0, "lane": 3, "duration": 1.0}]
+	var sections := [{"start": 3.0, "end": 10.0}]
+	var notes := [{"time": 1.0, "lane": 0, "duration": 0.5}, {"time": 15.0, "lane": 3, "duration": 0.5}]
 	_expect(Cinematics.is_valid(sections), "Accepts cinematic ranges")
 	for invalid in [null, {}, [{"start": "bad", "end": 2}], [{"start": 3, "end": 2}], [{"start": -1, "end": 2}], [{"start": NAN, "end": 2}]]:
 		_expect(not Cinematics.is_valid(invalid), "Rejects malformed range")
-	_expect(Cinematics.normalize([{"start": 4.0, "end": 6.0}, {"start": 3.0, "end": 5.0}]) == [{"start": 3.0, "end": 6.0}], "Merges overlapping ranges")
-	var protected := Cinematics.safe_sections([{"start": 0.0, "end": 12.0}], notes, 2.0, 0.22)
+	_expect(Cinematics.normalize([{"start": 4.0, "end": 11.0}, {"start": 3.0, "end": 10.0}]) == [{"start": 3.0, "end": 11.0}], "Merges overlapping ranges")
+	var protected := Cinematics.safe_sections([{"start": 0.0, "end": 17.0}], notes, 2.0, 0.22)
 	_expect(is_equal_approx(Cinematics.opacity_at(protected, 4.0), 0.0), "Hides during an empty musical break")
-	for seconds in [0.0, 1.0, 1.4, 1.7, 8.0, 9.0, 10.0, 10.8, 11.2]:
+	for seconds in [0.0, 1.0, 1.4, 1.7, 13.0, 14.0, 15.0, 15.5, 15.8, 16.0]:
 		_expect(is_equal_approx(Cinematics.opacity_at(protected, seconds), 1.0), "Keeps approach, hold and missed-note windows visible at %.1f" % seconds)
 	var fade := Cinematics.opacity_at(sections, 3.175)
 	_expect(fade > 0.0 and fade < 1.0, "Fades smoothly at the start")
-	_expect(is_equal_approx(Cinematics.opacity_at(sections, 8.0), 1.0), "Restores exactly at section end")
+	_expect(is_equal_approx(Cinematics.opacity_at(sections, 10.0), 1.0), "Restores exactly at section end")
 
-	var fixture := "user://cinematic_flow"
+	var fixture_id := "cinematic-fixture-%d" % Time.get_ticks_usec()
+	var fixture := "user://%s" % fixture_id
 	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path(fixture))
 	var wave := AudioStreamWAV.new()
 	wave.format = AudioStreamWAV.FORMAT_8_BITS
 	wave.mix_rate = 8000
 	var silence := PackedByteArray()
-	silence.resize(96000)
+	silence.resize(160000)
 	silence.fill(128)
 	wave.data = silence
 	var audio_path := fixture.path_join("audio.wav")
 	_expect(wave.save_to_wav(audio_path) == OK, "Creates isolated test media")
 	var path := fixture.path_join("project.json")
-	var project := {"version": 3, "type": Store.PROJECT_TYPE, "package_id": "cinematic-fixture", "package_version": "1.0.0",
+	var project := {"version": 3, "type": Store.PROJECT_TYPE, "package_id": fixture_id, "package_version": "1.0.0",
 		"metadata": {"title": "Prueba de cinemática", "artist": "Aurora Tests", "key_count": 4, "difficulty": "NORMAL", "difficulty_level": 4,
-			"bpm": 120.0, "duration_seconds": 12.0, "creation_mode": "manual"},
+			"bpm": 120.0, "duration_seconds": 20.0, "creation_mode": "manual"},
 		"media": {"audio_path": audio_path}, "chart_path": "chart.json"}
 	var doc := ChartData.make_chart_document(notes, 4, 0.25, [], sections)
 	_expect(ChartData.is_valid_chart_document(doc, 4), "Validates chart v4")
@@ -59,7 +60,7 @@ func _run() -> void:
 	var chart := ChartData.new()
 	chart.chart_path = fixture.path_join("chart.json")
 	chart.audio_offset_seconds = -0.1
-	_expect(chart.load_cinematic_sections() == [{"start": 3.15, "end": 8.15}], "Applies chart and audio offsets consistently")
+	_expect(chart.load_cinematic_sections() == [{"start": 3.15, "end": 10.15}], "Applies chart and audio offsets consistently")
 	# Editor writes canonical seconds with zero offset.
 	_expect(Store.save_bundle(path, project, ChartData.make_chart_document(notes, 4, 0.0, [], sections)).ok, "Saves canonical test chart")
 	_expect(Recovery.save_snapshot(fixture.path_join("recovery.json"), project, notes, path, [], sections).ok, "Autosaves cinematic sections")
@@ -84,8 +85,8 @@ func _run() -> void:
 	_expect(editor.cinematic_sections == sections, "Editor opens stored sections")
 	var section_ui = editor.cinematic_section_editor
 	section_ui.heading.button_pressed = true
-	section_ui.start_spin.value = 8.5
-	section_ui.end_spin.value = 9.5
+	section_ui.start_spin.value = 11.0
+	section_ui.end_spin.value = 18.0
 	section_ui._add_section()
 	_expect(editor.cinematic_sections.size() == 2 and editor._is_editor_dirty(), "Visible editor controls add a section and mark unsaved changes")
 	editor._undo_chart_action()
@@ -111,7 +112,7 @@ func _run() -> void:
 	_expect(songs.import_song_package(package_path).get("ok", false), "Imports package into test profile")
 	var song: SongData
 	for candidate in songs.songs:
-		if candidate.song_id == "package_cinematic-fixture":
+		if candidate.song_id == "package_%s" % fixture_id:
 			song = candidate
 	if song == null:
 		_expect(false, "Finds installed fixture")
@@ -176,7 +177,14 @@ func _run() -> void:
 	settings.set_setting("lane_opacity", 1.0)
 	settings.set_setting("background_dim", 1.0)
 	_expect(gameplay.dim_overlay.color.a == 1.0, "Background dim reaches full black")
-	_expect((gameplay.frame_panel.get_theme_stylebox("panel") as StyleBoxFlat).bg_color.a == 1.0, "Track reaches full opacity")
+	if gameplay.use_gameplay_skin:
+		_expect(
+			gameplay.cabinet_art_overlay != null
+				and is_equal_approx(gameplay.cabinet_art_overlay.modulate.a, 1.0),
+			"Track reaches full opacity"
+		)
+	else:
+		_expect((gameplay.frame_panel.get_theme_stylebox("panel") as StyleBoxFlat).bg_color.a == 1.0, "Track reaches full opacity")
 	settings.set_setting("background_dim", 0.0)
 	settings.set_setting("lane_opacity", 0.75)
 	await _capture("opaque_track")
@@ -185,12 +193,24 @@ func _run() -> void:
 	_expect(is_zero_approx(gameplay.frame_panel.modulate.a), "Entire central playfield disappears in its authored break")
 	_expect(gameplay.dim_overlay.visible and gameplay.score_label.is_visible_in_tree(), "Background and outer HUD stay visible")
 	await _capture("cinematic_break")
+	settings.set_setting("note_speed", 10.0)
+	gameplay.chart_notes.clear()
+	gameplay.cinematic_sections.assign([{"start": 0.0, "end": 20.0}])
+	gameplay.chart_shift_notes.assign([{"time": 14.0, "lanes": [0, 3], "duration": 0.5}])
+	gameplay.chart_side_notes.assign([{"time": 14.0, "side": 0, "duration": 0.5}])
+	gameplay._rebuild_cinematic_sections()
+	gameplay.gameplay_time = 4.0
+	gameplay._update_ambient_frame()
+	_expect(is_zero_approx(gameplay.frame_panel.modulate.a), "Still hides the playfield in an empty gap before special notes")
+	gameplay.gameplay_time = 14.0
+	gameplay._update_ambient_frame()
+	_expect(gameplay.frame_panel.modulate.a == 1.0, "Keeps Shift chords and side holds visible while they are playable")
 	settings.set_setting("reduced_motion", true)
-	_expect(is_zero_approx(gameplay.frame_panel.modulate.a), "Ambient settings do not reset cinematic alpha")
+	_expect(gameplay.frame_panel.modulate.a == 1.0, "Ambient settings preserve protection around special notes")
 	settings.set_setting("cinematic_sections_enabled", false)
 	_expect(gameplay.frame_panel.modulate.a == 1.0, "Player can disable cinematic hiding")
 	settings.set_setting("cinematic_sections_enabled", true)
-	gameplay.gameplay_time = 9.0
+	gameplay.gameplay_time = 13.6
 	gameplay._update_ambient_frame()
 	_expect(gameplay.frame_panel.modulate.a == 1.0, "Track is restored before upcoming notes")
 	gameplay.pause_menu.open_menu()

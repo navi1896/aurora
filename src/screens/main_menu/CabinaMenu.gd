@@ -4,7 +4,12 @@ signal action_selected(action: StringName)
 
 const TRACK_CARD_RECT := Rect2(0.362, 0.298, 0.276, 0.212)
 const SELECTOR_ARROW := preload("res://assets/menu/ui/selector_arrow.png")
-const CABINET_ART := preload("res://assets/menu/background/cabina_aurora_menu.png")
+const CABINET_ART := preload("res://assets/menu/background/cabina_aurora_menu_bg.png")
+const GIRL_SIT_IDLE := preload("res://assets/menu/character/aurora_girl_sit_idle.png")
+const EXTERNAL_VIDEO_INTRO_PATH := "res://assets/menu/video/cabina_menu_intro.ogv"
+const EXTERNAL_VIDEO_LOOP_PATH := "res://assets/menu/video/cabina_menu_loop.ogv"
+const CABIN_ART_SIZE := Vector2(1672.0, 941.0)
+const GIRL_SEATED_ART_RECT := Rect2(50.0, 130.0, 805.0, 772.0)
 const ARROW_ART_RECTS := [
 	Rect2(563.0, 314.0, 44.0, 80.0),
 	Rect2(1064.0, 314.0, 44.0, 80.0),
@@ -13,16 +18,37 @@ const AMBIENT_GLOW_SHADER_CODE := """
 shader_type canvas_item;
 render_mode blend_add;
 
+uniform float beat_phase = 0.0;
+uniform float beat_hit = 0.0;
+uniform float audio_energy = 0.0;
+
 void fragment() {
 	vec4 source = texture(TEXTURE, UV);
+	float smooth_pulse = 0.5 + 0.5 * sin(beat_phase * 6.2831853);
+	float soft_energy = 0.45 + 0.55 * audio_energy;
 	float upper = step(0.36, UV.x) * step(UV.x, 0.66) * step(0.20, UV.y) * step(UV.y, 0.29);
+	float aurora_logo = step(0.32, UV.x) * step(UV.x, 0.68) * step(0.03, UV.y) * step(UV.y, 0.19);
 	float console = step(0.35, UV.x) * step(UV.x, 0.67) * step(0.50, UV.y) * step(UV.y, 0.72);
 	float sides = (step(0.33, UV.x) * step(UV.x, 0.37) + step(0.63, UV.x) * step(UV.x, 0.67))
 		* step(0.30, UV.y) * step(UV.y, 0.51);
+	float crowd = step(0.70, UV.x) * step(UV.x, 0.99) * step(0.71, UV.y) * step(UV.y, 0.85);
+	float left_crowd = step(0.01, UV.x) * step(UV.x, 0.27) * step(0.54, UV.y) * step(UV.y, 0.73);
+	float sky_aurora = step(UV.y, 0.28) * (1.0 - step(0.31, UV.x) * step(UV.x, 0.70));
+	float sky_wave = 0.45 + 0.55 * sin(UV.x * 11.0 - TIME * 0.95 + UV.y * 5.0);
+	float floor_glow = smoothstep(0.86, 0.98, UV.y);
+
 	float lit = smoothstep(0.20, 0.63, max(source.r, max(source.g, source.b)));
-	float pulse = 0.48 + 0.52 * sin(TIME * 1.35);
-	float alpha = source.a * lit * (upper * 0.10 + console * 0.08 + sides * 0.17) * pulse;
-	COLOR = vec4(source.rgb, alpha);
+	float high_lit = smoothstep(0.42, 0.85, max(source.r, max(source.g, source.b)));
+	float pulse = 0.52 + 0.28 * sin(TIME * 1.25) + 0.26 * smooth_pulse * soft_energy;
+	float crowd_wave = 0.45 + 0.55 * sin(UV.x * 28.0 + TIME * 2.2);
+
+	float cabin_alpha = (upper * 0.13 + aurora_logo * 0.08 + console * 0.10 + sides * 0.19) * pulse;
+	float stage_alpha = sky_aurora * sky_wave * 0.14 * (0.65 + 0.35 * audio_energy)
+		+ (crowd + left_crowd * 0.7) * high_lit * 0.26 * crowd_wave * (0.55 + 0.45 * soft_energy)
+		+ floor_glow * 0.11 * (0.55 + 0.45 * smooth_pulse * soft_energy);
+
+	float alpha = source.a * (lit * cabin_alpha + stage_alpha);
+	COLOR = vec4(source.rgb, clamp(alpha, 0.0, 0.76));
 }
 """
 const ARROW_GLOW_SHADER_CODE := """
@@ -130,6 +156,13 @@ var progress_fill: ColorRect
 var arrow_buttons: Array[Button] = []
 var arrow_down := [false, false]
 var arrow_glow_material: ShaderMaterial
+var ambient_glow_material: ShaderMaterial
+var character_stage: Control
+var girl_sprite: TextureRect
+var menu_video_player: VideoStreamPlayer
+var using_external_video := false
+var beat_accumulator := 0.0
+var smoothed_audio_energy := 0.0
 var card_tween: Tween
 var buttons_by_action: Dictionary = {}
 var hovered_action: StringName = &""
@@ -155,7 +188,9 @@ func _ready() -> void:
 		ui_feedback = app.get_node_or_null("Managers/UiFeedbackManager") as UiFeedbackManager
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_build_interaction_glow()
+	_build_external_video_layer()
 	_build_ambient_light()
+	_build_character_stage()
 	_build_arrow_glow()
 	_build_track_card()
 	_build_action_selector()
@@ -163,19 +198,36 @@ func _ready() -> void:
 	_build_hotspots()
 	_connect_song_arrow_focus()
 	_load_song_catalog()
+	if _is_reduced_motion():
+		_set_character_static_pose()
+	else:
+		_play_menu_intro_effects()
 	call_deferred("focus_default_button")
 	set_process(true)
 
 
 func _process(delta: float) -> void:
 	_update_song_progress()
-	if settings_manager != null and bool(settings_manager.get_setting("reduced_motion", false)):
+	if _is_reduced_motion():
 		if action_selector != null:
 			action_selector.position = selector_base_position
 			action_selector.modulate.a = 1.0
+		_set_character_static_pose()
+		_apply_rhythm_uniforms(0.0, 0.0, 0.0)
 		return
+	if using_external_video and menu_video_player != null:
+		menu_video_player.visible = true
+		menu_video_player.paused = false
+		if menu_video_player.loop and not menu_video_player.is_playing():
+			menu_video_player.play()
+		if girl_sprite != null:
+			girl_sprite.visible = false
 	spectrum_elapsed += delta
 	_update_spectrum(delta)
+
+
+func _is_reduced_motion() -> bool:
+	return settings_manager != null and bool(settings_manager.get_setting("reduced_motion", false))
 
 
 func focus_default_button() -> void:
@@ -200,9 +252,9 @@ func _build_ambient_light() -> void:
 	ambient.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var shader := Shader.new()
 	shader.code = AMBIENT_GLOW_SHADER_CODE
-	var material := ShaderMaterial.new()
-	material.shader = shader
-	ambient.material = material
+	ambient_glow_material = ShaderMaterial.new()
+	ambient_glow_material.shader = shader
+	ambient.material = ambient_glow_material
 	ambient.visible = settings_manager == null or not bool(settings_manager.get_setting("reduced_motion", false))
 	add_child(ambient)
 	move_child(ambient, 0)
@@ -516,6 +568,7 @@ func _on_featured_song_changed(song: SongData, _has_audio: bool) -> void:
 	song_index = song_catalog.find(song)
 	_render_song()
 	if changed:
+		beat_accumulator = 0.0
 		_animate_song_card()
 
 
@@ -581,6 +634,22 @@ func _update_spectrum(delta: float) -> void:
 		var left_db := AudioServer.get_bus_peak_volume_left_db(menu_bus, 0)
 		var right_db := AudioServer.get_bus_peak_volume_right_db(menu_bus, 0)
 		audio_level = clampf((maxf(left_db, right_db) + 42.0) / 42.0, 0.0, 1.0)
+	var energy_speed := 12.0 if audio_level > smoothed_audio_energy else 5.0
+	smoothed_audio_energy = lerpf(smoothed_audio_energy, audio_level, clampf(delta * energy_speed, 0.0, 1.0))
+	var bpm := 120.0
+	if displayed_song != null and float(displayed_song.bpm) > 1.0:
+		bpm = clampf(float(displayed_song.bpm), 50.0, 240.0)
+	var beats_per_sec := bpm / 60.0
+	beat_accumulator += delta * beats_per_sec
+	if menu_music_manager != null and audio_level > 0.015:
+		var playback_pos := menu_music_manager.get_playback_position_seconds()
+		if playback_pos > 0.0:
+			var target_beats := playback_pos * beats_per_sec
+			var phase_error := wrapf(target_beats - beat_accumulator, -0.5, 0.5)
+			beat_accumulator += phase_error * clampf(delta * 4.5, 0.0, 1.0)
+	var beat_hit := 0.5 - 0.5 * cos(beat_accumulator * TAU)
+	_apply_rhythm_uniforms(beat_accumulator, beat_hit, smoothed_audio_energy)
+	_sync_static_character_layout()
 	for index in range(spectrum_bars.size()):
 		var bar := spectrum_bars[index]
 		var wave_shape := 0.18 + absf(
@@ -605,6 +674,181 @@ func _update_spectrum(delta: float) -> void:
 			0.0
 		)
 		action_selector.modulate.a = 0.82 + absf(sin(spectrum_elapsed * 3.0)) * 0.18
+
+
+func _apply_rhythm_uniforms(
+	beat_phase: float,
+	beat_hit: float,
+	audio_energy: float
+) -> void:
+	if ambient_glow_material != null:
+		ambient_glow_material.set_shader_parameter("beat_phase", beat_phase)
+		ambient_glow_material.set_shader_parameter("beat_hit", beat_hit)
+		ambient_glow_material.set_shader_parameter("audio_energy", audio_energy)
+
+
+func _load_optional_video_stream(path: String) -> VideoStream:
+	if not ResourceLoader.exists(path):
+		return null
+	return ResourceLoader.load(path) as VideoStream
+
+
+func _build_external_video_layer() -> void:
+	var intro_stream := _load_optional_video_stream(EXTERNAL_VIDEO_INTRO_PATH)
+	var loop_stream := _load_optional_video_stream(EXTERNAL_VIDEO_LOOP_PATH)
+	if intro_stream == null and loop_stream == null:
+		using_external_video = false
+		return
+
+	using_external_video = true
+	menu_video_player = VideoStreamPlayer.new()
+	menu_video_player.name = "ExternalMenuVideo"
+	AuroraUi.fill(menu_video_player)
+	menu_video_player.expand = true
+	menu_video_player.volume_db = -80.0
+	menu_video_player.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	if intro_stream != null and loop_stream != null:
+		menu_video_player.stream = intro_stream
+		menu_video_player.loop = false
+		menu_video_player.finished.connect(
+			func() -> void:
+				if menu_video_player == null:
+					return
+				menu_video_player.stream = loop_stream
+				menu_video_player.loop = true
+				menu_video_player.play()
+		)
+	elif intro_stream != null:
+		menu_video_player.stream = intro_stream
+		menu_video_player.loop = false
+	else:
+		menu_video_player.stream = loop_stream
+		menu_video_player.loop = true
+	add_child(menu_video_player)
+	move_child(menu_video_player, 0)
+
+
+func _build_character_stage() -> void:
+	var ambient := get_node_or_null("CabinetAmbientLight") as Control
+	if ambient != null:
+		ambient.visible = not using_external_video
+
+	character_stage = Control.new()
+	character_stage.name = "MenuCharacterStage"
+	AuroraUi.fill(character_stage)
+	character_stage.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	character_stage.draw.connect(_draw_character_stage_effects)
+	add_child(character_stage)
+
+	girl_sprite = TextureRect.new()
+	girl_sprite.name = "AuroraGirl"
+	girl_sprite.texture = GIRL_SIT_IDLE
+	girl_sprite.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	girl_sprite.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	girl_sprite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	girl_sprite.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	girl_sprite.visible = not using_external_video
+
+	var seated := _art_rect_to_control(GIRL_SEATED_ART_RECT)
+	girl_sprite.position = seated.position
+	girl_sprite.size = seated.size
+	character_stage.add_child(girl_sprite)
+
+
+func _play_menu_intro_effects() -> void:
+	if using_external_video and menu_video_player != null:
+		menu_video_player.visible = true
+		menu_video_player.paused = false
+		menu_video_player.modulate.a = 0.0
+		menu_video_player.play()
+		var video_tween := create_tween()
+		video_tween.set_trans(Tween.TRANS_SINE)
+		video_tween.set_ease(Tween.EASE_OUT)
+		video_tween.tween_property(menu_video_player, "modulate:a", 1.0, 0.45)
+	else:
+		_sync_static_character_layout()
+
+	var ambient := get_node_or_null("CabinetAmbientLight") as Control
+	if ambient != null and not using_external_video:
+		ambient.visible = true
+		ambient.modulate.a = 0.0
+		var ambient_tween := create_tween()
+		ambient_tween.set_trans(Tween.TRANS_SINE)
+		ambient_tween.set_ease(Tween.EASE_OUT)
+		ambient_tween.tween_property(ambient, "modulate:a", 1.0, 0.72)
+	if track_card != null:
+		track_card.modulate.a = 0.0
+		var card_intro := create_tween()
+		card_intro.set_trans(Tween.TRANS_SINE)
+		card_intro.set_ease(Tween.EASE_OUT)
+		card_intro.tween_interval(0.16)
+		card_intro.tween_property(track_card, "modulate:a", 1.0, 0.48)
+
+
+func _set_character_static_pose() -> void:
+	if menu_video_player != null:
+		menu_video_player.paused = true
+		menu_video_player.visible = false
+	var ambient := get_node_or_null("CabinetAmbientLight") as Control
+	if ambient != null:
+		ambient.visible = true
+		ambient.modulate.a = 1.0
+	_sync_static_character_layout(true)
+
+
+func _sync_static_character_layout(force_visible := false) -> void:
+	if girl_sprite == null:
+		return
+	if using_external_video and not force_visible:
+		girl_sprite.visible = false
+		return
+	var seated := _art_rect_to_control(GIRL_SEATED_ART_RECT)
+	girl_sprite.visible = true
+	girl_sprite.modulate.a = 1.0
+	girl_sprite.texture = GIRL_SIT_IDLE
+	girl_sprite.position = seated.position
+	girl_sprite.size = seated.size
+	girl_sprite.scale = Vector2.ONE
+	girl_sprite.rotation = 0.0
+	if character_stage != null:
+		character_stage.queue_redraw()
+
+
+func _get_art_scale() -> float:
+	var canvas_size := size if size.x > 1.0 and size.y > 1.0 else get_viewport_rect().size
+	return maxf(canvas_size.x / CABIN_ART_SIZE.x, canvas_size.y / CABIN_ART_SIZE.y)
+
+
+func _art_point_to_control(point_px: Vector2) -> Vector2:
+	var canvas_size := size if size.x > 1.0 and size.y > 1.0 else get_viewport_rect().size
+	var scale_art := _get_art_scale()
+	var origin := (canvas_size - CABIN_ART_SIZE * scale_art) * 0.5
+	return origin + point_px * scale_art
+
+
+func _art_rect_to_control(rect_px: Rect2) -> Rect2:
+	return Rect2(_art_point_to_control(rect_px.position), rect_px.size * _get_art_scale())
+
+
+func _draw_character_stage_effects() -> void:
+	if character_stage == null or girl_sprite == null or using_external_video or not girl_sprite.visible:
+		return
+	var crate_shadow := _art_rect_to_control(Rect2(130.0, 608.0, 260.0, 44.0))
+	character_stage.draw_set_transform(crate_shadow.get_center(), -0.06, Vector2(1.0, 0.28))
+	character_stage.draw_circle(Vector2.ZERO, crate_shadow.size.x * 0.45, Color(0.01, 0.01, 0.04, 0.42))
+	character_stage.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	var shoe_shadow := _art_rect_to_control(Rect2(410.0, 868.0, 210.0, 36.0))
+	character_stage.draw_set_transform(shoe_shadow.get_center(), 0.0, Vector2(1.0, 0.24))
+	character_stage.draw_circle(Vector2.ZERO, shoe_shadow.size.x * 0.46, Color(0.01, 0.01, 0.05, 0.48))
+	character_stage.draw_circle(Vector2(0.0, 20.0), shoe_shadow.size.x * 0.36, Color(0.18, 0.85, 1.0, 0.10))
+	character_stage.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+	var back_shoe_shadow := _art_rect_to_control(Rect2(630.0, 870.0, 215.0, 28.0))
+	character_stage.draw_set_transform(back_shoe_shadow.get_center(), 0.0, Vector2(1.0, 0.24))
+	character_stage.draw_circle(Vector2.ZERO, back_shoe_shadow.size.x * 0.46, Color(0.01, 0.01, 0.05, 0.44))
+	character_stage.draw_circle(Vector2(0.0, 16.0), back_shoe_shadow.size.x * 0.36, Color(0.18, 0.85, 1.0, 0.08))
+	character_stage.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _build_action_selector() -> void:

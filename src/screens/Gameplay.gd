@@ -61,7 +61,31 @@ var lane_receptors: Array[Control] = []
 var lane_receptor_tints: Array[Color] = []
 var lane_labels: Array[Label] = []
 var lane_note_layers: Array[Control] = []
+var lane_beams: Array[TextureRect] = []
+var lane_beam_alphas: Array[float] = []
+var lane_actions: Array[StringName] = []
 var lane_pressed: Array[bool] = []
+var beam_texture: GradientTexture2D
+var lane_dividers: Array[ColorRect] = []
+
+var cached_profile_id := "aurora"
+var cached_custom_appearance: Dictionary = {}
+var cached_note_half_height := NOTE_HALF_HEIGHT
+var cached_lane_opacity := 0.82
+var cached_timing_offset_seconds := 0.0
+var cached_show_hit_effects := true
+var cached_reduced_motion := false
+var cached_screen_shake_enabled := true
+var cached_background_animation_enabled := true
+var cached_background_animation_intensity := 3.0
+var cached_note_travel_time := 2.0
+var cached_lane_tints: Array[Color] = []
+var cached_lane_styles_idle: Array[StyleBoxFlat] = []
+var cached_lane_styles_active: Array[StyleBoxFlat] = []
+var cached_note_styles_by_lane: Array[StyleBoxFlat] = []
+var cached_shift_note_style: StyleBoxFlat
+var cached_empty_note_style := StyleBoxEmpty.new()
+var _active_notes_scratch: Array[Dictionary] = []
 
 var score := 0
 var combo := 0
@@ -181,7 +205,11 @@ func setup_ui() -> void:
 	lane_receptor_tints.clear()
 	lane_labels.clear()
 	lane_note_layers.clear()
+	lane_beams.clear()
+	lane_beam_alphas.clear()
+	lane_actions.clear()
 	lane_pressed.clear()
+	lane_dividers.clear()
 	lane_miss_feedback_tweens.clear()
 	active_notes.clear()
 	active_shift_pairs.clear()
@@ -193,6 +221,9 @@ func setup_ui() -> void:
 	cabinet_art_overlay = null
 	cabinet_chrome_visual = null
 	cabinet_frame_bars.clear()
+	_ensure_beam_texture()
+	_refresh_gameplay_caches()
+	_refresh_lane_actions()
 
 	AuroraUi.add_background(self)
 	_add_stage_background()
@@ -261,7 +292,9 @@ func _build_preparation_blackout() -> void:
 	preparation_blackout.color = Color.BLACK
 	preparation_blackout.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	if use_gameplay_skin:
-		preparation_blackout.z_index = 4
+		# Keep the waiting backdrop black while drawing the central playfield
+		# and its prerolling notes above it.
+		preparation_blackout.z_index = 1
 		preparation_blackout.z_as_relative = false
 	preparation_blackout.visible = start_gate_active
 	add_child(preparation_blackout)
@@ -304,7 +337,8 @@ func _build_compact_playfield() -> void:
 		var left_rail := ColorRect.new()
 		left_rail.anchor_bottom = 1.0
 		left_rail.offset_right = 8.0
-		left_rail.color = Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.94)
+		var rail_secondary := _get_profile_left_rail_color()
+		left_rail.color = Color(rail_secondary.r, rail_secondary.g, rail_secondary.b, 0.94)
 		left_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		stage.add_child(left_rail)
 
@@ -313,7 +347,8 @@ func _build_compact_playfield() -> void:
 		right_rail.anchor_right = 1.0
 		right_rail.anchor_bottom = 1.0
 		right_rail.offset_left = -8.0
-		right_rail.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.94)
+		var rail_accent := _get_profile_accent_color()
+		right_rail.color = Color(rail_accent.r, rail_accent.g, rail_accent.b, 0.94)
 		right_rail.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		stage.add_child(right_rail)
 		track_rails.assign([left_rail, right_rail])
@@ -321,8 +356,11 @@ func _build_compact_playfield() -> void:
 	var lanes := GridContainer.new()
 	lanes.name = "Lanes"
 	lanes.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	lanes.offset_left = 92.0 if use_gameplay_skin else 38.0
-	lanes.offset_right = -92.0 if use_gameplay_skin else -38.0
+	var profile_id := _get_gameplay_visual_profile()
+	var lane_inset := _get_central_lane_inset() if use_gameplay_skin or profile_id == "custom" else 38.0
+	var central_lane_width := 712.0 - lane_inset * 2.0
+	lanes.offset_left = lane_inset
+	lanes.offset_right = -lane_inset
 	lanes.offset_top = 44.0 if use_gameplay_skin else 0.0
 	lanes.offset_bottom = -97.0 if use_gameplay_skin else -CONTROL_DECK_HEIGHT
 	lanes.columns = lane_mode
@@ -338,13 +376,54 @@ func _build_compact_playfield() -> void:
 		)
 	if use_gameplay_skin:
 		for divider_index in range(1, 4):
+			var is_center := divider_index == 2
+			var divider_width := 2.0 if is_center else 1.2
 			var divider := ColorRect.new()
 			divider.name = "LaneDivider%d" % divider_index
-			divider.position = Vector2(92.0 + float(divider_index) * 132.0 - 0.6, 44.0)
-			divider.size = Vector2(1.2, 800.0)
-			divider.color = Color(0.16, 0.72, 1.0, 0.56)
+			divider.position = Vector2(lane_inset + float(divider_index) * central_lane_width / 4.0 - divider_width * 0.5, 44.0)
+			divider.size = Vector2(divider_width, 800.0)
+			if cached_profile_id == "aurora":
+				divider.color = Color(0.24, 0.84, 1.0, 0.82 if is_center else 0.56)
+			elif cached_profile_id == "custom":
+				var divider_tint := _get_profile_secondary_color()
+				divider.color = Color(divider_tint.r, divider_tint.g, divider_tint.b, 0.94 if is_center else 0.78)
+			else:
+				divider.color = Color(_get_visual_lane_tint(divider_index), 0.84 if is_center else 0.56)
 			divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			stage.add_child(divider)
+			lane_dividers.append(divider)
+	else:
+		var dividers_overlay := Control.new()
+		dividers_overlay.name = "LaneDividers"
+		dividers_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		dividers_overlay.offset_left = lane_inset
+		dividers_overlay.offset_right = -lane_inset
+		dividers_overlay.offset_top = 0.0
+		dividers_overlay.offset_bottom = -CONTROL_DECK_HEIGHT
+		dividers_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		stage.add_child(dividers_overlay)
+		var center_index := lane_mode / 2
+		for divider_index in range(1, lane_mode):
+			var is_center := divider_index == center_index
+			var divider := ColorRect.new()
+			divider.name = "LaneDivider%d" % divider_index
+			var frac := float(divider_index) / float(lane_mode)
+			divider.anchor_left = frac
+			divider.anchor_right = frac
+			divider.anchor_bottom = 1.0
+			var half_w := 1.2 if is_center else 0.6
+			divider.offset_left = -half_w
+			divider.offset_right = half_w
+			if cached_profile_id == "aurora":
+				divider.color = Color(0.24, 0.84, 1.0, 0.80 if is_center else 0.42)
+			elif cached_profile_id == "custom":
+				var divider_tint := _get_profile_secondary_color()
+				divider.color = Color(divider_tint.r, divider_tint.g, divider_tint.b, 0.92 if is_center else 0.68)
+			else:
+				divider.color = Color(_get_visual_lane_tint(divider_index), 0.82 if is_center else 0.48)
+			divider.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			dividers_overlay.add_child(divider)
+			lane_dividers.append(divider)
 
 	var progress_track := ColorRect.new()
 	progress_track.name = "SongProgressTrack"
@@ -363,7 +442,7 @@ func _build_compact_playfield() -> void:
 	progress_fill = ColorRect.new()
 	progress_fill.anchor_right = 0.0
 	progress_fill.anchor_bottom = 1.0
-	progress_fill.color = AuroraUi.TEAL
+	progress_fill.color = _get_profile_accent_color()
 	progress_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	progress_track.add_child(progress_fill)
 
@@ -387,7 +466,8 @@ func _build_compact_playfield() -> void:
 	sync_glow.anchor_bottom = 1.0
 	sync_glow.offset_top = -HIT_LINE_BOTTOM_OFFSET - HIT_ZONE_HEIGHT * 0.62
 	sync_glow.offset_bottom = -HIT_LINE_BOTTOM_OFFSET + HIT_ZONE_HEIGHT * 0.62
-	sync_glow.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.12)
+	var sync_tint := _get_profile_accent_color()
+	sync_glow.color = Color(sync_tint.r, sync_tint.g, sync_tint.b, 0.12)
 	sync_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	sync_glow.visible = not use_gameplay_skin
 	stage.add_child(sync_glow)
@@ -400,20 +480,23 @@ func _build_compact_playfield() -> void:
 	hit_line.anchor_bottom = 1.0
 	hit_line.offset_top = -HIT_LINE_BOTTOM_OFFSET - HIT_ZONE_HEIGHT * 0.5
 	hit_line.offset_bottom = -HIT_LINE_BOTTOM_OFFSET + HIT_ZONE_HEIGHT * 0.5
-	hit_line.color = Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.18) if not use_gameplay_skin else Color(0.0, 0.0, 0.0, 0.0)
+	var hit_accent := _get_profile_accent_color()
+	hit_line.color = Color(hit_accent.r, hit_accent.g, hit_accent.b, 0.18) if not use_gameplay_skin else Color(0.0, 0.0, 0.0, 0.0)
 	hit_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(hit_line)
 	if use_gameplay_skin:
 		hit_line.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-		hit_line.position = Vector2(92, 667)
-		hit_line.size = Vector2(528, 14)
+		hit_line.position = Vector2(lane_inset, 667)
+		hit_line.size = Vector2(central_lane_width, 14)
+		var hit_tint := _get_profile_accent_color()
+		var glow_color := Color(0.85, 1.0, 1.0) if _get_gameplay_visual_profile() == "aurora" else hit_tint.lerp(Color.WHITE, 0.20)
 		for band in [Vector3(0, 14, 0.10), Vector3(3, 8, 0.22), Vector3(5, 4, 0.65), Vector3(6, 2, 1.0)]:
 			var light := ColorRect.new()
 			light.name = "HitLineGlow"
 			light.anchor_right = 1.0
 			light.offset_top = band.x
 			light.offset_bottom = band.x + band.y
-			light.color = Color(0.85, 1.0, 1.0, band.z)
+			light.color = Color(glow_color, band.z)
 			light.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			hit_line.add_child(light)
 	else:
@@ -434,7 +517,7 @@ func _build_compact_playfield() -> void:
 		line_core.anchor_bottom = 0.5
 		line_core.offset_top = -2.0
 		line_core.offset_bottom = 2.0
-		line_core.color = AuroraUi.TEAL
+		line_core.color = hit_accent
 		line_core.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hit_line.add_child(line_core)
 
@@ -650,11 +733,17 @@ func _build_reference_performance_hud(stage: Control) -> void:
 	hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	stage.add_child(hud)
 	intro_hidden_controls.append(hud)
-	combo_caption_label = _reference_label(hud, "COMBO", 16, AuroraUi.TEAL, Rect2(92, 330, 528, 32))
+	var profile_id := _get_gameplay_visual_profile()
+	var accent := _get_profile_accent_color()
+	combo_caption_label = _reference_label(hud, "COMBO", 16, accent, Rect2(92, 330, 528, 32))
 	combo_label = _reference_label(hud, "000", 54, Color.WHITE, Rect2(92, 356, 528, 73))
-	_reference_label(hud, "RATE", 13, AuroraUi.TEAL, Rect2(272, 428, 60, 28))
-	precision_label = _reference_label(hud, "100.00%", 13, Color.WHITE, Rect2(337, 428, 116, 28))
-	judgment_label = _reference_label(hud, "READY", 36, AuroraUi.TEAL, Rect2(92, 456, 528, 82))
+	if profile_id == "quaver":
+		_reference_label(hud, "ACCURACY", 12, accent, Rect2(247, 428, 104, 28))
+		precision_label = _reference_label(hud, "100.00%", 13, Color.WHITE, Rect2(351, 428, 116, 28))
+	else:
+		_reference_label(hud, "RATE", 13, accent, Rect2(272, 428, 60, 28))
+		precision_label = _reference_label(hud, "100.00%", 13, Color.WHITE, Rect2(337, 428, 116, 28))
+	judgment_label = _reference_label(hud, "READY", 36, accent, Rect2(92, 456, 528, 82))
 	hit_precision_label = _reference_label(hud, "--", 23, Color.WHITE, Rect2(92, 532, 528, 38))
 	hit_precision_label.name = "HitPrecisionPercentage"
 	hit_precision_label.visible = false
@@ -692,9 +781,10 @@ func _build_fever_display(stage: Control) -> void:
 	fever_box.anchor_right = 1.0 if use_gameplay_skin else 0.945
 	fever_box.anchor_bottom = 0.074
 	if not use_gameplay_skin:
+		var fever_accent := _get_profile_accent_color()
 		var fever_frame := AuroraUi.make_style(
 			Color(0.005, 0.012, 0.035, 0.94),
-			Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.78),
+			Color(fever_accent.r, fever_accent.g, fever_accent.b, 0.78),
 			0
 		)
 		fever_frame.border_width_left = 1
@@ -725,7 +815,7 @@ func _build_fever_display(stage: Control) -> void:
 	fever_box.add_child(content)
 	content.add_child(row)
 
-	fever_label = AuroraUi.make_pixel_label("FEVER 01", 16, AuroraUi.TEAL)
+	fever_label = AuroraUi.make_pixel_label("FEVER 01", 16, _get_profile_accent_color())
 	fever_label.custom_minimum_size = Vector2(150.0 if use_gameplay_skin else 128.0, 28.0)
 	fever_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	fever_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -755,7 +845,7 @@ func _build_fever_display(stage: Control) -> void:
 		segment_fill.anchor_top = 0.16
 		segment_fill.anchor_right = 0.84
 		segment_fill.anchor_bottom = 0.84
-		segment_fill.color = AuroraUi.TEAL
+		segment_fill.color = _get_profile_accent_color()
 		segment_fill.visible = false
 		segment_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		segment.add_child(segment_fill)
@@ -773,11 +863,12 @@ func _build_fever_display(stage: Control) -> void:
 
 	var separator := ColorRect.new()
 	separator.custom_minimum_size = Vector2(2.0, 20.0)
-	separator.color = Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.7)
+	var fever_separator := _get_profile_left_rail_color()
+	separator.color = Color(fever_separator.r, fever_separator.g, fever_separator.b, 0.7)
 	separator.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(separator)
 
-	fever_multiplier_label = AuroraUi.make_pixel_label("×1", 22, FEVER_PINK)
+	fever_multiplier_label = AuroraUi.make_pixel_label("×1", 22, _get_profile_secondary_color())
 	fever_multiplier_label.custom_minimum_size = Vector2(56.0, 28.0)
 	fever_multiplier_label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	fever_multiplier_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -802,12 +893,14 @@ func _build_reference_fever(stage: Control) -> void:
 	header.size = Vector2(485, 49)
 	var header_style := StyleBoxFlat.new()
 	header_style.bg_color = Color(0.004, 0.008, 0.026, 0.96)
-	header_style.border_color = Color(0.08, 0.80, 1.0, 0.65)
+	var accent := _get_profile_accent_color()
+	var secondary := _get_profile_secondary_color()
+	header_style.border_color = Color(0.08, 0.80, 1.0, 0.65) if _get_gameplay_visual_profile() == "aurora" else Color(accent, 0.65)
 	header_style.set_border_width_all(1)
 	header.add_theme_stylebox_override("panel", header_style)
 	header.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	gauge.add_child(header)
-	fever_label = _reference_label(gauge, "FEVER 01", 14, AuroraUi.TEAL, Rect2(124, 18, 110, 25))
+	fever_label = _reference_label(gauge, "FEVER 01", 14, accent, Rect2(124, 18, 110, 25))
 	fever_level_segments.clear()
 	fever_level_segment_frames.clear()
 	fever_level_segment_fills.clear()
@@ -824,7 +917,7 @@ func _build_reference_fever(stage: Control) -> void:
 		AuroraUi.fill(outline)
 		var style := StyleBoxFlat.new()
 		style.bg_color = Color(0.005, 0.015, 0.04, 0.98)
-		style.border_color = Color(0.08, 0.7, 1.0, 0.85)
+		style.border_color = Color(0.08, 0.7, 1.0, 0.85) if _get_gameplay_visual_profile() == "aurora" else Color(accent, 0.85)
 		style.set_border_width_all(1)
 		style.set_corner_radius_all(2)
 		outline.add_theme_stylebox_override("panel", style)
@@ -833,7 +926,7 @@ func _build_reference_fever(stage: Control) -> void:
 		fill.name = "LevelFill"
 		fill.position = Vector2(2, 2)
 		fill.size = Vector2(20, 20)
-		fill.color = Color(0.04, 0.93, 1.0)
+		fill.color = Color(0.04, 0.93, 1.0) if _get_gameplay_visual_profile() == "aurora" else accent
 		fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		segment.add_child(fill)
 		fever_level_segments.append(segment)
@@ -843,10 +936,10 @@ func _build_reference_fever(stage: Control) -> void:
 	var separator := ColorRect.new()
 	separator.position = Vector2(513, 18)
 	separator.size = Vector2(2, 25)
-	separator.color = Color(0.4, 0.95, 1.0)
+	separator.color = Color(0.4, 0.95, 1.0) if _get_gameplay_visual_profile() == "aurora" else secondary
 	separator.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	gauge.add_child(separator)
-	fever_multiplier_label = _reference_label(gauge, "×1", 22, FEVER_PINK, Rect2(532, 14, 58, 32))
+	fever_multiplier_label = _reference_label(gauge, "×1", 22, secondary, Rect2(532, 14, 58, 32))
 	_refresh_fever_display()
 
 
@@ -856,17 +949,22 @@ func _refresh_fever_display() -> void:
 	var display_level := clampi(fever_level, 1, FEVER_MAX_LEVEL)
 	fever_label.text = "FEVER %02d" % display_level
 	fever_multiplier_label.text = "×%d" % display_level
-	fever_label.add_theme_color_override("font_color", AuroraUi.TEAL if use_gameplay_skin else AuroraUi.GOLD if display_level > 1 else AuroraUi.TEAL)
-	fever_multiplier_label.add_theme_color_override("font_color", FEVER_PINK if use_gameplay_skin or display_level > 1 else AuroraUi.MUTED)
+	var profile_id := _get_gameplay_visual_profile()
+	var fever_color := AuroraUi.GOLD if profile_id == "aurora" and not use_gameplay_skin and display_level > 1 else _get_profile_accent_color()
+	var multiplier_color := AuroraUi.MUTED if profile_id == "aurora" and not use_gameplay_skin and display_level == 1 else _get_profile_secondary_color()
+	fever_label.add_theme_color_override("font_color", fever_color)
+	fever_multiplier_label.add_theme_color_override("font_color", multiplier_color)
 	if fever_displayed_level != display_level:
 		for index in range(fever_level_segments.size()):
 			var active := index < display_level
 			var segment_frame := fever_level_segment_frames[index]
 			segment_frame.visible = true
 			if not use_gameplay_skin:
+				var active_tint := _get_profile_accent_color()
+				var inactive_tint := _get_profile_left_rail_color()
 				var segment_style := AuroraUi.make_style(
-					Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.86) if active else Color(0.015, 0.030, 0.080, 0.92),
-					Color(AuroraUi.TEAL.r, AuroraUi.TEAL.g, AuroraUi.TEAL.b, 0.98) if active else Color(AuroraUi.VIOLET.r, AuroraUi.VIOLET.g, AuroraUi.VIOLET.b, 0.50),
+					Color(active_tint.r, active_tint.g, active_tint.b, 0.86) if active else Color(0.015, 0.030, 0.080, 0.92),
+					Color(active_tint.r, active_tint.g, active_tint.b, 0.98) if active else Color(inactive_tint.r, inactive_tint.g, inactive_tint.b, 0.50),
 					0
 				)
 				segment_style.border_width_left = 1
@@ -1048,9 +1146,9 @@ func _build_reference_screen_hud() -> void:
 	if game_manager.current_song != null:
 		var title := _reference_label(screen_hud, game_manager.current_song.title.to_upper(), 10, Color(1, 1, 1, 0.80), Rect2(24, 16, 420, 22))
 		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		var artist := _reference_label(screen_hud, game_manager.current_song.artist.to_upper(), 8, AuroraUi.TEAL, Rect2(24, 39, 420, 18))
+		var artist := _reference_label(screen_hud, game_manager.current_song.artist.to_upper(), 8, _get_profile_accent_color(), Rect2(24, 39, 420, 18))
 		artist.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-	var caption := _reference_label(screen_hud, "SCORE", 13, AuroraUi.TEAL, Rect2(1400, 22, 242, 26))
+	var caption := _reference_label(screen_hud, "SCORE", 13, _get_profile_accent_color(), Rect2(1400, 22, 242, 26))
 	caption.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	score_label = _reference_label(screen_hud, "0000000", 28, Color.WHITE, Rect2(1400, 48, 242, 40))
 	score_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -1058,10 +1156,10 @@ func _build_reference_screen_hud() -> void:
 		var underline := ColorRect.new()
 		underline.position = Vector2(1480 + index * 22, 91)
 		underline.size = Vector2(18, 2)
-		underline.color = AuroraUi.TEAL if index < 5 else FEVER_PINK
+		underline.color = _get_profile_accent_color() if index < 5 else _get_profile_secondary_color()
 		underline.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		screen_hud.add_child(underline)
-	cumulative_label = _reference_label(screen_hud, "ACUMULADO  %d" % game_manager.cumulative_combo, 7, AuroraUi.TEAL, Rect2(1400, 103, 242, 18))
+	cumulative_label = _reference_label(screen_hud, "ACUMULADO  %d" % game_manager.cumulative_combo, 7, _get_profile_accent_color(), Rect2(1400, 103, 242, 18))
 	cumulative_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	var pause_hint := _reference_label(screen_hud, "ESC  PAUSA", 7, AuroraUi.MUTED, Rect2(1400, 123, 242, 18))
 	pause_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
@@ -1087,7 +1185,7 @@ func _build_auto_side_tracks(stage: Control) -> void:
 		track.deck_height = 97.0 if use_gameplay_skin else CONTROL_DECK_HEIGHT
 		track.hit_offset = SKIN_HIT_OFFSET if use_gameplay_skin else RECEPTOR_TOP_OFFSET + HIT_LINE_GAP
 		track.notes = chart_side_notes.filter(func(note: Dictionary) -> bool: return int(note["side"]) == side)
-		track.tint = AuroraUi.VIOLET if side == 0 else AuroraUi.TEAL
+		track.tint = _get_profile_left_rail_color() if side == 0 else _get_profile_accent_color()
 		stage.add_child(track)
 		side_tracks.append(track)
 		for index in range(track.notes.size()):
@@ -1110,9 +1208,10 @@ func _make_playfield_frame_style() -> StyleBoxFlat:
 		transparent_style.content_margin_right = 0.0
 		transparent_style.content_margin_bottom = 0.0
 		return transparent_style
+	var border_tint := Color(0.70, 0.60, 1.0) if _get_gameplay_visual_profile() == "aurora" else _get_profile_accent_color()
 	var style := AuroraUi.make_style(
 		Color(0.006, 0.009, 0.026, float(settings_manager.get_setting("lane_opacity", 0.82))),
-		Color(0.70, 0.60, 1.0, 0.92 * float(settings_manager.get_setting("lane_opacity", 0.82))),
+		Color(border_tint.r, border_tint.g, border_tint.b, 0.92 * float(settings_manager.get_setting("lane_opacity", 0.82))),
 		0
 	)
 	style.border_width_left = 2
@@ -1131,7 +1230,8 @@ func _add_lane(parent: GridContainer, lane_index: int, key_name: String) -> void
 	var lane := PanelContainer.new()
 	lane.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	lane.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	lane.add_theme_stylebox_override("panel", _make_lane_style(tint, false))
+	var idle_style := cached_lane_styles_idle[lane_index] if lane_index < cached_lane_styles_idle.size() else _make_lane_style(tint, false)
+	lane.add_theme_stylebox_override("panel", idle_style)
 	parent.add_child(lane)
 	lane_panels.append(lane)
 	lane_pressed.append(false)
@@ -1140,6 +1240,23 @@ func _add_lane(parent: GridContainer, lane_index: int, key_name: String) -> void
 	content.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lane.add_child(content)
 
+	var beam := TextureRect.new()
+	beam.name = "KeyBeam"
+	beam.anchor_left = 0.0
+	beam.anchor_top = 0.16
+	beam.anchor_right = 1.0
+	beam.anchor_bottom = 1.0
+	beam.offset_bottom = -(SKIN_RECEPTOR_TOP if use_gameplay_skin else RECEPTOR_TOP_OFFSET)
+	beam.texture = beam_texture
+	beam.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	beam.stretch_mode = TextureRect.STRETCH_SCALE
+	beam.self_modulate = Color(tint.r, tint.g, tint.b, 0.0)
+	beam.visible = false
+	beam.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	content.add_child(beam)
+	lane_beams.append(beam)
+	lane_beam_alphas.append(0.0)
+
 	var note_layer := Control.new()
 	note_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	note_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1147,26 +1264,43 @@ func _add_lane(parent: GridContainer, lane_index: int, key_name: String) -> void
 	content.add_child(note_layer)
 	lane_note_layers.append(note_layer)
 
-	var receptor: Control
-	if use_gameplay_skin:
-		receptor = NEON_RECEPTOR.new()
-		receptor.tint = tint
-	else:
-		receptor = PanelContainer.new()
+	var profile_id := cached_profile_id
+	var receptor := NEON_RECEPTOR.new()
+	receptor.tint = tint
+	receptor.style_profile = profile_id
+	receptor.lane_direction = _fnf_direction_for_lane(lane_index)
+	if profile_id == "custom":
+		var appearance := cached_custom_appearance
+		receptor.set("custom_note_border", _get_custom_appearance_color("note_border", Color.WHITE))
+		receptor.set("custom_note_shape", str(appearance.get("note_shape", "rectangle")))
+		receptor.set("custom_outline_width", int(appearance.get("outline_width", 2)))
 	receptor.name = "Receptor%02d" % (lane_index + 1)
 	receptor.anchor_left = 0.025 if use_gameplay_skin else 0.055
 	receptor.anchor_top = 1.0
 	receptor.anchor_right = 0.975 if use_gameplay_skin else 0.945
 	receptor.anchor_bottom = 1.0
-	receptor.offset_top = -SKIN_RECEPTOR_TOP if use_gameplay_skin else -RECEPTOR_TOP_OFFSET
-	receptor.offset_bottom = -SKIN_RECEPTOR_BOTTOM if use_gameplay_skin else -RECEPTOR_BOTTOM_OFFSET
-	if not use_gameplay_skin:
-		receptor.add_theme_stylebox_override("panel", _make_receptor_style(tint, false))
+	var receptor_top := SKIN_RECEPTOR_TOP if use_gameplay_skin else RECEPTOR_TOP_OFFSET
+	var receptor_bottom := SKIN_RECEPTOR_BOTTOM if use_gameplay_skin else RECEPTOR_BOTTOM_OFFSET
+	if use_gameplay_skin:
+		if profile_id == "djmax":
+			receptor_top = 166.0
+			receptor_bottom = 108.0
+		elif profile_id == "quaver":
+			receptor_top = 163.0
+			receptor_bottom = 109.0
+		elif profile_id == "fnf":
+			receptor_top = 166.0 if lane_mode <= 4 else 136.0
+			receptor_bottom = 106.0 if lane_mode <= 4 else 70.0
+	receptor.offset_top = -receptor_top
+	receptor.offset_bottom = -receptor_bottom
 	content.add_child(receptor)
 	lane_receptors.append(receptor)
 	lane_receptor_tints.append(tint)
 
-	var label := AuroraUi.make_pixel_label(key_name, 8 if use_gameplay_skin else 14, Color(0.7, 0.85, 0.96, 0.65) if use_gameplay_skin else AuroraUi.TEXT)
+	var label_color := Color(0.7, 0.85, 0.96, 0.76) if use_gameplay_skin else AuroraUi.TEXT
+	if profile_id != "aurora":
+		label_color = _get_profile_accent_color().lerp(Color.WHITE, 0.32)
+	var label := AuroraUi.make_pixel_label(key_name, 9 if use_gameplay_skin and profile_id != "aurora" else 8 if use_gameplay_skin else 11, label_color)
 	label.autowrap_mode = TextServer.AUTOWRAP_OFF
 	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1177,6 +1311,12 @@ func _add_lane(parent: GridContainer, lane_index: int, key_name: String) -> void
 		label.anchor_right = 1.0
 		label.anchor_bottom = 1.0
 		label.offset_top = 9.0
+		label.offset_bottom = 25.0
+	else:
+		label.anchor_top = 1.0
+		label.anchor_right = 1.0
+		label.anchor_bottom = 1.0
+		label.offset_top = 7.0
 		label.offset_bottom = 25.0
 	receptor.add_child(label)
 	lane_labels.append(label)
@@ -1201,22 +1341,213 @@ func _make_badge(text: String, color: Color) -> PanelContainer:
 
 
 func _get_visual_lane_tint(lane_index: int) -> Color:
+	var profile_id := _get_gameplay_visual_profile()
+	if profile_id == "djmax":
+		if lane_mode == 6:
+			var djmax_6k: Array[Color] = [
+				Color("#38e0db"), Color("#ff5c9f"), Color("#ffd35a"),
+				Color("#ffd35a"), Color("#ff5c9f"), Color("#38e0db")
+			]
+			return djmax_6k[lane_index % djmax_6k.size()]
+		if lane_mode == 8:
+			var djmax_8k: Array[Color] = [
+				Color("#aa7bff"), Color("#38e0db"), Color("#ff5c9f"), Color("#ffd35a"),
+				Color("#ffd35a"), Color("#ff5c9f"), Color("#38e0db"), Color("#aa7bff")
+			]
+			return djmax_8k[lane_index % djmax_8k.size()]
+		var djmax_palette: Array[Color] = [Color("#38e0db"), Color("#ff5c9f"), Color("#aa7bff"), Color("#ffd35a")]
+		return djmax_palette[lane_index % djmax_palette.size()]
+	if profile_id == "quaver":
+		if lane_mode == 6:
+			var quaver_6k: Array[Color] = [
+				Color("#60e38c"), Color("#48d8ff"), Color("#ffe46b"),
+				Color("#ffe46b"), Color("#48d8ff"), Color("#60e38c")
+			]
+			return quaver_6k[lane_index % quaver_6k.size()]
+		if lane_mode == 8:
+			var quaver_8k: Array[Color] = [
+				Color("#f28bfa"), Color("#60e38c"), Color("#48d8ff"), Color("#ffe46b"),
+				Color("#ffe46b"), Color("#48d8ff"), Color("#60e38c"), Color("#f28bfa")
+			]
+			return quaver_8k[lane_index % quaver_8k.size()]
+		var quaver_palette: Array[Color] = [Color("#60e38c"), Color("#48d8ff"), Color("#ffe46b"), Color("#f28bfa")]
+		return quaver_palette[lane_index % quaver_palette.size()]
+	if profile_id == "fnf":
+		if lane_mode == 6:
+			var fnf_6k: Array[Color] = [
+				Color("#e6459a"), Color("#18e2ff"), Color("#24ef58"),
+				Color("#24ef58"), Color("#18e2ff"), Color("#ff4252")
+			]
+			return fnf_6k[lane_index % fnf_6k.size()]
+		var fnf_palette: Array[Color] = [Color("#e6459a"), Color("#18e2ff"), Color("#24ef58"), Color("#ff4252")]
+		return fnf_palette[lane_index % fnf_palette.size()]
+	if profile_id == "custom":
+		var appearance := _get_custom_gameplay_appearance()
+		var palette: Array = appearance.get("note_colors", [])
+		if not palette.is_empty():
+			if lane_mode >= 6 and palette.size() < lane_mode:
+				var half := lane_mode / 2
+				var mirror_idx := lane_index if lane_index < half else lane_mode - 1 - lane_index
+				return Color.from_string(str(palette[mirror_idx % palette.size()]), Color("#22ddff"))
+			return Color.from_string(str(palette[lane_index % palette.size()]), Color("#22ddff"))
+		return Color("#22ddff")
+	if lane_mode == 6:
+		var aurora_6k: Array[Color] = [
+			Color(0.02, 0.86, 1.0), Color(1.0, 0.08, 0.92), Color(1.0, 0.82, 0.24),
+			Color(1.0, 0.82, 0.24), Color(1.0, 0.08, 0.92), Color(0.02, 0.86, 1.0)
+		]
+		return aurora_6k[lane_index % aurora_6k.size()]
+	if lane_mode == 8:
+		var aurora_8k: Array[Color] = [
+			Color("#9c6bff"), Color(0.02, 0.86, 1.0), Color(1.0, 0.08, 0.92), Color(1.0, 0.82, 0.24),
+			Color(1.0, 0.82, 0.24), Color(1.0, 0.08, 0.92), Color(0.02, 0.86, 1.0), Color("#9c6bff")
+		]
+		return aurora_8k[lane_index % aurora_8k.size()]
 	if use_gameplay_skin:
 		return Color(0.02, 0.86, 1.0) if lane_index % 2 == 0 else Color(1.0, 0.08, 0.92)
 	return LANE_COLORS[lane_index]
 
 
+func _get_gameplay_visual_profile() -> String:
+	if settings_manager == null:
+		return "aurora"
+	var profile_id := str(settings_manager.get_setting("gameplay_visual_profile", "aurora"))
+	return profile_id if profile_id in ["aurora", "djmax", "quaver", "fnf", "custom"] else "aurora"
+
+
+func _fnf_direction_for_lane(lane_index: int) -> int:
+	if lane_mode == 6:
+		var dirs := [0, 1, 2, 2, 1, 3]
+		return dirs[clampi(lane_index, 0, dirs.size() - 1)]
+	return posmod(lane_index, 4)
+
+
+func _get_custom_gameplay_appearance() -> Dictionary:
+	if settings_manager == null:
+		return {}
+	var appearance = settings_manager.get_setting("custom_gameplay_appearance", {})
+	return appearance if appearance is Dictionary else {}
+
+
+func _get_custom_appearance_color(key: String, fallback: Color) -> Color:
+	var appearance := _get_custom_gameplay_appearance()
+	return Color.from_string(str(appearance.get(key, fallback.to_html(false))), fallback)
+
+
+func _get_profile_accent_color() -> Color:
+	match _get_gameplay_visual_profile():
+		"djmax":
+			return Color("#ff5c9f")
+		"quaver":
+			return Color("#60e38c")
+		"fnf":
+			return Color("#18e2ff")
+		"custom":
+			return _get_custom_appearance_color("lane_accent", Color("#ff62be"))
+	return AuroraUi.TEAL
+
+
+func _get_profile_secondary_color() -> Color:
+	match _get_gameplay_visual_profile():
+		"djmax":
+			return Color("#aa7bff")
+		"quaver":
+			return Color("#48d8ff")
+		"fnf":
+			return Color("#e6459a")
+		"custom":
+			return _get_custom_appearance_color("lane_divider", Color("#38d8f2"))
+	return FEVER_PINK
+
+
+func _get_profile_left_rail_color() -> Color:
+	if _get_gameplay_visual_profile() == "aurora":
+		return AuroraUi.VIOLET
+	if _get_gameplay_visual_profile() == "custom":
+		return _get_custom_appearance_color("left_rail", Color("#9977ff"))
+	return _get_profile_secondary_color()
+
+
+func _get_central_lane_inset() -> float:
+	match _get_gameplay_visual_profile():
+		"djmax":
+			return 76.0
+		"quaver":
+			return 82.0
+		"fnf":
+			return 84.0
+		"custom":
+			var appearance := _get_custom_gameplay_appearance()
+			return float(appearance.get("lane_inset", 92.0))
+	return 92.0
+
+
+func _get_note_visual_half_height() -> float:
+	var profile_scale := 1.0
+	match _get_gameplay_visual_profile():
+		"djmax":
+			profile_scale = 1.22
+		"quaver":
+			profile_scale = 1.14
+		"fnf":
+			profile_scale = 1.18
+		"custom":
+			var appearance := _get_custom_gameplay_appearance()
+			profile_scale = float(appearance.get("note_size", 1.0))
+	return NOTE_HALF_HEIGHT * profile_scale
+
+
 func _make_lane_style(tint: Color, active: bool) -> StyleBoxFlat:
-	var opacity := float(settings_manager.get_setting("lane_opacity", 0.82))
-	var lane_alpha := opacity * 0.77 if use_gameplay_skin else 0.0
-	var border_alpha := (0.18 if active else 0.08) * opacity
+	var opacity := cached_lane_opacity if settings_manager != null else 0.82
+	var profile_id := cached_profile_id if not cached_profile_id.is_empty() else _get_gameplay_visual_profile()
+	if profile_id == "custom":
+		var lane_fill := _get_custom_appearance_color("lane_fill", Color("#091525"))
+		var lane_accent := _get_custom_appearance_color("lane_accent", Color("#ff62be"))
+		var custom_style := AuroraUi.make_style(
+			Color(lane_fill.r, lane_fill.g, lane_fill.b, opacity * (0.74 if active else 0.62)),
+			Color(lane_accent.r, lane_accent.g, lane_accent.b, opacity * (0.94 if active else 0.56)),
+			0
+		)
+		var appearance := cached_custom_appearance if not cached_custom_appearance.is_empty() else _get_custom_gameplay_appearance()
+		custom_style.set_border_width_all(1)
+		custom_style.set_corner_radius_all(5 if str(appearance.get("lane_shape", "rectangle")) == "rounded" else 0)
+		custom_style.content_margin_left = 0.0
+		custom_style.content_margin_right = 0.0
+		custom_style.content_margin_top = 0.0
+		custom_style.content_margin_bottom = 0.0
+		return custom_style
+	var lane_alpha := minf(opacity * (0.88 if active else 0.77), 0.96) if use_gameplay_skin and profile_id == "aurora" else opacity * (0.44 if active else 0.28)
+	var border_alpha := (0.28 if active else 0.08) * opacity if use_gameplay_skin else (0.62 if active else 0.24) * opacity
+	if profile_id == "djmax":
+		lane_alpha = opacity * (0.44 if use_gameplay_skin and active else 0.38 if use_gameplay_skin else 0.30 if active else 0.18)
+		border_alpha = opacity * (0.86 if active else 0.42)
+	elif profile_id == "quaver":
+		lane_alpha = opacity * (0.34 if use_gameplay_skin and active else 0.25 if use_gameplay_skin else 0.24 if active else 0.12)
+		border_alpha = opacity * (0.78 if active else 0.32)
+	elif profile_id == "fnf":
+		lane_alpha = opacity * (0.34 if use_gameplay_skin and active else 0.24 if use_gameplay_skin else 0.26 if active else 0.14)
+		border_alpha = opacity * (0.76 if active else 0.28)
+	var base_fill := Color(0.008, 0.012, 0.028, lane_alpha)
+	if not use_gameplay_skin and profile_id == "aurora":
+		base_fill = Color(0.014, 0.022, 0.048, lane_alpha).lerp(Color(tint.r, tint.g, tint.b, lane_alpha), 0.14 if active else 0.05)
 	var style := AuroraUi.make_style(
-		Color(0.008, 0.012, 0.028, lane_alpha),
+		base_fill,
 		Color(tint.r, tint.g, tint.b, border_alpha),
 		0
 	)
-	if use_gameplay_skin:
+	if use_gameplay_skin and profile_id == "aurora":
 		style.set_border_width_all(0)
+	elif not use_gameplay_skin and profile_id == "aurora":
+		style.set_border_width_all(1)
+	elif profile_id == "djmax":
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(0)
+	elif profile_id == "quaver":
+		style.set_border_width_all(2 if active else 1)
+		style.set_corner_radius_all(1)
+	elif profile_id == "fnf":
+		style.set_border_width_all(1)
+		style.set_corner_radius_all(2)
 	style.content_margin_left = 0.0 if use_gameplay_skin else 1.0
 	style.content_margin_right = 0.0 if use_gameplay_skin else 1.0
 	style.content_margin_top = 0.0 if use_gameplay_skin else 1.0
@@ -1224,7 +1555,140 @@ func _make_lane_style(tint: Color, active: bool) -> StyleBoxFlat:
 	return style
 
 
+func _ensure_beam_texture() -> void:
+	if beam_texture != null:
+		return
+	var gradient := Gradient.new()
+	gradient.offsets = PackedFloat32Array([0.0, 0.28, 0.70, 1.0])
+	gradient.colors = PackedColorArray([
+		Color(1.0, 1.0, 1.0, 0.68),
+		Color(1.0, 1.0, 1.0, 0.30),
+		Color(1.0, 1.0, 1.0, 0.08),
+		Color(1.0, 1.0, 1.0, 0.0),
+	])
+	var texture := GradientTexture2D.new()
+	texture.width = 16
+	texture.height = 256
+	texture.gradient = gradient
+	texture.fill = GradientTexture2D.FILL_LINEAR
+	texture.fill_from = Vector2(0.5, 1.0)
+	texture.fill_to = Vector2(0.5, 0.0)
+	beam_texture = texture
+
+
+func _refresh_lane_actions() -> void:
+	lane_actions.clear()
+	if input_manager == null:
+		return
+	for lane_index in range(lane_mode):
+		lane_actions.append(input_manager.get_lane_action(lane_mode, lane_index))
+
+
+func _build_note_style_for_tint(tint: Color) -> StyleBoxFlat:
+	var profile_id := cached_profile_id
+	var note_fill_alpha := 0.92 if profile_id == "aurora" else 0.96
+	var note_border_color := Color(0.92, 0.98, 1.0, 1.0)
+	if profile_id == "djmax":
+		note_border_color = Color(1.0, 0.92, 0.98, 0.98)
+	elif profile_id == "quaver":
+		note_border_color = tint.lerp(Color.WHITE, 0.60)
+	elif profile_id == "fnf":
+		note_border_color = Color(0.08, 0.12, 0.20, 0.96)
+	elif profile_id == "custom":
+		note_border_color = _get_custom_appearance_color("note_border", Color.WHITE)
+	var note_style := AuroraUi.make_style(
+		Color(tint.r, tint.g, tint.b, note_fill_alpha),
+		note_border_color,
+		0
+	)
+	var border_width := 2
+	if profile_id == "djmax":
+		border_width = 1
+		note_style.set_corner_radius_all(0)
+	elif profile_id == "quaver":
+		note_style.set_corner_radius_all(1)
+	elif profile_id == "fnf":
+		note_style.set_corner_radius_all(4)
+	elif profile_id == "custom":
+		border_width = int(cached_custom_appearance.get("outline_width", 2))
+		var shape_name := str(cached_custom_appearance.get("note_shape", "rectangle"))
+		note_style.set_corner_radius_all(20 if shape_name == "pill" else 6 if shape_name == "rounded" else 0)
+	note_style.set_border_width_all(border_width)
+	note_style.content_margin_left = 0.0
+	note_style.content_margin_top = 0.0
+	note_style.content_margin_right = 0.0
+	note_style.content_margin_bottom = 0.0
+	return note_style
+
+
+func _refresh_gameplay_caches() -> void:
+	cached_profile_id = _get_gameplay_visual_profile()
+	cached_custom_appearance = _get_custom_gameplay_appearance()
+	cached_note_half_height = _get_note_visual_half_height()
+	cached_note_travel_time = _get_note_travel_time()
+	if settings_manager != null:
+		cached_lane_opacity = clampf(float(settings_manager.get_setting("lane_opacity", 0.82)), 0.0, 1.0)
+		cached_timing_offset_seconds = float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0
+		cached_show_hit_effects = bool(settings_manager.get_setting("show_hit_effects", true))
+		cached_reduced_motion = bool(settings_manager.get_setting("reduced_motion", false))
+		cached_screen_shake_enabled = bool(settings_manager.get_setting("screen_shake_enabled", true))
+		cached_background_animation_enabled = bool(settings_manager.get_setting("background_animation_enabled", true))
+		cached_background_animation_intensity = float(settings_manager.get_setting("background_animation_intensity", 3))
+	else:
+		cached_lane_opacity = 0.82
+		cached_timing_offset_seconds = 0.0
+		cached_show_hit_effects = true
+		cached_reduced_motion = false
+		cached_screen_shake_enabled = true
+		cached_background_animation_enabled = true
+		cached_background_animation_intensity = 3.0
+	cached_lane_tints.clear()
+	cached_lane_styles_idle.clear()
+	cached_lane_styles_active.clear()
+	cached_note_styles_by_lane.clear()
+	for lane_index in range(lane_mode):
+		var tint := _get_visual_lane_tint(lane_index)
+		cached_lane_tints.append(tint)
+		cached_lane_styles_idle.append(_make_lane_style(tint, false))
+		cached_lane_styles_active.append(_make_lane_style(tint, true))
+		cached_note_styles_by_lane.append(_build_note_style_for_tint(tint))
+	cached_shift_note_style = _build_note_style_for_tint(AuroraUi.GOLD)
+	if cached_empty_note_style == null:
+		cached_empty_note_style = StyleBoxEmpty.new()
+
+
 func _make_receptor_style(tint: Color, active: bool) -> StyleBoxFlat:
+	var profile_id := _get_gameplay_visual_profile()
+	if profile_id == "custom":
+		var border := _get_custom_appearance_color("note_border", Color.WHITE)
+		var custom_style := AuroraUi.make_style(
+			Color(tint.r, tint.g, tint.b, 0.92 if active else 0.74),
+			border,
+			0
+		)
+		var appearance := _get_custom_gameplay_appearance()
+		var shape_name := str(appearance.get("note_shape", "rectangle"))
+		custom_style.set_border_width_all(int(appearance.get("outline_width", 2)))
+		custom_style.set_corner_radius_all(12 if shape_name == "pill" else 5 if shape_name == "rounded" else 0)
+		return custom_style
+	if profile_id == "djmax":
+		var djmax_style := AuroraUi.make_style(
+			Color(tint.r, tint.g, tint.b, 0.97 if active else 0.80),
+			Color.WHITE if active else Color(tint.r, tint.g, tint.b, 0.98),
+			0
+		)
+		djmax_style.set_border_width_all(2 if active else 1)
+		djmax_style.set_corner_radius_all(0)
+		return djmax_style
+	if profile_id == "quaver":
+		var quaver_style := AuroraUi.make_style(
+			Color(tint.r, tint.g, tint.b, 0.88 if active else 0.68),
+			Color.WHITE if active else tint.lerp(Color.WHITE, 0.30),
+			0
+		)
+		quaver_style.set_border_width_all(2)
+		quaver_style.set_corner_radius_all(1)
+		return quaver_style
 	var style := AuroraUi.make_style(
 		Color(tint.r, tint.g, tint.b, 0.88 if active else 0.36),
 		Color(0.95, 0.99, 1.0, 1.0) if active else Color(tint.r, tint.g, tint.b, 0.98),
@@ -1266,13 +1730,14 @@ func _process(delta: float) -> void:
 		_spawn_upcoming_notes()
 		_update_active_notes()
 		_update_side_notes()
+		var side_travel := cached_note_travel_time if cached_note_travel_time > 0.0 else _get_note_travel_time()
 		for track in side_tracks:
-			track.set_playback_time(gameplay_time, _get_note_travel_time())
+			track.set_playback_time(gameplay_time, side_travel)
 		_update_practice_beat()
 		_check_level_finished()
 
 	for lane_index in range(lane_mode):
-		var action := input_manager.get_lane_action(lane_mode, lane_index)
+		var action := lane_actions[lane_index] if lane_index < lane_actions.size() else input_manager.get_lane_action(lane_mode, lane_index)
 		var is_pressed := Input.is_action_pressed(action)
 		if is_pressed != lane_pressed[lane_index]:
 			lane_pressed[lane_index] = is_pressed
@@ -1282,17 +1747,57 @@ func _process(delta: float) -> void:
 		if Input.is_action_just_released(action):
 			_register_lane_release(lane_index)
 
+		if lane_index < lane_beams.size():
+			var beam := lane_beams[lane_index]
+			if not cached_show_hit_effects:
+				lane_beam_alphas[lane_index] = 0.0
+				beam.visible = false
+				continue
+			var current_alpha := lane_beam_alphas[lane_index]
+			var target_alpha := 0.65 if is_pressed else 0.0
+			if cached_reduced_motion:
+				current_alpha = 0.65 if is_pressed else 0.0
+			elif is_pressed:
+				current_alpha = maxf(target_alpha, move_toward(current_alpha, target_alpha, delta * 2.4))
+			else:
+				current_alpha = move_toward(current_alpha, 0.0, delta * 5.6)
+			lane_beam_alphas[lane_index] = current_alpha
+			if current_alpha <= 0.005:
+				beam.visible = false
+			else:
+				var beam_tint := cached_lane_tints[lane_index] if lane_index < cached_lane_tints.size() else LANE_COLORS[lane_index]
+				beam.self_modulate = Color(beam_tint.r, beam_tint.g, beam_tint.b, current_alpha * cached_lane_opacity)
+				beam.visible = true
+
 
 func _set_lane_pressed(lane_index: int, pressed: bool) -> void:
-	var tint := _get_visual_lane_tint(lane_index)
+	var tint := cached_lane_tints[lane_index] if lane_index < cached_lane_tints.size() else _get_visual_lane_tint(lane_index)
 	var receptor := lane_receptors[lane_index]
-	lane_panels[lane_index].add_theme_stylebox_override("panel", _make_lane_style(tint, pressed))
-	if use_gameplay_skin:
-		receptor.set_pressed(pressed)
-	else:
-		var receptor_panel := receptor as PanelContainer
-		receptor_panel.add_theme_stylebox_override("panel", _make_receptor_style(tint, pressed))
-	lane_labels[lane_index].add_theme_color_override("font_color", Color.WHITE if pressed else AuroraUi.TEXT)
+	var target_style := (
+		cached_lane_styles_active[lane_index]
+		if pressed and lane_index < cached_lane_styles_active.size()
+		else cached_lane_styles_idle[lane_index]
+		if not pressed and lane_index < cached_lane_styles_idle.size()
+		else _make_lane_style(tint, pressed)
+	)
+	lane_panels[lane_index].add_theme_stylebox_override("panel", target_style)
+	receptor.set_pressed(pressed)
+	if lane_index < lane_beams.size():
+		var beam := lane_beams[lane_index]
+		if not cached_show_hit_effects:
+			lane_beam_alphas[lane_index] = 0.0
+			beam.visible = false
+		elif pressed:
+			lane_beam_alphas[lane_index] = 0.85
+			beam.self_modulate = Color(tint.r, tint.g, tint.b, 0.85 * cached_lane_opacity)
+			beam.visible = true
+		elif cached_reduced_motion:
+			lane_beam_alphas[lane_index] = 0.0
+			beam.visible = false
+	var resting_label_color := Color(0.7, 0.85, 0.96, 0.76) if use_gameplay_skin else AuroraUi.TEXT
+	if cached_profile_id != "aurora":
+		resting_label_color = _get_profile_accent_color().lerp(Color.WHITE, 0.32)
+	lane_labels[lane_index].add_theme_color_override("font_color", Color.WHITE if pressed else resting_label_color)
 
 
 func _register_lane_input(lane_index: int) -> void:
@@ -1737,7 +2242,8 @@ func _build_start_gate() -> void:
 
 
 func _begin_start_countdown() -> void:
-	# Keep the clean black preparation; cues follow the song clock below.
+	# Start the silent preroll: lanes and approaching notes remain visible
+	# over the black preparation backdrop until the song begins.
 	if not start_gate_active:
 		return
 	start_countdown_active = false
@@ -1815,18 +2321,27 @@ func _update_song_clock(delta: float) -> void:
 			_play_start_countdown_cue(0)
 			_start_gameplay_media()
 		return
+	var has_reference := false
+	var target_time := 0.0
 	if song_player != null and song_player.playing:
-		var audio_time := song_player.get_playback_position()
-		audio_time += AudioServer.get_time_since_last_mix()
-		audio_time -= AudioServer.get_output_latency()
-		gameplay_time = maxf(gameplay_time, audio_time)
+		target_time = song_player.get_playback_position()
+		target_time += AudioServer.get_time_since_last_mix()
+		target_time -= AudioServer.get_output_latency()
+		has_reference = true
 	elif background_video_player != null and background_video_player.is_playing():
-		var video_time := background_video_player.stream_position
+		target_time = background_video_player.stream_position
 		if game_manager.current_song != null:
-			video_time -= game_manager.current_song.background_video_start_seconds
-		gameplay_time = maxf(gameplay_time, video_time)
-	else:
-		gameplay_time += delta
+			target_time -= game_manager.current_song.background_video_start_seconds
+		has_reference = true
+	gameplay_time += delta
+	if has_reference:
+		target_time = maxf(target_time, 0.0)
+		var drift := target_time - gameplay_time
+		if absf(drift) > 0.040:
+			gameplay_time = target_time
+		else:
+			gameplay_time += drift * minf(delta * 10.0, 1.0)
+		gameplay_time = maxf(gameplay_time, 0.0)
 
 
 func _get_note_travel_time() -> float:
@@ -1900,41 +2415,82 @@ func _spawn_note(note_data: Dictionary) -> void:
 	if lane < 0 or lane >= lane_note_layers.size():
 		return
 	var is_shift := note_data.has("shift_id")
-	var tint := AuroraUi.GOLD if is_shift else _get_visual_lane_tint(lane)
+	var tint := AuroraUi.GOLD if is_shift else (cached_lane_tints[lane] if lane < cached_lane_tints.size() else _get_visual_lane_tint(lane))
 	var duration := float(note_data.get("duration", 0.0))
 	var is_hold := duration >= HOLD_NOTE_MIN_DURATION
+	var profile_id := cached_profile_id if not cached_profile_id.is_empty() else _get_gameplay_visual_profile()
+	var use_neon_note := profile_id in ["aurora", "fnf"]
+	var note_half_height := cached_note_half_height if cached_note_half_height > 0.0 else _get_note_visual_half_height()
 	var note := PanelContainer.new()
 	note.name = "ShiftHold" if is_shift and is_hold else "ShiftNote" if is_shift else "HoldNote" if is_hold else "TapNote"
 	note.anchor_left = 0.0
 	note.anchor_right = 1.0
-	note.offset_top = -NOTE_HALF_HEIGHT
-	note.offset_bottom = NOTE_HALF_HEIGHT
+	note.offset_top = -note_half_height
+	note.offset_bottom = note_half_height
 	note.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var note_style := AuroraUi.make_style(
-		Color(tint.r, tint.g, tint.b, 0.86 if is_hold else 0.92),
-		Color(0.92, 0.98, 1.0, 1.0),
-		0
-	)
-	note_style.border_width_left = 2
-	note_style.border_width_top = 2
-	note_style.border_width_right = 2
-	note_style.border_width_bottom = 2
-	note_style.content_margin_left = 0.0
-	note_style.content_margin_top = 0.0
-	note_style.content_margin_right = 0.0
-	note_style.content_margin_bottom = 0.0
-	note.add_theme_stylebox_override("panel", note_style)
-	if use_gameplay_skin:
-		note.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	if use_neon_note:
+		if cached_empty_note_style == null:
+			cached_empty_note_style = StyleBoxEmpty.new()
+		note.add_theme_stylebox_override("panel", cached_empty_note_style)
 		var visual := NEON_NOTE.new()
 		visual.name = "NeonNoteVisual"
 		visual.tint = tint
+		visual.style_profile = profile_id
+		visual.lane_direction = _fnf_direction_for_lane(lane)
 		visual.is_hold = is_hold
+		visual.note_size_scale = note_half_height / NOTE_HALF_HEIGHT
 		note.add_child(visual)
-		visual.set_reduced_motion(bool(settings_manager.get_setting("reduced_motion", false)))
-	elif is_hold:
+		visual.set_reduced_motion(cached_reduced_motion)
+	else:
+		var note_style: StyleBoxFlat = null
+		if is_shift and cached_shift_note_style != null:
+			note_style = cached_shift_note_style
+		elif not is_shift and lane < cached_note_styles_by_lane.size():
+			note_style = cached_note_styles_by_lane[lane]
+		else:
+			note_style = _build_note_style_for_tint(tint)
+		note.add_theme_stylebox_override("panel", note_style)
+		var profile_overlay := Control.new()
+		profile_overlay.name = "ProfileNoteOverlay"
+		profile_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		profile_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		note.add_child(profile_overlay)
+		if profile_id == "djmax":
+			var top_glint := ColorRect.new()
+			top_glint.anchor_right = 1.0
+			top_glint.offset_bottom = 3.0
+			top_glint.color = Color.WHITE
+			top_glint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			profile_overlay.add_child(top_glint)
+			var tail_edge := ColorRect.new()
+			tail_edge.anchor_top = 1.0
+			tail_edge.anchor_right = 1.0
+			tail_edge.anchor_bottom = 1.0
+			tail_edge.offset_top = -3.0
+			tail_edge.color = Color(0.10, 0.02, 0.12, 0.72)
+			tail_edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			profile_overlay.add_child(tail_edge)
+		elif profile_id == "quaver":
+			var top_cap := ColorRect.new()
+			top_cap.anchor_right = 1.0
+			top_cap.offset_bottom = 2.0
+			top_cap.color = Color.WHITE
+			top_cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			profile_overlay.add_child(top_cap)
+			var center_line := ColorRect.new()
+			center_line.anchor_left = 0.42
+			center_line.anchor_right = 0.58
+			center_line.offset_top = 3.0
+			center_line.anchor_bottom = 1.0
+			center_line.offset_bottom = -3.0
+			center_line.color = Color(tint.lerp(Color.WHITE, 0.65), 0.72)
+			center_line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			profile_overlay.add_child(center_line)
+	if is_hold and not use_neon_note:
 		var hold_visual := Control.new()
 		hold_visual.name = "HoldVisual"
+		if profile_id != "aurora":
+			hold_visual.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		hold_visual.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		note.add_child(hold_visual)
 
@@ -1943,7 +2499,7 @@ func _spawn_note(note_data: Dictionary) -> void:
 		hold_head.anchor_top = 1.0
 		hold_head.anchor_right = 1.0
 		hold_head.anchor_bottom = 1.0
-		hold_head.offset_top = -NOTE_HALF_HEIGHT * 2.0
+		hold_head.offset_top = -note_half_height * 2.0
 		hold_head.color = Color(tint.r, tint.g, tint.b, 0.98)
 		hold_head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		hold_visual.add_child(hold_head)
@@ -1968,11 +2524,16 @@ func _spawn_note(note_data: Dictionary) -> void:
 
 
 func _update_active_notes() -> void:
-	var timing_offset := float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0
+	var timing_offset := cached_timing_offset_seconds
 	var judgment_time := gameplay_time + timing_offset
-	var travel_time := _get_note_travel_time()
+	var travel_time := cached_note_travel_time if cached_note_travel_time > 0.0 else _get_note_travel_time()
+	var note_half_height := cached_note_half_height if cached_note_half_height > 0.0 else _get_note_visual_half_height()
+	var active_profile_id := cached_profile_id if not cached_profile_id.is_empty() else _get_gameplay_visual_profile()
+	var is_aurora_neon := active_profile_id in ["aurora", "fnf"]
 
-	for note_entry in active_notes.duplicate():
+	_active_notes_scratch.clear()
+	_active_notes_scratch.append_array(active_notes)
+	for note_entry in _active_notes_scratch:
 		var lane := int(note_entry["lane"])
 		var note_node := note_entry["node"] as PanelContainer
 		if note_node == null or not is_instance_valid(note_node):
@@ -1983,26 +2544,26 @@ func _update_active_notes() -> void:
 		var note_time := float(note_entry["time"])
 		var duration := float(note_entry.get("duration", 0.0))
 		var is_hold := duration >= HOLD_NOTE_MIN_DURATION
-		if use_gameplay_skin:
+		if is_aurora_neon:
 			var visual := note_node.get_node_or_null("NeonNoteVisual")
 			if visual != null:
 				visual.set_holding(bool(note_entry.get("holding", false)))
 		var progress := 1.0 - (note_time - gameplay_time) / travel_time
-		var note_y := lerpf(-NOTE_HALF_HEIGHT, receptor_y, progress)
+		var note_y := lerpf(-note_half_height, receptor_y, progress)
 		if bool(note_entry.get("holding", false)):
 			note_y = receptor_y
 		var hold_height := 0.0
 		if is_hold:
-			var travel_distance := maxf(receptor_y + NOTE_HALF_HEIGHT, 1.0)
+			var travel_distance := maxf(receptor_y + note_half_height, 1.0)
 			var remaining_duration := duration
 			if bool(note_entry.get("holding", false)):
 				remaining_duration = maxf(note_time + duration - gameplay_time, 0.0)
 			hold_height = maxf(
 				remaining_duration / travel_time * travel_distance,
-				NOTE_HALF_HEIGHT * 2.0
+				note_half_height * 2.0
 			)
-		note_node.offset_top = note_y - NOTE_HALF_HEIGHT - hold_height
-		note_node.offset_bottom = note_y + NOTE_HALF_HEIGHT
+		note_node.offset_top = note_y - note_half_height - hold_height
+		note_node.offset_bottom = note_y + note_half_height
 
 		var shift_id := str(note_entry.get("shift_id", ""))
 		if not shift_id.is_empty():
@@ -2030,14 +2591,13 @@ func _update_active_notes() -> void:
 				)
 		elif judgment_time - note_time > MISS_WINDOW:
 			_judge_note(note_entry, "MISS", 0.0, 0, AuroraUi.CORAL)
-	if use_gameplay_skin:
-		for lane_index in range(lane_receptors.size()):
-			var holding := false
-			for entry in active_notes:
-				if int(entry["lane"]) == lane_index and bool(entry.get("holding", false)):
-					holding = true
-					break
-			lane_receptors[lane_index].set_holding(holding)
+	for lane_index in range(lane_receptors.size()):
+		var holding := false
+		for entry in active_notes:
+			if int(entry["lane"]) == lane_index and bool(entry.get("holding", false)):
+				holding = true
+				break
+		lane_receptors[lane_index].set_holding(holding)
 
 
 func _judge_note(
@@ -2252,59 +2812,30 @@ func _refresh_progress() -> void:
 
 
 func _get_total_judgment_count() -> int:
-	return chart_notes.size() + chart_shift_notes.size() + chart_side_notes.size()
+	return chart_notes.size() + chart_shift_notes.size()
 
 
 func _play_hit_effect(lane_index: int, _color: Color, judgment: String = "PERFECT") -> void:
-	if not bool(settings_manager.get_setting("show_hit_effects", true)):
+	if not cached_show_hit_effects:
 		return
 	var receptor := lane_receptors[lane_index]
-	if use_gameplay_skin:
-		var quality := 1.0 if judgment == "PERFECT" else 0.70 if judgment == "GREAT" else 0.42
-		receptor.flash_hit(quality)
-		return
-	var resting_tint := Color.WHITE
-	if use_gameplay_skin and not lane_pressed[lane_index]:
-		resting_tint = lane_receptor_tints[lane_index]
-	receptor.modulate = Color(1.45, 1.45, 1.45, 1.0)
-	var flash := receptor.create_tween()
-	flash.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
-	flash.tween_property(receptor, "modulate", resting_tint, 0.12)
-
-	if bool(settings_manager.get_setting("screen_shake_enabled", true)) and not bool(settings_manager.get_setting("reduced_motion", false)):
-		frame_panel.pivot_offset = frame_panel.size * 0.5
-		frame_panel.rotation = deg_to_rad(0.22 if lane_index % 2 == 0 else -0.22)
-		var shake := frame_panel.create_tween()
-		shake.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
-		shake.tween_property(frame_panel, "rotation", 0.0, 0.09)
+	var quality := 1.0 if judgment == "PERFECT" else 0.70 if judgment == "GREAT" else 0.42
+	receptor.flash_hit(quality)
+	if lane_index < lane_beams.size():
+		var boost := 1.0 if judgment == "PERFECT" else 0.86 if judgment == "GREAT" else 0.72
+		lane_beam_alphas[lane_index] = maxf(lane_beam_alphas[lane_index], boost)
+		var beam := lane_beams[lane_index]
+		var beam_tint := cached_lane_tints[lane_index] if lane_index < cached_lane_tints.size() else _get_visual_lane_tint(lane_index)
+		beam.self_modulate = Color(beam_tint.r, beam_tint.g, beam_tint.b, lane_beam_alphas[lane_index] * cached_lane_opacity)
+		beam.visible = true
 
 
 func _play_miss_effect(lane_index: int) -> void:
-	if not bool(settings_manager.get_setting("show_hit_effects", true)):
+	if not cached_show_hit_effects:
 		return
 	if lane_index < 0 or lane_index >= lane_receptors.size():
 		return
-	var previous_tween = lane_miss_feedback_tweens.get(lane_index)
-	if previous_tween is Tween and previous_tween.is_valid():
-		previous_tween.kill()
-
-	var receptor := lane_receptors[lane_index]
-	if use_gameplay_skin:
-		receptor.flash_miss()
-		return
-	var resting_tint := Color.WHITE
-	if use_gameplay_skin and not lane_pressed[lane_index]:
-		resting_tint = lane_receptor_tints[lane_index]
-	receptor.modulate = Color(1.0, 0.26, 0.38, 1.0)
-	var flash := receptor.create_tween()
-	flash.set_pause_mode(Tween.TWEEN_PAUSE_STOP)
-	flash.tween_property(
-		receptor,
-		"modulate",
-		resting_tint,
-		maxf(miss_feedback_duration, 0.01)
-	).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	lane_miss_feedback_tweens[lane_index] = flash
+	lane_receptors[lane_index].flash_miss()
 
 
 func _play_miss_sound() -> void:
@@ -2333,6 +2864,8 @@ func _update_practice_beat() -> void:
 func _check_level_finished() -> void:
 	if gameplay_finished:
 		return
+	if _has_reached_level_end() and clear_celebration == null:
+		_finalize_held_notes_at_level_end()
 	_try_start_clear_celebration()
 	# Music/video keep running under the celebration. Neither the last note nor
 	# the effect's completion is allowed to truncate a longer authored outro.
@@ -2342,6 +2875,21 @@ func _check_level_finished() -> void:
 		_finish_gameplay()
 
 
+func _finalize_held_notes_at_level_end() -> void:
+	var timing_offset := float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0 if settings_manager != null else 0.0
+	var judgment_time := gameplay_time + timing_offset
+	for entry in side_note_entries:
+		if str(entry.get("state", "")) == "holding":
+			_finish_side_hold(entry, judgment_time)
+	for pair_id in active_shift_pairs.keys():
+		var pair_value = active_shift_pairs.get(pair_id, null)
+		if pair_value is Dictionary and bool((pair_value as Dictionary).get("holding", false)):
+			_finish_shift_hold(str(pair_id), judgment_time)
+	for note_entry in active_notes.duplicate():
+		if active_notes.has(note_entry) and bool(note_entry.get("holding", false)):
+			_finish_hold_note(note_entry, judgment_time)
+
+
 func _try_start_clear_celebration() -> void:
 	if clear_celebration != null or not media_started:
 		return
@@ -2349,7 +2897,8 @@ func _try_start_clear_celebration() -> void:
 		return
 	# A hold is judged on release, never on its head. Also wait for the actual
 	# chart tail so an early accepted release cannot show the badge prematurely.
-	if gameplay_time < chart_end_time or not PERFECT_PLAY.qualifies(_build_result_data()):
+	var effective_tail := minf(chart_end_time, level_end_time) if level_end_time > 0.0 else chart_end_time
+	if gameplay_time < effective_tail or not PERFECT_PLAY.qualifies(_build_result_data()):
 		return
 	if clear_ready_time < 0.0:
 		clear_ready_time = gameplay_time + CLEAR_CELEBRATION_DELAY
@@ -2421,46 +2970,72 @@ func _build_result_data() -> Dictionary:
 func _update_ambient_frame() -> void:
 	if frame_panel == null:
 		return
-	var enabled := bool(settings_manager.get_setting("background_animation_enabled", true))
-	var reduced := bool(settings_manager.get_setting("reduced_motion", false))
 	var track_alpha := _get_cinematic_opacity()
 	if cabinet_art_overlay != null:
-		var lane_alpha := clampf(float(settings_manager.get_setting("lane_opacity", 0.82)), 0.0, 1.0)
-		cabinet_art_overlay.modulate = Color(1.0, 1.0, 1.0, lane_alpha * track_alpha)
-	if not enabled or reduced:
+		cabinet_art_overlay.modulate = Color(1.0, 1.0, 1.0, cached_lane_opacity * track_alpha)
+	if not cached_background_animation_enabled or cached_reduced_motion:
 		frame_panel.modulate = Color(1.0, 1.0, 1.0, track_alpha)
 		return
-	var intensity := float(settings_manager.get_setting("background_animation_intensity", 3))
-	var pulse := 0.94 + sin(ambient_time * (0.7 + intensity * 0.08)) * 0.06
+	var pulse := 0.94 + sin(ambient_time * (0.7 + cached_background_animation_intensity * 0.08)) * 0.06
 	frame_panel.modulate = Color(pulse, pulse, 1.0, track_alpha)
 
 
 func _apply_visual_settings() -> void:
+	_refresh_gameplay_caches()
 	var dim := float(settings_manager.get_setting("background_dim", 0.46))
 	dim_overlay.color = Color(0.0, 0.0, 0.0, clampf(dim, 0.0, 1.0))
 	var show_labels := bool(settings_manager.get_setting("show_lane_labels", true))
 	for label in lane_labels:
 		label.visible = show_labels
-	if use_gameplay_skin:
-		for receptor in lane_receptors:
-			receptor.effects_enabled = bool(settings_manager.get_setting("show_hit_effects", true))
-			receptor.reduced_motion = bool(settings_manager.get_setting("reduced_motion", false))
-		for entry in active_notes:
-			var node := entry["node"] as Control
-			if is_instance_valid(node):
-				var visual := node.get_node_or_null("NeonNoteVisual")
-				if visual != null:
-					visual.set_reduced_motion(bool(settings_manager.get_setting("reduced_motion", false)))
+	for lane_index in range(lane_receptors.size()):
+		var receptor := lane_receptors[lane_index]
+		var lane_tint := cached_lane_tints[lane_index] if lane_index < cached_lane_tints.size() else _get_visual_lane_tint(lane_index)
+		receptor.tint = lane_tint
+		receptor.style_profile = cached_profile_id
+		receptor.lane_direction = _fnf_direction_for_lane(lane_index)
+		if cached_profile_id == "custom":
+			receptor.set("custom_note_border", _get_custom_appearance_color("note_border", Color.WHITE))
+			receptor.set("custom_note_shape", str(cached_custom_appearance.get("note_shape", "rectangle")))
+			receptor.set("custom_outline_width", int(cached_custom_appearance.get("outline_width", 2)))
+		receptor.effects_enabled = cached_show_hit_effects
+		receptor.reduced_motion = cached_reduced_motion
+		if receptor.has_method("rebuild_body_texture"):
+			receptor.rebuild_body_texture()
+		receptor.queue_redraw()
+	for entry in active_notes:
+		var node := entry["node"] as Control
+		if is_instance_valid(node):
+			var visual := node.get_node_or_null("NeonNoteVisual")
+			if visual != null:
+				visual.style_profile = cached_profile_id
+				visual.lane_direction = _fnf_direction_for_lane(int(entry["lane"]))
+				visual.note_size_scale = cached_note_half_height / NOTE_HALF_HEIGHT
+				visual.queue_redraw()
+				visual.set_reduced_motion(cached_reduced_motion)
 	if background_video_player != null:
-		var background_enabled := bool(settings_manager.get_setting("background_animation_enabled", true))
-		background_video_player.visible = background_enabled and media_started
+		background_video_player.visible = cached_background_animation_enabled and media_started
 		background_video_player.modulate = Color.WHITE
-	var opacity := clampf(float(settings_manager.get_setting("lane_opacity", 0.82)), 0.0, 1.0)
+	var opacity := cached_lane_opacity
 	if cabinet_chrome_visual != null:
 		cabinet_chrome_visual.modulate = Color(1.0, 1.0, 1.0, opacity)
 	for frame_bar in cabinet_frame_bars:
 		if is_instance_valid(frame_bar):
 			frame_bar.modulate = Color(1.0, 1.0, 1.0, opacity)
+	var center_divider_idx := lane_mode / 2
+	for i in range(lane_dividers.size()):
+		var divider := lane_dividers[i]
+		if not is_instance_valid(divider):
+			continue
+		var div_num := i + 1
+		var is_center := div_num == center_divider_idx
+		if cached_profile_id == "aurora":
+			divider.color = Color(0.24, 0.84, 1.0, (0.82 if use_gameplay_skin else 0.80) if is_center else (0.56 if use_gameplay_skin else 0.42))
+		elif cached_profile_id == "custom":
+			var divider_tint := _get_profile_secondary_color()
+			divider.color = Color(divider_tint.r, divider_tint.g, divider_tint.b, (0.94 if use_gameplay_skin else 0.92) if is_center else (0.78 if use_gameplay_skin else 0.68))
+		else:
+			divider.color = Color(_get_visual_lane_tint(div_num), (0.84 if use_gameplay_skin else 0.82) if is_center else (0.56 if use_gameplay_skin else 0.48))
+		divider.color.a *= opacity
 	frame_panel.add_theme_stylebox_override("panel", _make_playfield_frame_style())
 	var deck_style := control_deck.get_theme_stylebox("panel") as StyleBoxFlat
 	deck_style.bg_color.a = opacity
@@ -2477,8 +3052,12 @@ func _apply_visual_settings() -> void:
 
 func _rebuild_cinematic_sections() -> void:
 	var timing_guard := absf(float(settings_manager.get_setting("timing_offset_ms", 0))) / 1000.0
+	var notes_to_protect: Array[Dictionary] = []
+	notes_to_protect.append_array(chart_notes)
+	notes_to_protect.append_array(chart_shift_notes)
+	notes_to_protect.append_array(chart_side_notes)
 	safe_cinematic_sections = CINEMATICS.safe_sections(
-		cinematic_sections, chart_notes, _get_note_travel_time(), MISS_WINDOW + timing_guard
+		cinematic_sections, notes_to_protect, _get_note_travel_time(), MISS_WINDOW + timing_guard
 	)
 
 
@@ -2501,14 +3080,19 @@ func _on_setting_changed(key: String, _value) -> void:
 		"background_animation_intensity",
 		"background_dim",
 		"lane_opacity",
+		"gameplay_visual_profile",
+		"custom_gameplay_appearance",
 		"cinematic_sections_enabled",
 		"show_lane_labels",
+		"show_hit_effects",
+		"screen_shake_enabled",
 		"reduced_motion",
 	]:
 		_apply_visual_settings()
 
 
 func _on_input_device_changed(_using_controller: bool) -> void:
+	_refresh_lane_actions()
 	var keycodes := input_manager.get_mode_keycodes(lane_mode)
 	for lane_index in range(mini(lane_labels.size(), keycodes.size())):
 		lane_labels[lane_index].text = input_manager.get_lane_input_label(

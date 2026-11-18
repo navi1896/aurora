@@ -1,3 +1,5 @@
 .godot/
 .import/
 /build/
+/work/
+*.log

@@ -1,6 +1,13 @@
 extends Control
 
+const NEON_NOTE := preload("res://src/screens/gameplay/NeonGameplayNote.gd")
+
 var tint := Color(0.08, 0.86, 1.0)
+var style_profile := "aurora"
+var lane_direction := 2
+var custom_note_border := Color.WHITE
+var custom_note_shape := "rectangle"
+var custom_outline_width := 2
 var pressed := false
 var holding := false
 var effects_enabled := true
@@ -10,11 +17,16 @@ var miss_energy := 0.0
 var particle_clock := 0.0
 var particles: Array[Dictionary] = []
 var body_texture: GradientTexture2D
+var _custom_style := StyleBoxFlat.new()
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	resized.connect(queue_redraw)
+	rebuild_body_texture()
+
+
+func rebuild_body_texture() -> void:
 	var gradient := Gradient.new()
 	gradient.colors = PackedColorArray([tint.darkened(0.42), tint, tint.lerp(Color.WHITE, 0.20)])
 	gradient.offsets = PackedFloat32Array([0.0, 0.60, 1.0])
@@ -70,10 +82,18 @@ func _process(delta: float) -> void:
 		if particle_clock >= 0.06:
 			particle_clock = 0.0
 			_emit_particles(2, 0.85)
-	for particle in particles:
+	var write_index := 0
+	for index in range(particles.size()):
+		var particle: Dictionary = particles[index]
+		var life := float(particle["life"]) - delta
+		if life <= 0.0:
+			continue
+		particle["life"] = life
 		particle["position"] += particle["velocity"] * delta
-		particle["life"] -= delta
-	particles = particles.filter(func(particle: Dictionary) -> bool: return float(particle["life"]) > 0.0)
+		particles[write_index] = particle
+		write_index += 1
+	if write_index < particles.size():
+		particles.resize(write_index)
 	if was_animating or holding or not particles.is_empty():
 		queue_redraw()
 
@@ -83,6 +103,22 @@ func _draw() -> void:
 		return
 	var lit := maxf(energy, 0.55 if pressed or holding else 0.0)
 	var color := tint.lerp(Color(1.0, 0.18, 0.28), miss_energy)
+	if style_profile == "djmax":
+		_draw_djmax_receptor(color, lit)
+		_draw_particles(color)
+		return
+	if style_profile == "quaver":
+		_draw_quaver_receptor(color, lit)
+		_draw_particles(color)
+		return
+	if style_profile == "fnf":
+		_draw_fnf_receptor(color, lit)
+		_draw_particles(color)
+		return
+	if style_profile == "custom":
+		_draw_custom_receptor(color, lit)
+		_draw_particles(color)
+		return
 	var rect := Rect2(4, 3.0 + (1.5 if pressed else 0.0), size.x - 8.0, size.y - 7.0)
 	var bevel := PackedVector2Array([
 		Vector2(0, 7), Vector2(6, 0), Vector2(size.x - 6, 0), Vector2(size.x, 7),
@@ -104,6 +140,90 @@ func _draw() -> void:
 		for spread in [12.0, 7.0, 3.0]:
 			draw_rect(Rect2(size.x * 0.17, -10.0 - spread, size.x * 0.66, spread * 2.0), Color(color, lit * 0.10))
 		draw_rect(Rect2(size.x * 0.22, -11, size.x * 0.56, 3), Color(1, 1, 1, lit * 0.95))
+	_draw_particles(color)
+
+
+func _draw_djmax_receptor(color: Color, lit: float) -> void:
+	var drop := 1.5 if pressed else 0.0
+	var rect := Rect2(2.0, 3.0 + drop, size.x - 4.0, size.y - 6.0)
+	draw_rect(rect.grow(5.0), Color(color, 0.07 + lit * 0.10))
+	draw_rect(rect, color.darkened(0.28))
+	draw_rect(Rect2(rect.position + Vector2(2, 3), rect.size - Vector2(4, 6)), color)
+	draw_rect(Rect2(rect.position + Vector2(2, 2), Vector2(rect.size.x - 4, 3)), Color.WHITE)
+	draw_rect(Rect2(rect.position.x + 3, rect.end.y - 4, rect.size.x - 6, 2), color.darkened(0.55))
+	var keybar := Rect2(size.x * 0.32, size.y * 0.42 + drop, size.x * 0.36, 7.0)
+	draw_rect(keybar, Color(0.02, 0.02, 0.06, 0.75))
+	draw_rect(keybar.grow(-2.0), Color.WHITE.lerp(color, 0.38))
+	if lit > 0.0 and effects_enabled:
+		draw_rect(rect.grow(9.0), Color(color, lit * 0.08), false, 2.0)
+
+
+func _draw_quaver_receptor(color: Color, lit: float) -> void:
+	var drop := 1.0 if pressed else 0.0
+	var rect := Rect2(3.0, 3.0 + drop, size.x - 6.0, size.y - 6.0)
+	draw_rect(rect.grow(4.0), Color(color, 0.04 + lit * 0.08))
+	draw_rect(rect, Color(0.008, 0.018, 0.034, 0.96))
+	draw_rect(rect, color.lerp(Color.WHITE, 0.10), false, 2.0)
+	draw_rect(Rect2(rect.position + Vector2(2, 2), Vector2(rect.size.x - 4, 3)), Color.WHITE)
+	draw_rect(Rect2(rect.position.x + 3, rect.position.y + 7, 3, rect.size.y - 14), color)
+	draw_rect(Rect2(rect.end.x - 6, rect.position.y + 7, 3, rect.size.y - 14), color)
+	var center := Rect2(size.x * 0.34, size.y * 0.48 + drop, size.x * 0.32, 4.0)
+	draw_rect(center, color.lerp(Color.WHITE, 0.60))
+	if lit > 0.0 and effects_enabled:
+		draw_rect(rect.grow(7.0), Color(color, lit * 0.06), false, 1.5)
+
+
+func _draw_fnf_receptor(color: Color, lit: float) -> void:
+	var drop := 2.0 if pressed else 0.0
+	var center := Vector2(size.x * 0.5, size.y * 0.5 + drop)
+	var half_extent := minf(size.x * 0.34, size.y * 0.44)
+	if lit > 0.0:
+		var glow := lit if effects_enabled else minf(lit, 0.55)
+		NEON_NOTE.draw_fnf_arrow(
+			self,
+			center,
+			half_extent * (0.96 if pressed else 1.02),
+			lane_direction,
+			color.lerp(Color.WHITE, glow * 0.30),
+			Color.WHITE,
+			2.0,
+			glow * 0.28 if effects_enabled else 0.0,
+			true
+		)
+		return
+	NEON_NOTE.draw_fnf_arrow(
+		self,
+		center,
+		half_extent,
+		lane_direction,
+		Color(0.08, 0.10, 0.15, 0.72).lerp(Color(color.r, color.g, color.b, 0.72), 0.14),
+		Color(0.58, 0.64, 0.76, 0.92),
+		2.0,
+		0.0,
+		false
+	)
+
+
+func _draw_custom_receptor(color: Color, lit: float) -> void:
+	var drop := 1.5 if pressed else 0.0
+	var rect := Rect2(3.0, 3.0 + drop, size.x - 6.0, size.y - 6.0)
+	_custom_style.bg_color = color.lerp(Color.WHITE, lit * 0.10)
+	_custom_style.border_color = custom_note_border
+	_custom_style.set_border_width_all(clampi(custom_outline_width, 0, 5))
+	match custom_note_shape:
+		"rounded":
+			_custom_style.set_corner_radius_all(6)
+		"pill":
+			_custom_style.set_corner_radius_all(mini(24, int(rect.size.y * 0.5)))
+		_:
+			_custom_style.set_corner_radius_all(0)
+	draw_style_box(_custom_style, rect)
+	draw_rect(Rect2(rect.position.x + 3.0, rect.position.y + 2.0, maxf(rect.size.x - 6.0, 1.0), 2.0), Color.WHITE)
+	if lit > 0.0 and effects_enabled:
+		draw_rect(rect.grow(7.0), Color(color, lit * 0.07), false, 2.0)
+
+
+func _draw_particles(color: Color) -> void:
 	for particle in particles:
 		var alpha := minf(float(particle["life"]) * 3.0, 1.0)
 		var point: Vector2 = particle["position"]

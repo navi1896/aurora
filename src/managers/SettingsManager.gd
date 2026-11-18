@@ -16,6 +16,20 @@ const DEFAULT_SETTINGS := {
 	"music_volume": 0.85,
 	"sfx_volume": 0.9,
 	"note_speed": 5.5,
+	"gameplay_visual_profile": "aurora",
+	"custom_gameplay_appearance": {
+		"lane_fill": "#091525",
+		"lane_divider": "#38d8f2",
+		"lane_accent": "#ff62be",
+		"left_rail": "#9977ff",
+		"note_colors": ["#22ddff", "#ff56c7", "#ffd166", "#72e39a"],
+		"note_border": "#f5f8ff",
+		"note_shape": "rectangle",
+		"note_size": 1.0,
+		"lane_inset": 92.0,
+		"lane_shape": "rectangle",
+		"outline_width": 2,
+	},
 	"key_sounds_enabled": false,
 	"background_animation_enabled": true,
 	"background_animation_intensity": 3,
@@ -206,7 +220,7 @@ func apply_display_settings() -> void:
 				)
 				DisplayServer.window_set_position(centered_position)
 
-	var vsync_mode := DisplayServer.VSYNC_ENABLED if bool(get_setting("vsync_enabled", true)) else DisplayServer.VSYNC_DISABLED
+	var vsync_mode := DisplayServer.VSYNC_MAILBOX if bool(get_setting("vsync_enabled", true)) else DisplayServer.VSYNC_DISABLED
 	DisplayServer.window_set_vsync_mode(vsync_mode)
 	Engine.max_fps = int(get_setting("fps_limit", 120))
 
@@ -277,6 +291,11 @@ func _validate_setting(key: String) -> void:
 			settings[key] = clampf(float(settings[key]), 0.0, 1.0)
 		"note_speed":
 			settings[key] = clampf(float(settings[key]), 1.0, 10.0)
+		"gameplay_visual_profile":
+			if str(settings[key]) not in ["aurora", "djmax", "quaver", "fnf", "custom"]:
+				settings[key] = "aurora"
+		"custom_gameplay_appearance":
+			_validate_custom_gameplay_appearance()
 		"background_animation_intensity":
 			settings[key] = clampi(int(settings[key]), 1, 5)
 		"background_dim":
@@ -315,6 +334,36 @@ func _validate_setting(key: String) -> void:
 				settings[key] = DEFAULT_SETTINGS["lane_bindings"].duplicate(true)
 		"controller_bindings":
 			_validate_controller_bindings()
+
+
+func _validate_custom_gameplay_appearance() -> void:
+	var defaults: Dictionary = DEFAULT_SETTINGS["custom_gameplay_appearance"]
+	var raw = settings.get("custom_gameplay_appearance", {})
+	var custom: Dictionary = raw.duplicate(true) if raw is Dictionary else {}
+	for key in defaults:
+		if not custom.has(key):
+			custom[key] = defaults[key]
+
+	for color_key in ["lane_fill", "lane_divider", "lane_accent", "left_rail", "note_border"]:
+		var fallback := Color.from_string(str(defaults[color_key]), Color.WHITE)
+		custom[color_key] = Color.from_string(str(custom[color_key]), fallback).to_html(false)
+
+	var default_note_colors: Array = defaults["note_colors"]
+	var raw_note_colors = custom.get("note_colors", default_note_colors)
+	var note_colors: Array[String] = []
+	for index in range(4):
+		var fallback := Color.from_string(str(default_note_colors[index]), Color.WHITE)
+		var raw_color = raw_note_colors[index] if raw_note_colors is Array and raw_note_colors.size() > index else default_note_colors[index]
+		note_colors.append(Color.from_string(str(raw_color), fallback).to_html(false))
+	custom["note_colors"] = note_colors
+	if str(custom["note_shape"]) not in ["rectangle", "rounded", "pill"]:
+		custom["note_shape"] = "rectangle"
+	if str(custom["lane_shape"]) not in ["rectangle", "rounded"]:
+		custom["lane_shape"] = "rectangle"
+	custom["note_size"] = clampf(float(custom["note_size"]), 0.8, 1.5)
+	custom["lane_inset"] = clampf(float(custom["lane_inset"]), 48.0, 150.0)
+	custom["outline_width"] = clampi(int(custom["outline_width"]), 0, 5)
+	settings["custom_gameplay_appearance"] = custom
 
 
 func _validate_controller_bindings() -> void:

@@ -293,7 +293,7 @@ static func is_valid_chart_document(document_value: Variant, note_key_count: int
 	for raw_note in raw_notes:
 		if not _is_valid_raw_note(raw_note, safe_key_count):
 			return false
-	return not _has_note_conflicts(raw_notes)
+	return not _has_note_conflicts(raw_notes, document.get("shift_notes", []))
 
 
 static func _is_valid_raw_note(raw_note_value: Variant, note_key_count: int) -> bool:
@@ -389,9 +389,20 @@ static func _has_shift_note_conflicts(shift_notes: Array) -> bool:
 	return false
 
 
-static func _has_note_conflicts(raw_notes: Array) -> bool:
+static func _has_note_conflicts(raw_notes: Array, raw_shift_notes: Array = []) -> bool:
 	var notes_by_lane: Dictionary = {}
-	for raw_note_value in raw_notes:
+	var combined_notes := raw_notes.duplicate()
+	for shift_value in raw_shift_notes:
+		if not (shift_value is Dictionary):
+			continue
+		var shift: Dictionary = shift_value
+		for lane_value in shift.get("lanes", []):
+			var equivalent_note := {"lane": lane_value}
+			for key in ["time", "beat", "duration", "length_beats"]:
+				if shift.has(key):
+					equivalent_note[key] = shift[key]
+			combined_notes.append(equivalent_note)
+	for raw_note_value in combined_notes:
 		var raw_note: Dictionary = raw_note_value
 		var lane := int(raw_note["lane"])
 		var uses_seconds := raw_note.has("time")

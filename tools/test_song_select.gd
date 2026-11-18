@@ -159,6 +159,19 @@ func _run() -> void:
 		and "ESC" in screen.controls_label.text,
 		"La ayuda inferior muestra teclado cuando se usa teclado"
 	)
+	screen.search_field.grab_focus()
+	_expect(
+		not screen._uses_library_shortcuts(screen.search_field),
+		"La búsqueda no recibe los atajos de la lista"
+	)
+	var search_key := InputEventKey.new()
+	search_key.keycode = KEY_A
+	search_key.pressed = true
+	screen._input(search_key)
+	_expect(
+		scene_manager.current_scene == screen and not game_manager.is_playing,
+		"Las teclas de búsqueda no arrancan la canción seleccionada"
+	)
 	input_manager._set_input_device(true, 0)
 	_expect(
 		input_manager.get_controller_action_label("confirm")

@@ -89,19 +89,25 @@ func complete() -> void:
 func _update_badge() -> void:
 	if badge == null:
 		return
-	var unit := minf(size.x / DESIGN_SIZE.x, size.y / DESIGN_SIZE.y)
-	var fit_top := (size.y - DESIGN_SIZE.y * unit) * 0.5
+	var area_size := size
+	if (area_size.x < 1.0 or area_size.y < 1.0) and get_parent() is Control:
+		area_size = (get_parent() as Control).size
+	if area_size.x < 1.0 or area_size.y < 1.0:
+		area_size = get_viewport_rect().size
+	var unit := minf(area_size.x / DESIGN_SIZE.x, area_size.y / DESIGN_SIZE.y)
+	var fit_top := (area_size.y - DESIGN_SIZE.y * unit) * 0.5
 	var enter := 1.0 if reduced_motion else smoothstep(0.0, 0.28, elapsed)
 	var fade := clampf((DURATION - elapsed) / 0.45, 0.0, 1.0)
 	var drift := 0.0 if reduced_motion else -9.0 * (1.0 - enter)
 	var scale_factor := 1.0 if reduced_motion else 0.94 + 0.06 * enter
-	var center := Vector2(size.x * 0.5, fit_top + (155.0 + drift) * unit)
+	var center := Vector2(area_size.x * 0.5, fit_top + (155.0 + drift) * unit)
 	badge.size = BADGE_SIZE * unit
 	badge.pivot_offset = badge.size * 0.5
 	badge.position = center - badge.size * 0.5
 	badge.scale = Vector2.ONE * scale_factor
+	# Frame 103 in the atlas is faded out to transparent; hold frame 60 when reduced motion is active.
 	var frame_index := (
-		FRAME_COUNT - 1
+		60
 		if reduced_motion
 		else mini(floori(elapsed * FRAME_RATE), FRAME_COUNT - 1)
 	)

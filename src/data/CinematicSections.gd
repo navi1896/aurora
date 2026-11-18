@@ -1,6 +1,7 @@
 extends RefCounted
 
 const FADE_SECONDS := 0.35
+const MIN_SECTION_SECONDS := 7.0
 
 
 static func is_valid(value: Variant) -> bool:
@@ -13,17 +14,29 @@ static func is_valid(value: Variant) -> bool:
 			var number: Variant = section.get(key)
 			if not (number is int or number is float) or not is_finite(float(number)):
 				return false
-		if float(section.start) < 0.0 or float(section.end) - float(section.start) < 0.001:
+		if float(section.start) < 0.0 or float(section.end) - float(section.start) < MIN_SECTION_SECONDS:
 			return false
 	return true
 
 
 static func normalize(value: Array) -> Array[Dictionary]:
+	return _normalize_ranges(value, MIN_SECTION_SECONDS)
+
+
+static func _normalize_ranges(value: Array, minimum_length: float) -> Array[Dictionary]:
 	var sorted: Array[Dictionary] = []
 	for section in value:
-		if is_valid([section]):
-			sorted.append({"start": snappedf(float(section.start), 0.001),
-				"end": snappedf(float(section.end), 0.001)})
+		if not (section is Dictionary):
+			continue
+		var start_value: Variant = section.get("start", null)
+		var end_value: Variant = section.get("end", null)
+		if not (start_value is int or start_value is float) or not (end_value is int or end_value is float):
+			continue
+		var start := float(start_value)
+		var end := float(end_value)
+		if not is_finite(start) or not is_finite(end) or start < 0.0 or end - start < minimum_length or end <= start:
+			continue
+		sorted.append({"start": snappedf(start, 0.001), "end": snappedf(end, 0.001)})
 	sorted.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return a.start < b.start)
 	var result: Array[Dictionary] = []
 	for section in sorted:
@@ -41,7 +54,7 @@ static func safe_sections(sections: Array, notes: Array, travel: float, miss_win
 	for note in notes:
 		blocked.append({"start": maxf(0.0, float(note.time) - travel),
 			"end": float(note.time) + float(note.get("duration", 0.0)) + miss_window})
-	var protected_ranges := normalize(blocked)
+	var protected_ranges := _normalize_ranges(blocked, 0.0)
 	var result: Array[Dictionary] = []
 	for section in normalize(sections):
 		var cursor := float(section.start)
@@ -51,12 +64,12 @@ static func safe_sections(sections: Array, notes: Array, travel: float, miss_win
 				continue
 			if float(guard.start) >= end:
 				break
-			if float(guard.start) - cursor >= FADE_SECONDS * 2.0:
+			if float(guard.start) - cursor >= MIN_SECTION_SECONDS:
 				result.append({"start": cursor, "end": minf(float(guard.start), end)})
 			cursor = maxf(cursor, float(guard.end))
 			if cursor >= end:
 				break
-		if end - cursor >= FADE_SECONDS * 2.0:
+		if end - cursor >= MIN_SECTION_SECONDS:
 			result.append({"start": cursor, "end": end})
 	return result
 

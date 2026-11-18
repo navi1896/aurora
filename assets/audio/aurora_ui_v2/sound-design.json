@@ -1,0 +1,182 @@
+{
+  "status": "candidate awaiting user listening and approval; not locked",
+  "sample_rate": 48000,
+  "reference": "D:/DJMAX RESPECT V (2026.09.22 and 2026.09.29 recordings)",
+  "method": "Oscillators, integrated sweeps, filtered seeded noise, envelopes and sparse reflections. Original recordings only guide cadence and transient character.",
+  "sounds": {
+    "menu_select": {
+      "duration": 0.24,
+      "peak_dbfs": -11.0,
+      "rms_dbfs": -28.64,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "song_select": {
+      "duration": 0.26,
+      "peak_dbfs": -11.0,
+      "rms_dbfs": -31.26,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "confirm": {
+      "duration": 0.4,
+      "peak_dbfs": -8.0,
+      "rms_dbfs": -26.58,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "resume": {
+      "duration": 0.34,
+      "peak_dbfs": -8.0,
+      "rms_dbfs": -25.59,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "countdown_3": {
+      "duration": 0.57,
+      "peak_dbfs": -9.0,
+      "rms_dbfs": -26.64,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "countdown_2": {
+      "duration": 0.57,
+      "peak_dbfs": -9.0,
+      "rms_dbfs": -26.98,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "countdown_1": {
+      "duration": 0.57,
+      "peak_dbfs": -9.0,
+      "rms_dbfs": -27.42,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "countdown_go": {
+      "duration": 0.44,
+      "peak_dbfs": -8.0,
+      "rms_dbfs": -26.21,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "pause": {
+      "duration": 0.3,
+      "peak_dbfs": -11.0,
+      "rms_dbfs": -25.93,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "loading": {
+      "duration": 0.32,
+      "peak_dbfs": -14.0,
+      "rms_dbfs": -29.56,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "perfect_combo": {
+      "duration": 1.17,
+      "peak_dbfs": -7.0,
+      "rms_dbfs": -23.86,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "stage_clear": {
+      "duration": 0.82,
+      "peak_dbfs": -9.0,
+      "rms_dbfs": -25.17,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "score_count": {
+      "duration": 1.02,
+      "peak_dbfs": -16.0,
+      "rms_dbfs": -35.24,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    },
+    "score_finish": {
+      "duration": 0.5,
+      "peak_dbfs": -9.0,
+      "rms_dbfs": -28.66,
+      "clipped_samples": 0,
+      "source": "original procedural synthesis; no recording samples"
+    }
+  },
+  "previews": {
+    "01-menu-y-canciones": [
+      {
+        "seconds": 0,
+        "sound": "menu_select"
+      },
+      {
+        "seconds": 0.65,
+        "sound": "menu_select"
+      },
+      {
+        "seconds": 1.3,
+        "sound": "menu_select"
+      },
+      {
+        "seconds": 2.2,
+        "sound": "song_select"
+      },
+      {
+        "seconds": 2.75,
+        "sound": "song_select"
+      },
+      {
+        "seconds": 3.3,
+        "sound": "song_select"
+      },
+      {
+        "seconds": 4.3,
+        "sound": "confirm"
+      },
+      {
+        "seconds": 5.4,
+        "sound": "pause"
+      },
+      {
+        "seconds": 6.2,
+        "sound": "resume"
+      }
+    ],
+    "02-cuenta-3-2-1": [
+      {
+        "seconds": 0,
+        "sound": "countdown_3"
+      },
+      {
+        "seconds": 1,
+        "sound": "countdown_2"
+      },
+      {
+        "seconds": 2,
+        "sound": "countdown_1"
+      },
+      {
+        "seconds": 3,
+        "sound": "countdown_go"
+      }
+    ],
+    "03-combo-y-resultados": [
+      {
+        "seconds": 0,
+        "sound": "perfect_combo"
+      },
+      {
+        "seconds": 1.8,
+        "sound": "stage_clear"
+      },
+      {
+        "seconds": 3.1,
+        "sound": "score_count"
+      },
+      {
+        "seconds": 4.1,
+        "sound": "score_finish"
+      }
+    ]
+  }
+}

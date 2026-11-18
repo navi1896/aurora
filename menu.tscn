@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/screens/MainMenu.gd" id="1_script"]
-[ext_resource type="Texture2D" path="res://assets/menu/background/cabina_aurora_menu.png" id="2_background"]
+[ext_resource type="Texture2D" path="res://assets/menu/background/cabina_aurora_menu_bg.png" id="2_background"]
 [ext_resource type="PackedScene" path="res://src/screens/main_menu/Footer.tscn" id="6_footer"]
 [ext_resource type="PackedScene" path="res://src/screens/main_menu/CabinaMenu.tscn" id="7_cabina"]
 

@@ -28,7 +28,7 @@ func _ready() -> void:
 	body.hide()
 	heading.toggled.connect(func(open: bool) -> void: body.visible = open)
 	var help := AuroraUi.make_label(AuroraLocale.text(
-		"Oculta la pista central entre estos tiempos. El video continúa y la pista vuelve antes de las notas. Los tramos se marcan en dorado en la línea de tiempo."
+		"Oculta la pista central entre estos tiempos (mínimo 7 s). El video continúa y la pista vuelve antes de las notas. Los tramos se marcan en dorado en la línea de tiempo."
 	), 13, AuroraUi.MUTED)
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	body.add_child(help)
@@ -40,7 +40,7 @@ func _ready() -> void:
 	body.add_child(section_list)
 	start_spin = _time_control("INICIO (s)")
 	end_spin = _time_control("FIN (s)")
-	end_spin.value = 5.0
+	end_spin.value = ChartData.CINEMATICS.MIN_SECTION_SECONDS
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	body.add_child(row)
@@ -114,8 +114,8 @@ func _select_section(index: int) -> void:
 
 
 func _valid_input() -> bool:
-	if end_spin.value - start_spin.value < 0.7 or end_spin.value > duration:
-		message.text = AuroraLocale.text("El tramo debe durar al menos 0.7 s y quedar dentro de la canción.")
+	if end_spin.value - start_spin.value < ChartData.CINEMATICS.MIN_SECTION_SECONDS or end_spin.value > duration:
+		message.text = AuroraLocale.text("El tramo debe durar al menos 7 s y quedar dentro de la canción.")
 		return false
 	message.text = ""
 	return true

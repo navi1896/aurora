@@ -5,7 +5,7 @@ class_name LoadingTransitionManager
 signal transition_started(target_scene: String)
 signal transition_finished(target_scene: String)
 
-const DISPLAY_SECONDS := 5.0
+const DISPLAY_SECONDS := 2.0
 const SETTINGS_COVER_SECONDS := 0.18
 const SETTINGS_REVEAL_SECONDS := 0.42
 const LIBRARY_COVER_SECONDS := 0.24
