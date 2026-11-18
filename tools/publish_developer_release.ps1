@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory = $true)][string]$ProjectRoot,
     [Parameter(Mandatory = $true)][string]$Repository,
     [Parameter(Mandatory = $true)][string]$GodotExecutable,
@@ -39,6 +39,7 @@ try {
     $zipPath = Join-Path $ProjectRoot ("build\Aurora-v{0}-Windows.zip" -f $Version)
     $hashPath = "$zipPath.sha256"
     if ((Test-Path -LiteralPath $releaseDir) -or (Test-Path -LiteralPath $zipPath) -or (Test-Path -LiteralPath $hashPath)) { throw 'Ya existen archivos de salida para esta versión; no se sobrescribieron.' }
+    $null = New-Item -ItemType Directory -Path $releaseDir -Force
     & $GodotExecutable --headless --path $ProjectRoot --export-release 'Windows Desktop' $exePath
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exePath)) { throw 'La exportación de Windows no se completó.' }
     Compress-Archive -Path (Join-Path $releaseDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
