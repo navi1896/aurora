@@ -5,6 +5,8 @@ class_name SongManager
 const SONGS_DIRECTORY := "res://songs"
 const EDITOR_DIRECTORY := "user://aurora_editor"
 const PACKAGES_DIRECTORY := "user://aurora_packages"
+const SHARED_LIBRARY_DIRECTORY := "res://shared_library"
+const SHARED_LIBRARY_FOLDER_NAME := "shared_library"
 const PACKAGE_SERVICE_TYPE := preload(
 	"res://src/packages/SongPackageService.gd"
 )
@@ -29,11 +31,125 @@ func load_songs() -> void:
 	package_roots_by_song_id.clear()
 	package_media_by_song_id.clear()
 	_scan_directory(SONGS_DIRECTORY)
+	var sync_directories := get_cloud_sync_directories()
+	_sync_cloud_aurora_archives(sync_directories)
+	_scan_cloud_sync_directories(sync_directories)
 	_scan_package_directory(PACKAGES_DIRECTORY)
 	# Primero descubre los paquetes instalados. Los borradores que proceden de
 	# uno de ellos son solo el espacio de trabajo del editor, no otra canción.
 	_scan_editor_directory(EDITOR_DIRECTORY)
 	songs.sort_custom(_sort_songs)
+
+
+func get_cloud_sync_directories() -> PackedStringArray:
+	var candidates: PackedStringArray = []
+	var parent := get_parent()
+	var settings_manager := parent.get_node_or_null("SettingsManager") as SettingsManager if parent != null else null
+	if settings_manager != null:
+		settings_manager.ensure_loaded()
+		var configured := str(settings_manager.get_setting("cloud_sync_directory", "")).strip_edges()
+		if not configured.is_empty():
+			candidates.append(configured)
+	var executable_dir := OS.get_executable_path().get_base_dir()
+	if not executable_dir.is_empty():
+		candidates.append(executable_dir.path_join(SHARED_LIBRARY_FOLDER_NAME))
+	candidates.append("user://%s" % SHARED_LIBRARY_FOLDER_NAME)
+	candidates.append(SHARED_LIBRARY_DIRECTORY)
+
+	var unique_directories: PackedStringArray = []
+	var seen_paths: Dictionary = {}
+	for raw_path in candidates:
+		var absolute_path := _normalized_absolute_path(raw_path).trim_suffix("/")
+		if absolute_path.is_empty() or not DirAccess.dir_exists_absolute(absolute_path):
+			continue
+		var normalized_key := absolute_path.to_lower()
+		if seen_paths.has(normalized_key):
+			continue
+		seen_paths[normalized_key] = true
+		unique_directories.append(absolute_path)
+	return unique_directories
+
+
+func _scan_cloud_sync_directories(sync_directories: PackedStringArray) -> void:
+	for sync_root in sync_directories:
+		_scan_package_directory(sync_root)
+		var packages_subdir := sync_root.path_join("packages")
+		if DirAccess.dir_exists_absolute(packages_subdir):
+			_scan_package_directory(packages_subdir)
+
+
+func _sync_cloud_aurora_archives(sync_directories: PackedStringArray) -> void:
+	if sync_directories.is_empty():
+		return
+	var installed_versions := _installed_package_versions_by_id()
+	for sync_root in sync_directories:
+		_sync_aurora_archives_in_directory(sync_root, installed_versions)
+		var packages_subdir := sync_root.path_join("packages")
+		if DirAccess.dir_exists_absolute(packages_subdir):
+			_sync_aurora_archives_in_directory(packages_subdir, installed_versions)
+
+
+func _sync_aurora_archives_in_directory(directory_path: String, installed_versions: Dictionary) -> void:
+	var directory := DirAccess.open(directory_path)
+	if directory == null:
+		return
+	directory.list_dir_begin()
+	var entry_name := directory.get_next()
+	while not entry_name.is_empty():
+		if not entry_name.begins_with(".") and not directory.current_is_dir():
+			if entry_name.get_extension().to_lower() == "aurora":
+				var archive_path := directory_path.path_join(entry_name)
+				var inspection: Dictionary = package_service.validate_package_manifest(archive_path)
+				if bool(inspection.get("ok", false)):
+					var manifest: Dictionary = inspection.get("manifest", {})
+					var package_id := str(manifest.get("package_id", "")).strip_edges()
+					var package_version := PACKAGE_SERVICE_TYPE.normalize_package_version(
+						str(manifest.get("package_version", PACKAGE_SERVICE_TYPE.DEFAULT_PACKAGE_VERSION))
+					)
+					var current_version := str(installed_versions.get(package_id, ""))
+					if (
+						not package_id.is_empty()
+						and (
+							current_version.is_empty()
+							or PACKAGE_SERVICE_TYPE.compare_package_versions(package_version, current_version) > 0
+						)
+					):
+						var install_result := install_song_package_files(archive_path)
+						if bool(install_result.get("ok", false)):
+							installed_versions[package_id] = package_version
+		entry_name = directory.get_next()
+	directory.list_dir_end()
+
+
+func _installed_package_versions_by_id() -> Dictionary:
+	var versions: Dictionary = {}
+	var directory := DirAccess.open(PACKAGES_DIRECTORY)
+	if directory == null:
+		return versions
+	directory.list_dir_begin()
+	var entry_name := directory.get_next()
+	while not entry_name.is_empty():
+		if (
+			not entry_name.begins_with(".")
+			and directory.current_is_dir()
+			and not entry_name.ends_with(PACKAGE_SERVICE_TYPE.IMPORT_TEMP_SUFFIX)
+			and not entry_name.ends_with(PACKAGE_SERVICE_TYPE.UPDATE_TEMP_SUFFIX)
+			and not entry_name.ends_with(PACKAGE_SERVICE_TYPE.UPDATE_BACKUP_SUFFIX)
+		):
+			var validation: Dictionary = package_service.validate_staging(
+				PACKAGES_DIRECTORY.path_join(entry_name),
+				false
+			)
+			if bool(validation.get("ok", false)):
+				var manifest: Dictionary = validation.get("manifest", {})
+				var package_id := str(manifest.get("package_id", "")).strip_edges()
+				if not package_id.is_empty():
+					versions[package_id] = PACKAGE_SERVICE_TYPE.normalize_package_version(
+						str(manifest.get("package_version", PACKAGE_SERVICE_TYPE.DEFAULT_PACKAGE_VERSION))
+					)
+		entry_name = directory.get_next()
+	directory.list_dir_end()
+	return versions
 
 
 func _scan_directory(directory_path: String) -> void:

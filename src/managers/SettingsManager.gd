@@ -52,6 +52,7 @@ const DEFAULT_SETTINGS := {
 	"last_audio_directory": "",
 	"last_package_directory": "",
 	"last_package_export_directory": "",
+	"cloud_sync_directory": "",
 	"lane_bindings": {
 		"4": [KEY_D, KEY_F, KEY_J, KEY_K],
 		"6": [KEY_S, KEY_D, KEY_F, KEY_J, KEY_K, KEY_L],
@@ -97,6 +98,7 @@ const DEFAULT_SETTINGS := {
 var settings: Dictionary = DEFAULT_SETTINGS.duplicate(true)
 var settings_save_timer: Timer
 var settings_save_pending := false
+var settings_loaded := false
 
 
 func _ready() -> void:
@@ -111,7 +113,13 @@ func _ready() -> void:
 	call_deferred("apply_all_settings")
 
 
+func ensure_loaded() -> void:
+	if not settings_loaded:
+		load_settings()
+
+
 func load_settings() -> void:
+	settings_loaded = true
 	if not FileAccess.file_exists(SETTINGS_PATH):
 		return
 
@@ -250,6 +258,11 @@ func _apply_setting(key: String) -> void:
 		apply_display_settings()
 	elif key == "graphics_quality":
 		apply_graphics_settings()
+	elif key == "cloud_sync_directory":
+		var parent := get_parent()
+		var song_manager = parent.get_node_or_null("SongManager") if parent != null else null
+		if song_manager != null and song_manager.has_method("load_songs"):
+			song_manager.load_songs()
 
 
 func _set_bus_volume(bus_name: String, linear_value: float) -> void:
@@ -327,7 +340,7 @@ func _validate_setting(key: String) -> void:
 					if not song_id.is_empty() and song_id not in normalized_ids:
 						normalized_ids.append(song_id)
 				settings[key] = normalized_ids
-		"last_video_directory", "last_audio_directory", "last_package_directory", "last_package_export_directory":
+		"last_video_directory", "last_audio_directory", "last_package_directory", "last_package_export_directory", "cloud_sync_directory":
 			settings[key] = str(settings[key]).strip_edges()
 		"lane_bindings":
 			if not (settings[key] is Dictionary):
