@@ -64,28 +64,46 @@ func _run() -> void:
 	screen._on_collection_filter_selected(0)
 	_expect(screen.songs.size() == 3, "Todas las colecciones vuelve a mostrar la biblioteca")
 	_expect(
-		screen.share_package_button != null
-		and screen.share_package_button.get_parent().name == "ActionButtons"
-		and screen.share_package_button.get_global_rect().end.x <= float(
+		screen.import_package_button != null
+		and screen.import_package_button.visible
+		and screen.import_package_button.get_parent().name == "ActionButtons"
+		and screen.import_package_button.get_global_rect().end.x <= float(
 			ProjectSettings.get_setting("display/window/size/viewport_width", 1920)
-		),
-		"COMPARTIR NIVEL queda visible en la biblioteca a 1280x720"
+		)
+		and (screen.share_package_button == null or not screen.share_package_button.visible),
+		"La biblioteca unifica instalar, exportar y subir en un solo botón visible a 1280x720"
 	)
 	_expect(
 		screen.import_package_button.text == AuroraLocale.text("INSTALAR NIVELES")
-		and "USB" in screen.import_package_button.tooltip_text
-		and screen.share_package_button.text == AuroraLocale.text("COMPARTIR NIVEL"),
-		"La biblioteca separa con claridad instalar y compartir archivos .aurora"
+		and "USB" in screen.import_package_button.tooltip_text,
+		"El botón unificado conserva texto y explicación de archivos .aurora"
 	)
-	screen._open_local_package_share()
+	screen._open_local_package_import()
 	await process_frame
 	_expect(
 		screen.share_panel != null
-		and screen.share_panel.song_list != null
-		and screen.share_panel.export_view.visible
-		and screen.share_panel.export_button != null
+		and screen.share_panel.import_tab_button != null
+		and screen.share_panel.export_tab_button != null
+		and screen.share_panel.upload_tab_button != null
+		and screen.share_panel.import_view.visible
 		and screen.share_panel.save_dialog.use_native_dialog,
-		"COMPARTIR NIVEL abre el flujo local dentro del juego"
+		"El menú unificado incluye las pestañas Importar, Exportar y Subir"
+	)
+	screen.share_panel._show_tab("upload")
+	await process_frame
+	_expect(
+		screen.share_panel.upload_view.visible
+		and screen.share_panel.upload_folder_button != null
+		and screen.share_panel.upload_summary_label != null
+		and screen.share_panel.upload_button != null,
+		"La pestaña Subir aclara qué canciones se subirán y la carpeta destino"
+	)
+	screen.share_panel._show_tab("export")
+	await process_frame
+	_expect(
+		screen.share_panel.export_view.visible
+		and screen.share_panel.export_button != null,
+		"La pestaña Exportar sigue disponible dentro del mismo menú"
 	)
 	screen._close_local_package_share()
 	await process_frame

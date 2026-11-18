@@ -27,9 +27,22 @@ var song_search: LineEdit
 var song_buttons: Array[Button] = []
 var export_view: Control
 var import_view: Control
+var upload_view: Control
 var import_tab_button: Button
 var export_tab_button: Button
+var upload_tab_button: Button
 var import_button: Button
+var upload_search: LineEdit
+var upload_list: VBoxContainer
+var upload_checkboxes: Array[CheckBox] = []
+var upload_select_all_button: Button
+var upload_clear_button: Button
+var upload_folder_label: Label
+var upload_folder_button: Button
+var upload_summary_label: Label
+var upload_button: Button
+var upload_open_folder_button: Button
+var upload_folder_dialog: FileDialog
 var title_value: Label
 var artist_value: Label
 var details_value: Label
@@ -103,7 +116,7 @@ func _build_interface() -> void:
 	header.add_child(close_button)
 
 	var intro := AuroraUi.make_label(
-		AuroraLocale.text("IMPORTA VARIAS CANCIONES O EXPORTA UNA Y TODAS EN ARCHIVOS .AURORA."),
+		AuroraLocale.text("IMPORTA, EXPORTA O SUBE LAS CANCIONES QUE ELIJAS EN ARCHIVOS .AURORA."),
 		14, AuroraUi.MUTED
 	)
 	layout.add_child(intro)
@@ -112,30 +125,12 @@ func _build_interface() -> void:
 	layout.add_child(tabs)
 	var tab_group := ButtonGroup.new()
 	tab_group.allow_unpress = false
-	import_tab_button = AuroraUi.make_button(AuroraLocale.text("IMPORTAR"))
-	import_tab_button.custom_minimum_size = Vector2(190, 46)
-	import_tab_button.toggle_mode = true
-	import_tab_button.button_group = tab_group
-	import_tab_button.add_theme_stylebox_override(
-		"normal", AuroraUi.make_style(Color(0.04, 0.05, 0.12), AuroraUi.VIOLET)
-	)
-	import_tab_button.add_theme_stylebox_override(
-		"pressed", AuroraUi.make_style(Color(0.06, 0.23, 0.29), AuroraUi.TEAL)
-	)
-	import_tab_button.pressed.connect(_show_tab.bind("import"))
+	import_tab_button = _make_tab_button(AuroraLocale.text("IMPORTAR"), tab_group, "import")
 	tabs.add_child(import_tab_button)
-	export_tab_button = AuroraUi.make_button(AuroraLocale.text("EXPORTAR"))
-	export_tab_button.custom_minimum_size = Vector2(190, 46)
-	export_tab_button.toggle_mode = true
-	export_tab_button.button_group = tab_group
-	export_tab_button.add_theme_stylebox_override(
-		"normal", AuroraUi.make_style(Color(0.04, 0.05, 0.12), AuroraUi.VIOLET)
-	)
-	export_tab_button.add_theme_stylebox_override(
-		"pressed", AuroraUi.make_style(Color(0.06, 0.23, 0.29), AuroraUi.TEAL)
-	)
-	export_tab_button.pressed.connect(_show_tab.bind("export"))
+	export_tab_button = _make_tab_button(AuroraLocale.text("EXPORTAR"), tab_group, "export")
 	tabs.add_child(export_tab_button)
+	upload_tab_button = _make_tab_button(AuroraLocale.text("SUBIR"), tab_group, "upload")
+	tabs.add_child(upload_tab_button)
 
 	export_view = HBoxContainer.new()
 	export_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -271,11 +266,84 @@ func _build_interface() -> void:
 		15, AuroraUi.MUTED
 	))
 
+	upload_view = HBoxContainer.new()
+	upload_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	upload_view.add_theme_constant_override("separation", 18)
+	layout.add_child(upload_view)
+	var upload_list_panel := AuroraUi.make_panel(Color(0.03, 0.045, 0.11, 0.98))
+	upload_list_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upload_list_panel.size_flags_stretch_ratio = 1.05
+	upload_list_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	upload_view.add_child(upload_list_panel)
+	var upload_list_layout := VBoxContainer.new()
+	upload_list_layout.add_theme_constant_override("separation", 10)
+	upload_list_panel.add_child(upload_list_layout)
+	upload_list_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("ELIGE QUÉ CANCIONES SUBIR"), 13, AuroraUi.TEAL))
+	upload_search = LineEdit.new()
+	upload_search.custom_minimum_size.y = 40
+	upload_search.placeholder_text = AuroraLocale.text("BUSCAR TÍTULO O ARTISTA")
+	upload_search.clear_button_enabled = true
+	upload_search.text_changed.connect(_filter_upload_songs)
+	upload_list_layout.add_child(upload_search)
+	var upload_bulk_row := HBoxContainer.new()
+	upload_bulk_row.add_theme_constant_override("separation", 10)
+	upload_list_layout.add_child(upload_bulk_row)
+	upload_select_all_button = AuroraUi.make_button(AuroraLocale.text("MARCAR TODAS"))
+	upload_select_all_button.custom_minimum_size = Vector2(0, 38)
+	upload_select_all_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upload_select_all_button.pressed.connect(_set_all_upload_checked.bind(true))
+	upload_bulk_row.add_child(upload_select_all_button)
+	upload_clear_button = AuroraUi.make_button(AuroraLocale.text("DESMARCAR TODAS"))
+	upload_clear_button.custom_minimum_size = Vector2(0, 38)
+	upload_clear_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upload_clear_button.pressed.connect(_set_all_upload_checked.bind(false))
+	upload_bulk_row.add_child(upload_clear_button)
+	var upload_scroll := ScrollContainer.new()
+	upload_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	upload_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	upload_list_layout.add_child(upload_scroll)
+	upload_list = VBoxContainer.new()
+	upload_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upload_list.add_theme_constant_override("separation", 6)
+	upload_scroll.add_child(upload_list)
+
+	var upload_action_panel := AuroraUi.make_panel(Color(0.03, 0.045, 0.11, 0.98))
+	upload_action_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	upload_action_panel.size_flags_stretch_ratio = 0.95
+	upload_action_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	upload_view.add_child(upload_action_panel)
+	var upload_action_layout := VBoxContainer.new()
+	upload_action_layout.add_theme_constant_override("separation", 12)
+	upload_action_panel.add_child(upload_action_layout)
+	upload_action_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("CARPETA COMPARTIDA O NUBE"), 13, AuroraUi.TEAL))
+	upload_folder_label = AuroraUi.make_label("", 14, AuroraUi.MUTED)
+	upload_folder_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	upload_action_layout.add_child(upload_folder_label)
+	upload_folder_button = AuroraUi.make_button(AuroraLocale.text("ELEGIR CARPETA DE SUBIDA"))
+	upload_folder_button.custom_minimum_size = Vector2(0, 46)
+	upload_folder_button.pressed.connect(_choose_upload_directory)
+	upload_action_layout.add_child(upload_folder_button)
+	upload_action_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("RESUMEN DE SUBIDA"), 12, AuroraUi.VIOLET))
+	var upload_summary_panel := AuroraUi.make_panel(Color(0.04, 0.045, 0.1, 0.98))
+	upload_summary_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	upload_action_layout.add_child(upload_summary_panel)
+	upload_summary_label = AuroraUi.make_label("", 14)
+	upload_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	upload_summary_panel.add_child(upload_summary_label)
+	upload_button = AuroraUi.make_button(AuroraLocale.text("SUBIR SELECCIONADAS"), true)
+	upload_button.custom_minimum_size = Vector2(0, 52)
+	upload_button.pressed.connect(_begin_selected_upload)
+	upload_action_layout.add_child(upload_button)
+	upload_open_folder_button = AuroraUi.make_button(AuroraLocale.text("ABRIR CARPETA"))
+	upload_open_folder_button.custom_minimum_size = Vector2(0, 44)
+	upload_open_folder_button.pressed.connect(_open_upload_folder)
+	upload_action_layout.add_child(upload_open_folder_button)
+
 	status_label = AuroraUi.make_pixel_label(AuroraLocale.text("SELECCIONA UNA ACCIÓN"), 10, AuroraUi.TEAL)
 	status_label.custom_minimum_size.y = 28
 	layout.add_child(status_label)
 	layout.add_child(AuroraUi.make_label(
-		AuroraLocale.text("LOS ARCHIVOS SE GUARDAN EN TU EQUIPO; AURORA NO LOS SUBE A INTERNET."),
+		AuroraLocale.text("LOS ARCHIVOS SE GUARDAN EN TU EQUIPO O EN LA CARPETA COMPARTIDA QUE ELIJAS."),
 		12, AuroraUi.GOLD
 	))
 
@@ -296,17 +364,48 @@ func _build_interface() -> void:
 	folder_dialog.use_native_dialog = true
 	folder_dialog.dir_selected.connect(_begin_batch_export)
 	add_child(folder_dialog)
+	upload_folder_dialog = FileDialog.new()
+	upload_folder_dialog.name = "UploadSyncFolderDialog"
+	upload_folder_dialog.title = AuroraLocale.text("ELEGIR CARPETA DE SUBIDA")
+	upload_folder_dialog.access = FileDialog.ACCESS_FILESYSTEM
+	upload_folder_dialog.file_mode = FileDialog.FILE_MODE_OPEN_DIR
+	upload_folder_dialog.use_native_dialog = true
+	upload_folder_dialog.dir_selected.connect(_on_upload_directory_selected)
+	add_child(upload_folder_dialog)
+
+
+func _make_tab_button(caption: String, group: ButtonGroup, tab_name: String) -> Button:
+	var button := AuroraUi.make_button(caption)
+	button.custom_minimum_size = Vector2(170, 46)
+	button.toggle_mode = true
+	button.button_group = group
+	button.add_theme_stylebox_override(
+		"normal", AuroraUi.make_style(Color(0.04, 0.05, 0.12), AuroraUi.VIOLET)
+	)
+	button.add_theme_stylebox_override(
+		"pressed", AuroraUi.make_style(Color(0.06, 0.23, 0.29), AuroraUi.TEAL)
+	)
+	button.pressed.connect(_show_tab.bind(tab_name))
+	return button
 
 
 func _show_tab(tab_name: String) -> void:
 	var show_import := tab_name == "import"
+	var show_upload := tab_name == "upload"
+	var show_export := not show_import and not show_upload
 	import_view.visible = show_import
-	export_view.visible = not show_import
+	export_view.visible = show_export
+	upload_view.visible = show_upload
 	import_tab_button.set_pressed_no_signal(show_import)
-	export_tab_button.set_pressed_no_signal(not show_import)
+	export_tab_button.set_pressed_no_signal(show_export)
+	upload_tab_button.set_pressed_no_signal(show_upload)
 	if show_import:
 		status_label.text = AuroraLocale.text("ELIGE ARCHIVOS PARA IMPORTAR")
 		import_button.grab_focus()
+	elif show_upload:
+		_refresh_upload_summary()
+		status_label.text = AuroraLocale.text("MARCA LAS CANCIONES QUE QUIERES SUBIR")
+		upload_folder_button.grab_focus()
 	elif not song_buttons.is_empty():
 		status_label.text = AuroraLocale.text("LISTO PARA CREAR EL ARCHIVO")
 		song_buttons[0].grab_focus()
@@ -320,6 +419,130 @@ func _filter_songs(query: String) -> void:
 			normalized.is_empty()
 			or (song.title + " " + song.artist).to_lower().contains(normalized)
 		)
+
+
+func _filter_upload_songs(query: String) -> void:
+	var normalized := query.strip_edges().to_lower()
+	for index in range(upload_checkboxes.size()):
+		var song := songs[index]
+		upload_checkboxes[index].visible = (
+			normalized.is_empty()
+			or (song.title + " " + song.artist).to_lower().contains(normalized)
+		)
+
+
+func _set_all_upload_checked(checked: bool) -> void:
+	for box in upload_checkboxes:
+		if box.visible:
+			box.button_pressed = checked
+	_refresh_upload_summary()
+
+
+func _active_upload_directory() -> String:
+	if settings_manager == null:
+		return ""
+	var configured := str(settings_manager.get_setting("cloud_sync_directory", "")).strip_edges()
+	if not configured.is_empty():
+		return configured
+	return str(settings_manager.get_setting("last_package_export_directory", "")).strip_edges()
+
+
+func _choose_upload_directory() -> void:
+	if export_thread != null:
+		return
+	var current_dir := _active_upload_directory()
+	if not current_dir.is_empty() and DirAccess.dir_exists_absolute(current_dir):
+		upload_folder_dialog.current_dir = current_dir
+	upload_folder_dialog.popup_centered_ratio(0.72)
+
+
+func _on_upload_directory_selected(directory: String) -> void:
+	var clean_dir := directory.strip_edges()
+	if clean_dir.is_empty() or not DirAccess.dir_exists_absolute(clean_dir):
+		return
+	if settings_manager != null:
+		settings_manager.set_setting("cloud_sync_directory", clean_dir, false)
+	_refresh_upload_checkbox_labels()
+	_refresh_upload_summary()
+
+
+func _refresh_upload_checkbox_labels() -> void:
+	var target_dir := _active_upload_directory()
+	var has_dir := not target_dir.is_empty() and DirAccess.dir_exists_absolute(target_dir)
+	for index in range(upload_checkboxes.size()):
+		var song := songs[index]
+		var prefix := "%s  //  %s" % [song.title, song.artist]
+		if has_dir:
+			var target_file := target_dir.path_join("%s.aurora" % _safe_file_name(song.title))
+			var state := AuroraLocale.text("YA EN CARPETA") if FileAccess.file_exists(target_file) else AuroraLocale.text("NUEVA")
+			upload_checkboxes[index].text = "%s  [%s]" % [prefix, state]
+		else:
+			upload_checkboxes[index].text = prefix
+
+
+func _selected_upload_songs() -> Array[SongData]:
+	var selected: Array[SongData] = []
+	for index in range(upload_checkboxes.size()):
+		if upload_checkboxes[index].button_pressed:
+			selected.append(songs[index])
+	return selected
+
+
+func _refresh_upload_summary() -> void:
+	var target_dir := _active_upload_directory()
+	var has_dir := not target_dir.is_empty() and DirAccess.dir_exists_absolute(target_dir)
+	if upload_folder_label != null:
+		upload_folder_label.text = (
+			ProjectSettings.globalize_path(target_dir)
+			if has_dir
+			else AuroraLocale.text("SIN CARPETA ELEGIDA (USA GOOGLE DRIVE, ONEDRIVE O UNA CARPETA COMPARTIDA).")
+		)
+	if upload_open_folder_button != null:
+		upload_open_folder_button.disabled = not has_dir or export_thread != null
+	var selected := _selected_upload_songs()
+	if upload_button != null:
+		upload_button.disabled = export_thread != null or not has_dir or selected.is_empty()
+	if upload_summary_label == null:
+		return
+	if selected.is_empty():
+		upload_summary_label.text = AuroraLocale.text(
+			"MARCA LAS CANCIONES QUE QUIERES SUBIR A TU CARPETA COMPARTIDA."
+		)
+		return
+	var names: PackedStringArray = []
+	for index in range(mini(selected.size(), 6)):
+		names.append(selected[index].title)
+	var extra := ""
+	if selected.size() > 6:
+		extra = AuroraLocale.text(" (+%d MÁS)") % (selected.size() - 6)
+	upload_summary_label.text = AuroraLocale.text("SE SUBIRÁN %d CANCIONES: %s%s") % [
+		selected.size(),
+		", ".join(names),
+		extra,
+	]
+
+
+func _begin_selected_upload() -> void:
+	var target_dir := _active_upload_directory()
+	if target_dir.is_empty() or not DirAccess.dir_exists_absolute(target_dir):
+		status_label.text = AuroraLocale.text("ELIGE PRIMERO UNA CARPETA DE SUBIDA.")
+		return
+	var selected := _selected_upload_songs()
+	if selected.is_empty():
+		status_label.text = AuroraLocale.text("MARCA AL MENOS UNA CANCIÓN PARA SUBIR.")
+		return
+	_start_batch_export(
+		selected,
+		target_dir,
+		AuroraLocale.text("SUBIENDO %d CANCIONES SELECCIONADAS...") % selected.size()
+	)
+
+
+func _open_upload_folder() -> void:
+	var target_dir := _active_upload_directory()
+	if target_dir.is_empty() or not DirAccess.dir_exists_absolute(target_dir):
+		return
+	OS.shell_open(ProjectSettings.globalize_path(target_dir))
 
 
 func _add_summary_row(parent: VBoxContainer, caption: String) -> Label:
@@ -344,7 +567,10 @@ func _add_summary_row(parent: VBoxContainer, caption: String) -> Label:
 func _refresh_songs(initial_song: SongData) -> void:
 	songs.clear()
 	song_buttons.clear()
+	upload_checkboxes.clear()
 	for child in song_list.get_children():
+		child.queue_free()
+	for child in upload_list.get_children():
 		child.queue_free()
 	var selection_group := ButtonGroup.new()
 	selection_group.allow_unpress = false
@@ -374,13 +600,28 @@ func _refresh_songs(initial_song: SongData) -> void:
 			button.pressed.connect(_on_song_selected.bind(index))
 			song_list.add_child(button)
 			song_buttons.append(button)
+
+			var box := CheckBox.new()
+			box.custom_minimum_size = Vector2(0, 40)
+			box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			box.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+			box.add_theme_font_size_override("font_size", 14)
+			box.toggled.connect(func(_pressed: bool) -> void: _refresh_upload_summary())
+			upload_list.add_child(box)
+			upload_checkboxes.append(box)
 	if songs.is_empty():
 		selected_song = null
 		song_list.add_child(AuroraUi.make_label(
 			AuroraLocale.text("NO HAY NIVELES PARA COMPARTIR"), 14, AuroraUi.MUTED
 		))
+		upload_list.add_child(AuroraUi.make_label(
+			AuroraLocale.text("NO HAY NIVELES PARA COMPARTIR"), 14, AuroraUi.MUTED
+		))
 		export_button.disabled = true
 		export_all_button.disabled = true
+		upload_select_all_button.disabled = true
+		upload_clear_button.disabled = true
+		_refresh_upload_summary()
 		status_label.text = AuroraLocale.text(
 			"CREA UN NIVEL EN EL EDITOR O INSTALA UN PAQUETE .AURORA."
 		)
@@ -392,6 +633,8 @@ func _refresh_songs(initial_song: SongData) -> void:
 				selected_index = index
 				break
 	song_buttons[selected_index].set_pressed_no_signal(true)
+	_refresh_upload_checkbox_labels()
+	_refresh_upload_summary()
 	_load_song(songs[selected_index])
 
 
@@ -456,11 +699,23 @@ func _choose_batch_export_directory() -> void:
 
 
 func _begin_batch_export(directory: String) -> void:
-	if songs.is_empty() or export_thread != null or not DirAccess.dir_exists_absolute(directory):
+	_start_batch_export(
+		songs,
+		directory,
+		AuroraLocale.text("EXPORTANDO %d CANCIONES, UNA POR ARCHIVO...") % songs.size()
+	)
+
+
+func _start_batch_export(
+	target_songs: Array[SongData],
+	directory: String,
+	progress_text: String
+) -> void:
+	if target_songs.is_empty() or export_thread != null or not DirAccess.dir_exists_absolute(directory):
 		return
 	var entries: Array[Dictionary] = []
 	var used_names: Dictionary = {}
-	for song in songs:
+	for song in target_songs:
 		var descriptor := song_manager.make_song_package_share_descriptor(song)
 		if descriptor.is_empty():
 			continue
@@ -482,7 +737,7 @@ func _begin_batch_export(directory: String) -> void:
 	pending_batch_directory = directory
 	export_thread = Thread.new()
 	_set_actions_disabled(true)
-	status_label.text = AuroraLocale.text("EXPORTANDO %d CANCIONES, UNA POR ARCHIVO...") % entries.size()
+	status_label.text = progress_text
 	var start_error := export_thread.start(
 		Callable(share_service, "export_batch").bind(entries)
 	)
@@ -550,6 +805,8 @@ func _process(_delta: float) -> void:
 		]
 		open_folder_button.disabled = exported_path.is_empty()
 		copy_path_button.disabled = exported_path.is_empty()
+		_refresh_upload_checkbox_labels()
+		_refresh_upload_summary()
 		batch_report_panel = BATCH_PANEL_TYPE.new()
 		batch_report_panel.name = "LocalPackageBatchExportResults"
 		batch_report_panel.z_index = 120
@@ -575,16 +832,27 @@ func _process(_delta: float) -> void:
 func _set_actions_disabled(disabled: bool) -> void:
 	for button in song_buttons:
 		button.disabled = disabled
+	for box in upload_checkboxes:
+		box.disabled = disabled
 	song_search.editable = not disabled
+	upload_search.editable = not disabled
 	import_tab_button.disabled = disabled
 	export_tab_button.disabled = disabled
+	upload_tab_button.disabled = disabled
 	import_button.disabled = disabled
 	export_button.disabled = disabled or selected_song == null
 	export_all_button.disabled = disabled or songs.is_empty()
+	upload_select_all_button.disabled = disabled or songs.is_empty()
+	upload_clear_button.disabled = disabled or songs.is_empty()
+	upload_folder_button.disabled = disabled
 	close_button.disabled = disabled
 	if disabled:
 		open_folder_button.disabled = true
 		copy_path_button.disabled = true
+		upload_button.disabled = true
+		upload_open_folder_button.disabled = true
+	else:
+		_refresh_upload_summary()
 
 
 func _close_batch_report() -> void:

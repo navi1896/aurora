@@ -205,6 +205,7 @@ layout_mode = 2
 theme_override_constants/separation = 10
 
 [node name="SharePackageButton" type="Button" parent="LibraryMargins/PageLayout/Header/HeaderActions/ActionButtons"]
+visible = false
 custom_minimum_size = Vector2(210, 46)
 layout_mode = 2
 focus_mode = 2

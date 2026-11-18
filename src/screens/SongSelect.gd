@@ -214,12 +214,9 @@ func _apply_localized_texts() -> void:
 	back_button.text = AuroraLocale.text("VOLVER")
 	import_package_button.text = AuroraLocale.text("INSTALAR NIVELES")
 	import_package_button.tooltip_text = AuroraLocale.text(
-		"AÑADE A TU BIBLIOTECA UNO O VARIOS ARCHIVOS .AURORA RECIBIDOS POR CORREO, CHAT, USB O NUBE"
+		"IMPORTA, EXPORTA O SUBE ARCHIVOS .AURORA PARA USB O NUBE"
 	)
-	share_package_button.text = AuroraLocale.text("COMPARTIR NIVEL")
-	share_package_button.tooltip_text = AuroraLocale.text(
-		"CREA UN ARCHIVO .AURORA PORTÁTIL PARA ENVIAR A OTRA PERSONA"
-	)
+	share_package_button.visible = false
 	title_label.text = AuroraLocale.text("BIBLIOTECA DE CANCIONES")
 	subtitle_label.text = AuroraLocale.text("ELIGE UNA PISTA Y UN MODO DE TECLAS")
 	song_list_header.text = AuroraLocale.text("LISTA DE PISTAS")
@@ -666,8 +663,6 @@ func _set_package_import_controls_disabled(disabled: bool) -> void:
 		import_package_button.text = AuroraLocale.text(
 			"INSTALANDO..." if disabled else "INSTALAR NIVELES"
 		)
-	if share_package_button != null:
-		share_package_button.text = AuroraLocale.text("COMPARTIR NIVEL")
 	if not disabled:
 		_refresh_selection()
 
@@ -1822,13 +1817,9 @@ func _on_share_import_requested() -> void:
 func _close_local_package_share() -> void:
 	if share_panel == null:
 		return
-	var focus_import: bool = share_panel.import_view.visible
 	share_panel.queue_free()
 	share_panel = null
-	if focus_import:
-		import_package_button.grab_focus()
-	else:
-		share_package_button.grab_focus()
+	import_package_button.grab_focus()
 
 
 func _get_selected_song() -> SongData:
