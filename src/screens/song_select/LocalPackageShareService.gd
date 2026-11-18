@@ -32,34 +32,64 @@ func export_descriptor(descriptor: Dictionary, output_path: String) -> Dictionar
 			)
 
 
-func export_batch(entries: Array[Dictionary]) -> Dictionary:
+func export_batch(entries: Array[Dictionary], smart_upload: bool = false) -> Dictionary:
 	var results: Array[Dictionary] = []
 	var exported := 0
 	var skipped := 0
+	var uploaded_titles: PackedStringArray = []
+	var skipped_titles: PackedStringArray = []
+	var service = PACKAGE_SERVICE_TYPE.new()
 	for entry in entries:
 		var output_path := str(entry.get("path", ""))
+		var title := str(entry.get("title", output_path.get_file().get_basename()))
+		var descriptor: Dictionary = entry.get("descriptor", {})
 		var result: Dictionary
 		if FileAccess.file_exists(output_path):
-			result = _failure(ERR_ALREADY_EXISTS, "El archivo ya existe; no se sobrescribió.")
-			result["error_code"] = "destination_exists"
+			if smart_upload and _needs_upload_update(descriptor, output_path, service):
+				DirAccess.remove_absolute(ProjectSettings.globalize_path(output_path))
+				result = export_descriptor(descriptor, output_path)
+			else:
+				result = _failure(ERR_ALREADY_EXISTS, "Ya está al día; no hizo falta subirlo.")
+				result["error_code"] = "destination_exists"
 		else:
-			result = export_descriptor(entry.get("descriptor", {}), output_path)
+			result = export_descriptor(descriptor, output_path)
 		if bool(result.get("ok", false)):
 			exported += 1
+			uploaded_titles.append(title)
 		elif str(result.get("error_code", "")) == "destination_exists":
 			skipped += 1
+			skipped_titles.append(title)
 		results.append({
 			"path": output_path,
+			"title": title,
 			"result": result,
 		})
 	return {
 		"ok": true,
 		"batch": true,
+		"smart_upload": smart_upload,
 		"exported": exported,
 		"skipped": skipped,
 		"failed": entries.size() - exported - skipped,
+		"uploaded_titles": uploaded_titles,
+		"skipped_titles": skipped_titles,
 		"results": results,
 	}
+
+
+func _needs_upload_update(descriptor: Dictionary, existing_path: String, service) -> bool:
+	if str(descriptor.get("kind", "")) == "editor":
+		return true
+	var existing_check: Dictionary = service.validate_package_manifest(existing_path)
+	if not bool(existing_check.get("ok", false)):
+		return true
+	var package_root := str(descriptor.get("package_root", ""))
+	var local_check: Dictionary = service.validate_staging(package_root, false)
+	if not bool(local_check.get("ok", false)):
+		return false
+	var existing_ver := str(existing_check.get("manifest", {}).get("package_version", "1.0.0"))
+	var local_ver := str(local_check.get("manifest", {}).get("package_version", "1.0.0"))
+	return PACKAGE_SERVICE_TYPE.compare_package_versions(local_ver, existing_ver) > 0
 
 
 func _export_installed_package(

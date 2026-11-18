@@ -34,15 +34,17 @@ var upload_tab_button: Button
 var import_button: Button
 var upload_search: LineEdit
 var upload_list: VBoxContainer
-var upload_checkboxes: Array[CheckBox] = []
+var upload_checkboxes: Array[Button] = []
 var upload_select_all_button: Button
 var upload_clear_button: Button
 var upload_folder_label: Label
 var upload_folder_button: Button
+var upload_progress_bar: ProgressBar
 var upload_summary_label: Label
 var upload_button: Button
 var upload_open_folder_button: Button
 var upload_folder_dialog: FileDialog
+var last_upload_report := ""
 var title_value: Label
 var artist_value: Label
 var details_value: Label
@@ -110,14 +112,14 @@ func _build_interface() -> void:
 	var heading := AuroraUi.make_pixel_label(AuroraLocale.text("ARCHIVOS DE CANCIONES"), 22)
 	heading.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	header.add_child(heading)
-	close_button = AuroraUi.make_button(AuroraLocale.text("CERRAR"))
-	close_button.custom_minimum_size = Vector2(132, 44)
+	close_button = _make_pixel_button(AuroraLocale.text("CERRAR"), false, 11)
+	close_button.custom_minimum_size = Vector2(140, 44)
 	close_button.pressed.connect(request_close)
 	header.add_child(close_button)
 
-	var intro := AuroraUi.make_label(
+	var intro := AuroraUi.make_pixel_label(
 		AuroraLocale.text("IMPORTA, EXPORTA O SUBE LAS CANCIONES QUE ELIJAS EN ARCHIVOS .AURORA."),
-		14, AuroraUi.MUTED
+		10, AuroraUi.MUTED
 	)
 	layout.add_child(intro)
 	var tabs := HBoxContainer.new()
@@ -136,7 +138,7 @@ func _build_interface() -> void:
 	export_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	export_view.add_theme_constant_override("separation", 18)
 	layout.add_child(export_view)
-	var library_panel := AuroraUi.make_panel(Color(0.03, 0.045, 0.11, 0.98))
+	var library_panel := _make_pixel_panel(Color(0.03, 0.045, 0.11, 0.98), AuroraUi.VIOLET)
 	library_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	library_panel.size_flags_stretch_ratio = 0.95
 	library_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -145,10 +147,7 @@ func _build_interface() -> void:
 	library_layout.add_theme_constant_override("separation", 12)
 	library_panel.add_child(library_layout)
 	library_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("TU BIBLIOTECA"), 13, AuroraUi.TEAL))
-	song_search = LineEdit.new()
-	song_search.custom_minimum_size.y = 42
-	song_search.placeholder_text = AuroraLocale.text("BUSCAR TÍTULO O ARTISTA")
-	song_search.clear_button_enabled = true
+	song_search = _make_pixel_line_edit(AuroraLocale.text("BUSCAR TÍTULO O ARTISTA"))
 	song_search.text_changed.connect(_filter_songs)
 	library_layout.add_child(song_search)
 	var song_scroll := ScrollContainer.new()
@@ -160,7 +159,7 @@ func _build_interface() -> void:
 	song_list.add_theme_constant_override("separation", 6)
 	song_scroll.add_child(song_list)
 
-	var export_panel := AuroraUi.make_panel(Color(0.03, 0.045, 0.11, 0.98))
+	var export_panel := _make_pixel_panel(Color(0.03, 0.045, 0.11, 0.98), AuroraUi.TEAL)
 	export_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	export_panel.size_flags_stretch_ratio = 1.05
 	export_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -169,7 +168,7 @@ func _build_interface() -> void:
 	export_layout.add_theme_constant_override("separation", 12)
 	export_panel.add_child(export_layout)
 	export_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("EXPORTAR UNA CANCIÓN"), 13, AuroraUi.TEAL))
-	var summary_panel := AuroraUi.make_panel(Color(0.04, 0.045, 0.1, 0.98))
+	var summary_panel := _make_pixel_panel(Color(0.04, 0.045, 0.1, 0.98), AuroraUi.VIOLET)
 	export_layout.add_child(summary_panel)
 	var summary := VBoxContainer.new()
 	summary.add_theme_constant_override("separation", 2)
@@ -178,18 +177,18 @@ func _build_interface() -> void:
 	artist_value = _add_summary_row(summary, "ARTISTA")
 	details_value = _add_summary_row(summary, "CONTENIDO")
 	files_value = _add_summary_row(summary, "ARCHIVOS")
-	export_button = AuroraUi.make_button(AuroraLocale.text("CREAR ARCHIVO .AURORA"), true)
+	export_button = _make_pixel_button(AuroraLocale.text("CREAR ARCHIVO .AURORA"), true, 12)
 	export_button.custom_minimum_size = Vector2(0, 52)
 	export_button.pressed.connect(_choose_export_path)
 	export_layout.add_child(export_button)
 	export_layout.add_child(AuroraUi.spacer(7))
 	export_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("EXPORTAR TODA LA BIBLIOTECA"), 12, AuroraUi.VIOLET))
-	var batch_hint := AuroraUi.make_label(
+	var batch_hint := AuroraUi.make_pixel_label(
 		AuroraLocale.text("UN ARCHIVO .AURORA POR CADA CANCIÓN EXPORTABLE."),
-		14, AuroraUi.MUTED
+		10, AuroraUi.MUTED
 	)
 	export_layout.add_child(batch_hint)
-	export_all_button = AuroraUi.make_button(AuroraLocale.text("ELEGIR CARPETA Y EXPORTAR"), true)
+	export_all_button = _make_pixel_button(AuroraLocale.text("ELEGIR CARPETA Y EXPORTAR"), true, 12)
 	export_all_button.custom_minimum_size = Vector2(0, 52)
 	export_all_button.pressed.connect(_choose_batch_export_directory)
 	export_layout.add_child(export_all_button)
@@ -199,35 +198,35 @@ func _build_interface() -> void:
 	var output_actions := HBoxContainer.new()
 	output_actions.add_theme_constant_override("separation", 10)
 	export_layout.add_child(output_actions)
-	open_folder_button = AuroraUi.make_button(AuroraLocale.text("ABRIR CARPETA"))
+	open_folder_button = _make_pixel_button(AuroraLocale.text("ABRIR CARPETA"), false, 11)
 	open_folder_button.custom_minimum_size = Vector2(0, 46)
 	open_folder_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	open_folder_button.disabled = true
 	open_folder_button.pressed.connect(_open_export_folder)
 	output_actions.add_child(open_folder_button)
-	copy_path_button = AuroraUi.make_button(AuroraLocale.text("COPIAR UBICACIÓN"))
+	copy_path_button = _make_pixel_button(AuroraLocale.text("COPIAR UBICACIÓN"), false, 11)
 	copy_path_button.custom_minimum_size = Vector2(0, 46)
 	copy_path_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	copy_path_button.disabled = true
 	copy_path_button.pressed.connect(_copy_export_path)
 	output_actions.add_child(copy_path_button)
 
-	import_view = AuroraUi.make_panel(Color(0.03, 0.045, 0.11, 0.98))
+	import_view = _make_pixel_panel(Color(0.03, 0.045, 0.11, 0.98), AuroraUi.TEAL)
 	import_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	layout.add_child(import_view)
 	var import_layout := VBoxContainer.new()
 	import_layout.add_theme_constant_override("separation", 16)
 	import_view.add_child(import_layout)
 	import_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("IMPORTAR CANCIONES"), 17, AuroraUi.TEAL))
-	import_layout.add_child(AuroraUi.make_label(
+	import_layout.add_child(AuroraUi.make_pixel_label(
 		AuroraLocale.text("ELIGE UNO O VARIOS ARCHIVOS .AURORA. REVISARÁS LOS NIVELES ANTES DE INSTALARLOS."),
-		16, AuroraUi.MUTED
+		10, AuroraUi.MUTED
 	))
 	var import_columns := HBoxContainer.new()
 	import_columns.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	import_columns.add_theme_constant_override("separation", 18)
 	import_layout.add_child(import_columns)
-	var choose_panel := AuroraUi.make_panel(Color(0.04, 0.07, 0.13, 1.0))
+	var choose_panel := _make_pixel_panel(Color(0.04, 0.07, 0.13, 1.0), AuroraUi.TEAL)
 	choose_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	import_columns.add_child(choose_panel)
 	var choose_layout := VBoxContainer.new()
@@ -236,19 +235,19 @@ func _build_interface() -> void:
 	choose_layout.add_child(AuroraUi.make_pixel_label(
 		AuroraLocale.text("01  SELECCIONAR ARCHIVOS"), 13, AuroraUi.TEAL
 	))
-	choose_layout.add_child(AuroraUi.make_label(
+	choose_layout.add_child(AuroraUi.make_pixel_label(
 		AuroraLocale.text("PUEDES ELEGIR VARIOS PAQUETES .AURORA EN EL EXPLORADOR DE ARCHIVOS."),
-		15, AuroraUi.MUTED
+		10, AuroraUi.MUTED
 	))
-	import_button = AuroraUi.make_button(AuroraLocale.text("SELECCIONAR ARCHIVOS .AURORA"), true)
+	import_button = _make_pixel_button(AuroraLocale.text("SELECCIONAR ARCHIVOS .AURORA"), true, 12)
 	import_button.custom_minimum_size = Vector2(0, 58)
 	import_button.pressed.connect(func() -> void: import_requested.emit())
 	choose_layout.add_child(import_button)
-	choose_layout.add_child(AuroraUi.make_label(
+	choose_layout.add_child(AuroraUi.make_pixel_label(
 		AuroraLocale.text("UN ARCHIVO O TODA UNA SELECCIÓN EN LA MISMA OPERACIÓN."),
-		14, AuroraUi.MUTED
+		10, AuroraUi.MUTED
 	))
-	var review_panel := AuroraUi.make_panel(Color(0.04, 0.07, 0.13, 1.0))
+	var review_panel := _make_pixel_panel(Color(0.04, 0.07, 0.13, 1.0), AuroraUi.VIOLET)
 	review_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	import_columns.add_child(review_panel)
 	var review_layout := VBoxContainer.new()
@@ -257,20 +256,20 @@ func _build_interface() -> void:
 	review_layout.add_child(AuroraUi.make_pixel_label(
 		AuroraLocale.text("02  REVISAR E INSTALAR"), 13, AuroraUi.VIOLET
 	))
-	review_layout.add_child(AuroraUi.make_label(
+	review_layout.add_child(AuroraUi.make_pixel_label(
 		AuroraLocale.text("AURORA MOSTRARÁ QUÉ CANCIONES ESTÁN LISTAS, CUÁLES YA EXISTEN Y SI ALGÚN ARCHIVO TIENE UN ERROR."),
-		15, AuroraUi.MUTED
+		10, AuroraUi.MUTED
 	))
-	review_layout.add_child(AuroraUi.make_label(
+	review_layout.add_child(AuroraUi.make_pixel_label(
 		AuroraLocale.text("PODRÁS CONFIRMAR LAS INSTALABLES ANTES DE CAMBIAR TU BIBLIOTECA."),
-		15, AuroraUi.MUTED
+		10, AuroraUi.MUTED
 	))
 
 	upload_view = HBoxContainer.new()
 	upload_view.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	upload_view.add_theme_constant_override("separation", 18)
 	layout.add_child(upload_view)
-	var upload_list_panel := AuroraUi.make_panel(Color(0.03, 0.045, 0.11, 0.98))
+	var upload_list_panel := _make_pixel_panel(Color(0.03, 0.045, 0.11, 0.98), AuroraUi.VIOLET)
 	upload_list_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	upload_list_panel.size_flags_stretch_ratio = 1.05
 	upload_list_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -279,22 +278,19 @@ func _build_interface() -> void:
 	upload_list_layout.add_theme_constant_override("separation", 10)
 	upload_list_panel.add_child(upload_list_layout)
 	upload_list_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("ELIGE QUÉ CANCIONES SUBIR"), 13, AuroraUi.TEAL))
-	upload_search = LineEdit.new()
-	upload_search.custom_minimum_size.y = 40
-	upload_search.placeholder_text = AuroraLocale.text("BUSCAR TÍTULO O ARTISTA")
-	upload_search.clear_button_enabled = true
+	upload_search = _make_pixel_line_edit(AuroraLocale.text("BUSCAR TÍTULO O ARTISTA"))
 	upload_search.text_changed.connect(_filter_upload_songs)
 	upload_list_layout.add_child(upload_search)
 	var upload_bulk_row := HBoxContainer.new()
 	upload_bulk_row.add_theme_constant_override("separation", 10)
 	upload_list_layout.add_child(upload_bulk_row)
-	upload_select_all_button = AuroraUi.make_button(AuroraLocale.text("MARCAR TODAS"))
-	upload_select_all_button.custom_minimum_size = Vector2(0, 38)
+	upload_select_all_button = _make_pixel_button(AuroraLocale.text("MARCAR TODAS"), false, 10)
+	upload_select_all_button.custom_minimum_size = Vector2(0, 40)
 	upload_select_all_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	upload_select_all_button.pressed.connect(_set_all_upload_checked.bind(true))
 	upload_bulk_row.add_child(upload_select_all_button)
-	upload_clear_button = AuroraUi.make_button(AuroraLocale.text("DESMARCAR TODAS"))
-	upload_clear_button.custom_minimum_size = Vector2(0, 38)
+	upload_clear_button = _make_pixel_button(AuroraLocale.text("DESMARCAR TODAS"), false, 10)
+	upload_clear_button.custom_minimum_size = Vector2(0, 40)
 	upload_clear_button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	upload_clear_button.pressed.connect(_set_all_upload_checked.bind(false))
 	upload_bulk_row.add_child(upload_clear_button)
@@ -307,7 +303,7 @@ func _build_interface() -> void:
 	upload_list.add_theme_constant_override("separation", 6)
 	upload_scroll.add_child(upload_list)
 
-	var upload_action_panel := AuroraUi.make_panel(Color(0.03, 0.045, 0.11, 0.98))
+	var upload_action_panel := _make_pixel_panel(Color(0.03, 0.045, 0.11, 0.98), AuroraUi.TEAL)
 	upload_action_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	upload_action_panel.size_flags_stretch_ratio = 0.95
 	upload_action_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -316,25 +312,39 @@ func _build_interface() -> void:
 	upload_action_layout.add_theme_constant_override("separation", 12)
 	upload_action_panel.add_child(upload_action_layout)
 	upload_action_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("CARPETA COMPARTIDA O NUBE"), 13, AuroraUi.TEAL))
-	upload_folder_label = AuroraUi.make_label("", 14, AuroraUi.MUTED)
+	upload_folder_label = AuroraUi.make_pixel_label("", 10, AuroraUi.GOLD)
 	upload_folder_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	upload_action_layout.add_child(upload_folder_label)
-	upload_folder_button = AuroraUi.make_button(AuroraLocale.text("ELEGIR CARPETA DE SUBIDA"))
+	upload_folder_button = _make_pixel_button(AuroraLocale.text("ELEGIR CARPETA DE SUBIDA"), false, 11)
 	upload_folder_button.custom_minimum_size = Vector2(0, 46)
 	upload_folder_button.pressed.connect(_choose_upload_directory)
 	upload_action_layout.add_child(upload_folder_button)
+	upload_progress_bar = ProgressBar.new()
+	upload_progress_bar.custom_minimum_size = Vector2(0, 26)
+	upload_progress_bar.min_value = 0.0
+	upload_progress_bar.max_value = 100.0
+	upload_progress_bar.value = 0.0
+	upload_progress_bar.show_percentage = true
+	AuroraUi.apply_pixel_font(upload_progress_bar, 10)
+	upload_progress_bar.add_theme_stylebox_override(
+		"background", _make_pixel_style(Color(0.02, 0.03, 0.08, 0.98), AuroraUi.VIOLET, 1)
+	)
+	upload_progress_bar.add_theme_stylebox_override(
+		"fill", _make_pixel_style(Color(0.06, 0.56, 0.64, 0.96), AuroraUi.TEAL, 1)
+	)
+	upload_action_layout.add_child(upload_progress_bar)
 	upload_action_layout.add_child(AuroraUi.make_pixel_label(AuroraLocale.text("RESUMEN DE SUBIDA"), 12, AuroraUi.VIOLET))
-	var upload_summary_panel := AuroraUi.make_panel(Color(0.04, 0.045, 0.1, 0.98))
+	var upload_summary_panel := _make_pixel_panel(Color(0.04, 0.045, 0.1, 0.98), AuroraUi.VIOLET)
 	upload_summary_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	upload_action_layout.add_child(upload_summary_panel)
-	upload_summary_label = AuroraUi.make_label("", 14)
+	upload_summary_label = AuroraUi.make_pixel_label("", 10, AuroraUi.TEXT)
 	upload_summary_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	upload_summary_panel.add_child(upload_summary_label)
-	upload_button = AuroraUi.make_button(AuroraLocale.text("SUBIR SELECCIONADAS"), true)
+	upload_button = _make_pixel_button(AuroraLocale.text("SUBIR SELECCIONADAS"), true, 12)
 	upload_button.custom_minimum_size = Vector2(0, 52)
 	upload_button.pressed.connect(_begin_selected_upload)
 	upload_action_layout.add_child(upload_button)
-	upload_open_folder_button = AuroraUi.make_button(AuroraLocale.text("ABRIR CARPETA"))
+	upload_open_folder_button = _make_pixel_button(AuroraLocale.text("ABRIR CARPETA"), false, 11)
 	upload_open_folder_button.custom_minimum_size = Vector2(0, 44)
 	upload_open_folder_button.pressed.connect(_open_upload_folder)
 	upload_action_layout.add_child(upload_open_folder_button)
@@ -342,9 +352,9 @@ func _build_interface() -> void:
 	status_label = AuroraUi.make_pixel_label(AuroraLocale.text("SELECCIONA UNA ACCIÓN"), 10, AuroraUi.TEAL)
 	status_label.custom_minimum_size.y = 28
 	layout.add_child(status_label)
-	layout.add_child(AuroraUi.make_label(
+	layout.add_child(AuroraUi.make_pixel_label(
 		AuroraLocale.text("LOS ARCHIVOS SE GUARDAN EN TU EQUIPO O EN LA CARPETA COMPARTIDA QUE ELIJAS."),
-		12, AuroraUi.GOLD
+		9, AuroraUi.GOLD
 	))
 
 	save_dialog = FileDialog.new()
@@ -374,16 +384,66 @@ func _build_interface() -> void:
 	add_child(upload_folder_dialog)
 
 
+func _make_pixel_style(bg: Color, border: Color, radius: int = 3) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = bg
+	style.border_color = border
+	style.border_width_left = 2
+	style.border_width_top = 2
+	style.border_width_right = 2
+	style.border_width_bottom = 2
+	style.corner_radius_top_left = radius
+	style.corner_radius_top_right = radius
+	style.corner_radius_bottom_right = radius
+	style.corner_radius_bottom_left = radius
+	style.content_margin_left = 14.0
+	style.content_margin_top = 10.0
+	style.content_margin_right = 14.0
+	style.content_margin_bottom = 10.0
+	return style
+
+
+func _make_pixel_panel(bg: Color, border: Color) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.add_theme_stylebox_override("panel", _make_pixel_style(bg, border, 3))
+	return panel
+
+
+func _make_pixel_button(caption: String, primary: bool = false, font_size: int = 11) -> Button:
+	var button := AuroraUi.make_button(caption, primary)
+	AuroraUi.apply_pixel_font(button, font_size)
+	var bg := Color(0.06, 0.24, 0.30, 0.96) if primary else Color(0.05, 0.06, 0.14, 0.96)
+	var border := AuroraUi.TEAL if primary else AuroraUi.VIOLET
+	button.add_theme_stylebox_override("normal", _make_pixel_style(bg, border, 3))
+	button.add_theme_stylebox_override("hover", _make_pixel_style(Color(0.08, 0.28, 0.36, 0.98), AuroraUi.TEAL, 3))
+	button.add_theme_stylebox_override("pressed", _make_pixel_style(Color(0.08, 0.32, 0.40, 1.0), AuroraUi.TEAL, 3))
+	button.add_theme_stylebox_override("focus", _make_pixel_style(bg, AuroraUi.TEAL, 3))
+	return button
+
+
+func _make_pixel_line_edit(placeholder: String) -> LineEdit:
+	var edit := LineEdit.new()
+	edit.custom_minimum_size.y = 42
+	edit.placeholder_text = placeholder
+	edit.clear_button_enabled = true
+	AuroraUi.apply_pixel_font(edit, 10)
+	edit.add_theme_color_override("font_color", AuroraUi.TEXT)
+	edit.add_theme_color_override("font_placeholder_color", AuroraUi.MUTED)
+	edit.add_theme_stylebox_override("normal", _make_pixel_style(Color(0.02, 0.03, 0.08, 0.98), AuroraUi.VIOLET, 3))
+	edit.add_theme_stylebox_override("focus", _make_pixel_style(Color(0.03, 0.05, 0.12, 1.0), AuroraUi.TEAL, 3))
+	return edit
+
+
 func _make_tab_button(caption: String, group: ButtonGroup, tab_name: String) -> Button:
-	var button := AuroraUi.make_button(caption)
-	button.custom_minimum_size = Vector2(170, 46)
+	var button := _make_pixel_button(caption, false, 11)
+	button.custom_minimum_size = Vector2(180, 46)
 	button.toggle_mode = true
 	button.button_group = group
 	button.add_theme_stylebox_override(
-		"normal", AuroraUi.make_style(Color(0.04, 0.05, 0.12), AuroraUi.VIOLET)
+		"normal", _make_pixel_style(Color(0.04, 0.05, 0.12, 0.98), AuroraUi.VIOLET, 3)
 	)
 	button.add_theme_stylebox_override(
-		"pressed", AuroraUi.make_style(Color(0.06, 0.23, 0.29), AuroraUi.TEAL)
+		"pressed", _make_pixel_style(Color(0.06, 0.26, 0.33, 1.0), AuroraUi.TEAL, 3)
 	)
 	button.pressed.connect(_show_tab.bind(tab_name))
 	return button
@@ -432,9 +492,11 @@ func _filter_upload_songs(query: String) -> void:
 
 
 func _set_all_upload_checked(checked: bool) -> void:
+	last_upload_report = ""
 	for box in upload_checkboxes:
 		if box.visible:
-			box.button_pressed = checked
+			box.set_pressed_no_signal(checked)
+	_refresh_upload_checkbox_labels()
 	_refresh_upload_summary()
 
 
@@ -460,10 +522,10 @@ func _on_upload_directory_selected(directory: String) -> void:
 	var clean_dir := directory.strip_edges()
 	if clean_dir.is_empty() or not DirAccess.dir_exists_absolute(clean_dir):
 		return
+	last_upload_report = ""
 	if settings_manager != null:
-		settings_manager.set_setting("cloud_sync_directory", clean_dir, false)
-	_refresh_upload_checkbox_labels()
-	_refresh_upload_summary()
+		settings_manager.set_setting("cloud_sync_directory", clean_dir, true)
+	_refresh_songs(selected_song)
 
 
 func _refresh_upload_checkbox_labels() -> void:
@@ -471,13 +533,15 @@ func _refresh_upload_checkbox_labels() -> void:
 	var has_dir := not target_dir.is_empty() and DirAccess.dir_exists_absolute(target_dir)
 	for index in range(upload_checkboxes.size()):
 		var song := songs[index]
-		var prefix := "%s  //  %s" % [song.title, song.artist]
+		var button := upload_checkboxes[index]
+		var check_mark := "[X]" if button.button_pressed else "[ ]"
+		var prefix := "%s  %s  //  %s" % [check_mark, song.title, song.artist]
 		if has_dir:
 			var target_file := target_dir.path_join("%s.aurora" % _safe_file_name(song.title))
 			var state := AuroraLocale.text("YA EN CARPETA") if FileAccess.file_exists(target_file) else AuroraLocale.text("NUEVA")
-			upload_checkboxes[index].text = "%s  [%s]" % [prefix, state]
+			button.text = "%s  [%s]" % [prefix, state]
 		else:
-			upload_checkboxes[index].text = prefix
+			button.text = prefix
 
 
 func _selected_upload_songs() -> Array[SongData]:
@@ -503,6 +567,9 @@ func _refresh_upload_summary() -> void:
 	if upload_button != null:
 		upload_button.disabled = export_thread != null or not has_dir or selected.is_empty()
 	if upload_summary_label == null:
+		return
+	if not last_upload_report.is_empty():
+		upload_summary_label.text = last_upload_report
 		return
 	if selected.is_empty():
 		upload_summary_label.text = AuroraLocale.text(
@@ -531,10 +598,14 @@ func _begin_selected_upload() -> void:
 	if selected.is_empty():
 		status_label.text = AuroraLocale.text("MARCA AL MENOS UNA CANCIÓN PARA SUBIR.")
 		return
+	last_upload_report = ""
+	if upload_progress_bar != null:
+		upload_progress_bar.value = 35.0
 	_start_batch_export(
 		selected,
 		target_dir,
-		AuroraLocale.text("SUBIENDO %d CANCIONES SELECCIONADAS...") % selected.size()
+		AuroraLocale.text("SUBIENDO %d CANCIONES SELECCIONADAS...") % selected.size(),
+		true
 	)
 
 
@@ -557,7 +628,7 @@ func _add_summary_row(parent: VBoxContainer, caption: String) -> Label:
 	label.custom_minimum_size = Vector2(130, 38)
 	label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(label)
-	var value := AuroraUi.make_label("—", 16)
+	var value := AuroraUi.make_pixel_label("—", 10, AuroraUi.TEXT)
 	value.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	value.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	row.add_child(value)
@@ -578,44 +649,38 @@ func _refresh_songs(initial_song: SongData) -> void:
 		if song_manager.can_share_song_package(song):
 			songs.append(song)
 			var index := songs.size() - 1
-			var button := AuroraUi.make_button("%s  //  %s" % [song.title, song.artist])
+			var button := _make_pixel_button("%s  //  %s" % [song.title, song.artist], false, 10)
 			button.custom_minimum_size = Vector2(0, 46)
 			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			button.toggle_mode = true
 			button.button_group = selection_group
-			button.add_theme_stylebox_override(
-				"normal", AuroraUi.make_style(Color(0.04, 0.05, 0.12), Color(0.28, 0.17, 0.5))
-			)
-			button.add_theme_stylebox_override(
-				"hover", AuroraUi.make_style(Color(0.07, 0.1, 0.18), AuroraUi.VIOLET)
-			)
-			button.add_theme_stylebox_override(
-				"pressed", AuroraUi.make_style(Color(0.06, 0.19, 0.24), AuroraUi.TEAL)
-			)
-			button.add_theme_stylebox_override(
-				"focus", AuroraUi.make_style(Color(0.06, 0.19, 0.24), AuroraUi.TEAL)
-			)
+			button.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			button.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-			AuroraUi.apply_pixel_font(button, 10)
 			button.pressed.connect(_on_song_selected.bind(index))
 			song_list.add_child(button)
 			song_buttons.append(button)
 
-			var box := CheckBox.new()
-			box.custom_minimum_size = Vector2(0, 40)
+			var box := _make_pixel_button("", false, 10)
+			box.custom_minimum_size = Vector2(0, 44)
 			box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			box.toggle_mode = true
+			box.alignment = HORIZONTAL_ALIGNMENT_LEFT
 			box.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-			box.add_theme_font_size_override("font_size", 14)
-			box.toggled.connect(func(_pressed: bool) -> void: _refresh_upload_summary())
+			box.add_theme_color_override("font_pressed_color", AuroraUi.GOLD)
+			box.toggled.connect(func(_pressed: bool) -> void:
+				last_upload_report = ""
+				_refresh_upload_checkbox_labels()
+				_refresh_upload_summary()
+			)
 			upload_list.add_child(box)
 			upload_checkboxes.append(box)
 	if songs.is_empty():
 		selected_song = null
-		song_list.add_child(AuroraUi.make_label(
-			AuroraLocale.text("NO HAY NIVELES PARA COMPARTIR"), 14, AuroraUi.MUTED
+		song_list.add_child(AuroraUi.make_pixel_label(
+			AuroraLocale.text("NO HAY NIVELES PARA COMPARTIR"), 10, AuroraUi.MUTED
 		))
-		upload_list.add_child(AuroraUi.make_label(
-			AuroraLocale.text("NO HAY NIVELES PARA COMPARTIR"), 14, AuroraUi.MUTED
+		upload_list.add_child(AuroraUi.make_pixel_label(
+			AuroraLocale.text("NO HAY NIVELES PARA COMPARTIR"), 10, AuroraUi.MUTED
 		))
 		export_button.disabled = true
 		export_all_button.disabled = true
@@ -702,14 +767,16 @@ func _begin_batch_export(directory: String) -> void:
 	_start_batch_export(
 		songs,
 		directory,
-		AuroraLocale.text("EXPORTANDO %d CANCIONES, UNA POR ARCHIVO...") % songs.size()
+		AuroraLocale.text("EXPORTANDO %d CANCIONES, UNA POR ARCHIVO...") % songs.size(),
+		false
 	)
 
 
 func _start_batch_export(
 	target_songs: Array[SongData],
 	directory: String,
-	progress_text: String
+	progress_text: String,
+	smart_upload: bool = false
 ) -> void:
 	if target_songs.is_empty() or export_thread != null or not DirAccess.dir_exists_absolute(directory):
 		return
@@ -727,6 +794,7 @@ func _start_batch_export(
 			suffix += 1
 		used_names[file_name.to_lower()] = true
 		entries.append({
+			"title": song.title,
 			"descriptor": descriptor,
 			"path": directory.path_join("%s.aurora" % file_name),
 		})
@@ -739,7 +807,7 @@ func _start_batch_export(
 	_set_actions_disabled(true)
 	status_label.text = progress_text
 	var start_error := export_thread.start(
-		Callable(share_service, "export_batch").bind(entries)
+		Callable(share_service, "export_batch").bind(entries, smart_upload)
 	)
 	if start_error != OK:
 		export_thread = null
@@ -805,6 +873,22 @@ func _process(_delta: float) -> void:
 		]
 		open_folder_button.disabled = exported_path.is_empty()
 		copy_path_button.disabled = exported_path.is_empty()
+		if bool(result.get("smart_upload", false)):
+			if upload_progress_bar != null:
+				upload_progress_bar.value = 100.0
+			var uploaded_list: PackedStringArray = result.get("uploaded_titles", PackedStringArray())
+			var skipped_list: PackedStringArray = result.get("skipped_titles", PackedStringArray())
+			var uploaded_text := ", ".join(uploaded_list) if not uploaded_list.is_empty() else AuroraLocale.text("NINGUNA")
+			var skipped_text := ", ".join(skipped_list) if not skipped_list.is_empty() else AuroraLocale.text("NINGUNA")
+			last_upload_report = AuroraLocale.text("SUBIDAS (%d): %s\nNO HIZO FALTA (%d): %s") % [
+				uploaded_list.size(),
+				uploaded_text,
+				skipped_list.size(),
+				skipped_text,
+			]
+			_refresh_upload_checkbox_labels()
+			_refresh_upload_summary()
+			return
 		_refresh_upload_checkbox_labels()
 		_refresh_upload_summary()
 		batch_report_panel = BATCH_PANEL_TYPE.new()
