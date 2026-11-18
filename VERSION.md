@@ -1,8 +1,9 @@
-Aurora v1.1.2
+Aurora v1.1.3
 
 Cambios principales:
-- El campo central y sus carriles permanecen visibles desde la preparación de la partida hasta el final.
-- Las notas se muestran bajando durante el preroll silencioso, antes de que empiece la canción, para que se vea su aproximación completa.
+- Menú unificado en la biblioteca (`INSTALAR NIVELES`) con pestañas para Importar, Exportar y Subir canciones seleccionadas a una carpeta compartida o nube.
+- Sincronización automática de biblioteca mediante `cloud_sync_directory` y `shared_library/`.
+- Optimizaciones de latencia de audio (15 ms), V-Sync Mailbox y tiempos de carga más ágiles.
 
 Distribución:
 - La edición pública no incluye canciones ni videos protegidos.
