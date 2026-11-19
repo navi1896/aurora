@@ -68,25 +68,7 @@ func _process(_delta: float) -> void:
 
 
 func _setup_developer_publish_action() -> void:
-	var setup: Dictionary = developer_release_service.refresh()
-	if not bool(setup.get("enabled", false)):
-		developer_publish_button.hide()
-		return
-	developer_publish_button.show()
-	developer_publish_button.pressed.connect(_on_developer_publish_pressed)
-	# Cuando está disponible, se desplaza el estado para que los dos botones no
-	# se encimen. Sin perfil local, las copias compartidas siguen igual.
-	update_status.offset_left = -810.0
-	update_status.offset_right = -520.0
-	developer_publish_dialog = ConfirmationDialog.new()
-	developer_publish_dialog.title = AuroraLocale.text("PUBLICAR VERSION")
-	developer_publish_dialog.dialog_text = AuroraLocale.text(
-		"Se exportará Aurora v%s y se creará una publicación en GitHub. Antes se comprobará que el repositorio esté limpio y que tu sesión local de GitHub siga activa. No se guardan contraseñas en el juego."
-		% str(ProjectSettings.get_setting("application/config/version", ""))
-	)
-	developer_publish_dialog.ok_button_text = AuroraLocale.text("PUBLICAR")
-	developer_publish_dialog.confirmed.connect(_confirm_developer_publish)
-	add_child(developer_publish_dialog)
+	developer_publish_button.hide()
 
 
 func _on_developer_publish_pressed() -> void:
