@@ -136,9 +136,10 @@ func _run() -> void:
 	_expect(
 		ui_feedback_manager.feedback_player != null
 		and ui_feedback_manager.feedback_player.bus == "SFX"
-		and ui_feedback_manager.feedback_streams.get("confirm", null) == null
+		and ui_feedback_manager.feedback_streams.get("confirm", null) != null
+		and ui_feedback_manager.feedback_streams.get("resume", null) != null
 		and ui_feedback_manager.feedback_streams.get("loading", null) == null,
-		"La interfaz deja desactivados los efectos no aprobados"
+		"La interfaz activa los efectos de clic aprobados en el bus SFX"
 	)
 	var original_music_volume := float(settings_manager.get_setting("music_volume", 0.85))
 	settings_manager.settings["music_volume"] = 0.30

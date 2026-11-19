@@ -1725,7 +1725,7 @@ func _process(delta: float) -> void:
 		_update_ambient_frame()
 		return
 	if not gameplay_finished:
-		_update_song_clock(delta)
+		_update_song_clock(minf(delta, 0.05) if not media_started else delta)
 		_update_ambient_frame()
 		_spawn_upcoming_notes()
 		_update_active_notes()
@@ -2323,6 +2323,7 @@ func _update_song_clock(delta: float) -> void:
 		return
 	var has_reference := false
 	var target_time := 0.0
+	var is_video_clock := false
 	if song_player != null and song_player.playing:
 		target_time = song_player.get_playback_position()
 		target_time += AudioServer.get_time_since_last_mix()
@@ -2333,14 +2334,19 @@ func _update_song_clock(delta: float) -> void:
 		if game_manager.current_song != null:
 			target_time -= game_manager.current_song.background_video_start_seconds
 		has_reference = true
+		is_video_clock = true
+	var previous_time := gameplay_time
 	gameplay_time += delta
 	if has_reference:
 		target_time = maxf(target_time, 0.0)
 		var drift := target_time - gameplay_time
-		if absf(drift) > 0.040:
-			gameplay_time = target_time
+		var snap_threshold := 0.140 if is_video_clock else 0.095
+		if absf(drift) > snap_threshold:
+			gameplay_time = maxf(target_time, previous_time)
 		else:
-			gameplay_time += drift * minf(delta * 10.0, 1.0)
+			var pull_rate := 1.8 if is_video_clock else 3.2
+			var corrected := gameplay_time + drift * minf(delta * pull_rate, 1.0)
+			gameplay_time = maxf(corrected, previous_time + delta * 0.65)
 		gameplay_time = maxf(gameplay_time, 0.0)
 
 
@@ -2366,11 +2372,12 @@ func _play_start_countdown_cue(value: int) -> void:
 	var bank = preload("res://src/audio/GameSoundBank.gd")
 	countdown_sound_player.stop()
 	countdown_sound_player.stream = bank.COUNTDOWN.get(value)
-	countdown_sound_player.play()
+	if countdown_sound_player.stream != null:
+		countdown_sound_player.play()
 
 
 func _spawn_upcoming_notes() -> void:
-	var travel_time := _get_note_travel_time()
+	var travel_time := cached_note_travel_time if cached_note_travel_time > 0.0 else _get_note_travel_time()
 	while next_note_index < chart_notes.size():
 		var note_data: Dictionary = chart_notes[next_note_index]
 		if float(note_data["time"]) - gameplay_time > travel_time:
@@ -2428,6 +2435,7 @@ func _spawn_note(note_data: Dictionary) -> void:
 	note.offset_top = -note_half_height
 	note.offset_bottom = note_half_height
 	note.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var neon_visual: Control = null
 	if use_neon_note:
 		if cached_empty_note_style == null:
 			cached_empty_note_style = StyleBoxEmpty.new()
@@ -2441,6 +2449,7 @@ func _spawn_note(note_data: Dictionary) -> void:
 		visual.note_size_scale = note_half_height / NOTE_HALF_HEIGHT
 		note.add_child(visual)
 		visual.set_reduced_motion(cached_reduced_motion)
+		neon_visual = visual
 	else:
 		var note_style: StyleBoxFlat = null
 		if is_shift and cached_shift_note_style != null:
@@ -2517,6 +2526,7 @@ func _spawn_note(note_data: Dictionary) -> void:
 		"lane": lane,
 		"duration": duration,
 		"node": note,
+		"visual": neon_visual,
 		"holding": false,
 		"shift_id": str(note_data.get("shift_id", "")),
 		"shift_secondary": bool(note_data.get("shift_secondary", false)),
@@ -2544,26 +2554,29 @@ func _update_active_notes() -> void:
 		var note_time := float(note_entry["time"])
 		var duration := float(note_entry.get("duration", 0.0))
 		var is_hold := duration >= HOLD_NOTE_MIN_DURATION
+		var is_holding := bool(note_entry.get("holding", false))
 		if is_aurora_neon:
-			var visual := note_node.get_node_or_null("NeonNoteVisual")
-			if visual != null:
-				visual.set_holding(bool(note_entry.get("holding", false)))
+			var visual := note_entry.get("visual") as Control
+			if visual != null and is_instance_valid(visual):
+				visual.set_holding(is_holding)
 		var progress := 1.0 - (note_time - gameplay_time) / travel_time
-		var note_y := lerpf(-note_half_height, receptor_y, progress)
-		if bool(note_entry.get("holding", false)):
-			note_y = receptor_y
+		var note_y := receptor_y if is_holding else lerpf(-note_half_height, receptor_y, progress)
 		var hold_height := 0.0
 		if is_hold:
 			var travel_distance := maxf(receptor_y + note_half_height, 1.0)
-			var remaining_duration := duration
-			if bool(note_entry.get("holding", false)):
-				remaining_duration = maxf(note_time + duration - gameplay_time, 0.0)
+			var remaining_duration := maxf(note_time + duration - gameplay_time, 0.0) if is_holding else duration
 			hold_height = maxf(
 				remaining_duration / travel_time * travel_distance,
 				note_half_height * 2.0
 			)
-		note_node.offset_top = note_y - note_half_height - hold_height
-		note_node.offset_bottom = note_y + note_half_height
+		var target_height := note_half_height * 2.0 + hold_height
+		var top_y := note_y - note_half_height - hold_height
+		var current_height := note_node.offset_bottom - note_node.offset_top
+		if absf(current_height - target_height) > 0.25:
+			note_node.offset_top = top_y
+			note_node.offset_bottom = top_y + target_height
+		else:
+			note_node.position.y = top_y
 
 		var shift_id := str(note_entry.get("shift_id", ""))
 		if not shift_id.is_empty():
@@ -2972,12 +2985,16 @@ func _update_ambient_frame() -> void:
 		return
 	var track_alpha := _get_cinematic_opacity()
 	if cabinet_art_overlay != null:
-		cabinet_art_overlay.modulate = Color(1.0, 1.0, 1.0, cached_lane_opacity * track_alpha)
+		var target_cabinet_alpha := cached_lane_opacity * track_alpha
+		if absf(cabinet_art_overlay.modulate.a - target_cabinet_alpha) > 0.005:
+			cabinet_art_overlay.modulate = Color(1.0, 1.0, 1.0, target_cabinet_alpha)
 	if not cached_background_animation_enabled or cached_reduced_motion:
-		frame_panel.modulate = Color(1.0, 1.0, 1.0, track_alpha)
+		if absf(frame_panel.modulate.a - track_alpha) > 0.005 or absf(frame_panel.modulate.r - 1.0) > 0.005:
+			frame_panel.modulate = Color(1.0, 1.0, 1.0, track_alpha)
 		return
 	var pulse := 0.94 + sin(ambient_time * (0.7 + cached_background_animation_intensity * 0.08)) * 0.06
-	frame_panel.modulate = Color(pulse, pulse, 1.0, track_alpha)
+	if absf(frame_panel.modulate.r - pulse) > 0.008 or absf(frame_panel.modulate.a - track_alpha) > 0.005:
+		frame_panel.modulate = Color(pulse, pulse, 1.0, track_alpha)
 
 
 func _apply_visual_settings() -> void:

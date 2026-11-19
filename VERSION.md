@@ -1,9 +1,9 @@
-Aurora v1.1.3
+Aurora v1.1.4
 
 Cambios principales:
-- Menú unificado en la biblioteca (`INSTALAR NIVELES`) con pestañas para Importar, Exportar y Subir canciones seleccionadas a una carpeta compartida o nube.
-- Sincronización automática de biblioteca mediante `cloud_sync_directory` y `shared_library/`.
-- Optimizaciones de latencia de audio (15 ms), V-Sync Mailbox y tiempos de carga más ágiles.
+- Fluidez optimizada en gameplay: eliminación de micro-tartamudeo (rubber-banding) del reloj de video/audio, eliminación de redibujado (`_draw`) por frame en notas que caen y receptores en reposo, y frame-pacing limpio con V-Sync sin freno de software.
+- Bloqueo de instancia única al iniciar para evitar que se abran múltiples ventanas de Aurora al hacer varios clics en el acceso directo.
+- Panel de biblioteca unificado en estilo Pixel Art con barra de progreso integrada.
 
 Distribución:
 - La edición pública no incluye canciones ni videos protegidos.

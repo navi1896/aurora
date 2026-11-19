@@ -3,6 +3,7 @@ extends Control
 class_name Results
 
 const COMBO_CROWN := preload("res://src/screens/gameplay/ComboCrown.gd")
+const SOUNDS := preload("res://src/audio/GameSoundBank.gd")
 const SCORE_REVEAL_SECONDS := 1.8
 
 var scene_manager: SceneManager
@@ -14,6 +15,7 @@ var actions: Array[String] = []
 var selected_button := 0
 var new_record_label: Label
 var score_value_label: Label
+var score_audio_player: AudioStreamPlayer
 
 var score_reveal_tween: Tween
 
@@ -25,6 +27,11 @@ func _ready() -> void:
 	game_manager = managers.get_node("GameManager") as GameManager
 	input_manager = managers.get_node("InputManager") as InputManager
 	ui_feedback = managers.get_node_or_null("UiFeedbackManager")
+	score_audio_player = AudioStreamPlayer.new()
+	score_audio_player.name = "ScoreAudio"
+	score_audio_player.bus = "SFX" if AudioServer.get_bus_index("SFX") >= 0 else "Master"
+	score_audio_player.volume_db = -2.0
+	add_child(score_audio_player)
 	setup_ui()
 	update_button_selection()
 	call_deferred("_play_result_feedback")
@@ -33,9 +40,11 @@ func _ready() -> void:
 func _play_result_feedback() -> void:
 	var score_target := int(game_manager.last_result.get("score", 0))
 	var settings = get_tree().current_scene.get_node("Managers/SettingsManager")
-	if bool(settings.get_setting("reduced_motion", false)):
+	if bool(settings.get_setting("reduced_motion", false)) or score_target <= 0:
 		_set_revealed_score(float(score_target))
+		_play_score_stream(SOUNDS.SCORE_FINISH)
 		return
+	_play_score_stream(SOUNDS.SCORE_COUNT)
 	score_reveal_tween = create_tween()
 	score_reveal_tween.tween_method(
 		_set_revealed_score,
@@ -46,6 +55,15 @@ func _play_result_feedback() -> void:
 	await score_reveal_tween.finished
 	if is_inside_tree():
 		_set_revealed_score(float(score_target))
+		_play_score_stream(SOUNDS.SCORE_FINISH)
+
+
+func _play_score_stream(stream: AudioStream) -> void:
+	if score_audio_player == null or stream == null:
+		return
+	score_audio_player.stop()
+	score_audio_player.stream = stream
+	score_audio_player.play()
 
 func _set_revealed_score(value: float) -> void:
 	if is_instance_valid(score_value_label):

@@ -228,9 +228,11 @@ func apply_display_settings() -> void:
 				)
 				DisplayServer.window_set_position(centered_position)
 
-	var vsync_mode := DisplayServer.VSYNC_MAILBOX if bool(get_setting("vsync_enabled", true)) else DisplayServer.VSYNC_DISABLED
+	var vsync_on := bool(get_setting("vsync_enabled", true))
+	var vsync_mode := DisplayServer.VSYNC_ENABLED if vsync_on else DisplayServer.VSYNC_DISABLED
 	DisplayServer.window_set_vsync_mode(vsync_mode)
-	Engine.max_fps = int(get_setting("fps_limit", 120))
+	var configured_fps := int(get_setting("fps_limit", 120))
+	Engine.max_fps = 0 if vsync_on else configured_fps
 
 
 func apply_graphics_settings() -> void:

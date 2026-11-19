@@ -105,7 +105,7 @@ func _play(kind: String) -> void:
 		last_confirmation_msec = now
 	elif kind == "loading" and now - last_confirmation_msec < 180:
 		return
-	var stream := feedback_streams.get(kind, null) as AudioStreamWAV
+	var stream := feedback_streams.get(kind, null) as AudioStream
 	if stream == null:
 		return
 	feedback_player.stop()

@@ -230,7 +230,8 @@ func _run_resume_countdown(token: int) -> void:
 func _play_countdown_cue(value: int) -> void:
 	resume_countdown_player.stop()
 	resume_countdown_player.stream = SOUNDS.COUNTDOWN.get(value)
-	resume_countdown_player.play()
+	if resume_countdown_player.stream != null:
+		resume_countdown_player.play()
 
 
 func _finish_resume() -> void:

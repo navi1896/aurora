@@ -89,7 +89,13 @@ func _needs_upload_update(descriptor: Dictionary, existing_path: String, service
 		return false
 	var existing_ver := str(existing_check.get("manifest", {}).get("package_version", "1.0.0"))
 	var local_ver := str(local_check.get("manifest", {}).get("package_version", "1.0.0"))
-	return PACKAGE_SERVICE_TYPE.compare_package_versions(local_ver, existing_ver) > 0
+	if PACKAGE_SERVICE_TYPE.compare_package_versions(local_ver, existing_ver) > 0:
+		return true
+	var existing_mtime := int(FileAccess.get_modified_time(existing_path))
+	var local_manifest_mtime := int(
+		FileAccess.get_modified_time(package_root.path_join(PACKAGE_SERVICE_TYPE.MANIFEST_PATH))
+	)
+	return local_manifest_mtime > existing_mtime
 
 
 func _export_installed_package(

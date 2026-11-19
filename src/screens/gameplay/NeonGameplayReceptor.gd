@@ -39,17 +39,26 @@ func rebuild_body_texture() -> void:
 
 
 func set_pressed(value: bool) -> void:
+	if pressed == value:
+		return
 	pressed = value
+	if value:
+		set_process(true)
 	queue_redraw()
 
 
 func set_holding(value: bool) -> void:
+	if holding == value:
+		return
 	holding = value
+	if value:
+		set_process(true)
 	queue_redraw()
 
 
 func flash_hit(quality: float) -> void:
 	energy = quality
+	set_process(true)
 	if effects_enabled and not reduced_motion:
 		_emit_particles(roundi(7.0 + quality * 9.0), quality)
 	queue_redraw()
@@ -57,6 +66,7 @@ func flash_hit(quality: float) -> void:
 
 func flash_miss() -> void:
 	miss_energy = 1.0
+	set_process(true)
 	queue_redraw()
 
 
@@ -96,6 +106,8 @@ func _process(delta: float) -> void:
 		particles.resize(write_index)
 	if was_animating or holding or not particles.is_empty():
 		queue_redraw()
+	elif energy <= 0.0 and miss_energy <= 0.0 and not holding and not pressed and particles.is_empty():
+		set_process(false)
 
 
 func _draw() -> void:
