@@ -121,6 +121,10 @@ var late_hit_count := 0
 var on_time_hit_count := 0
 var ambient_time := 0.0
 var gameplay_time := 0.0
+var _clock_last_usec := 0
+var _clock_smoothed_drift := 0.0
+var _clock_last_video_pos := -1.0
+var _clock_video_interp_time := 0.0
 var chart_end_time := 0.0
 var level_end_time := 0.0
 var next_note_index := 0
@@ -1927,7 +1931,9 @@ func _finish_side_hold(entry: Dictionary, release_time: float) -> void:
 
 
 func _update_side_notes() -> void:
-	var judgment_time := gameplay_time + float(settings_manager.get_setting("timing_offset_ms", 0)) / 1000.0
+	if side_note_entries.is_empty():
+		return
+	var judgment_time := gameplay_time + cached_timing_offset_seconds
 	for entry in side_note_entries:
 		var state := str(entry["state"])
 		if state == "pending" and judgment_time - float(entry["time"]) > MISS_WINDOW:
@@ -2151,6 +2157,10 @@ func _initialize_gameplay() -> void:
 	next_shift_note_index = 0
 	# Give even a note at time zero its full approach from above the playfield.
 	gameplay_time = -_get_preparation_duration()
+	_clock_last_usec = 0
+	_clock_smoothed_drift = 0.0
+	_clock_last_video_pos = -1.0
+	_clock_video_interp_time = 0.0
 	media_started = false
 	next_beat_time = 0.0
 	gameplay_finished = false
@@ -2260,6 +2270,10 @@ func _start_gameplay_media() -> void:
 	if media_started:
 		return
 	media_started = true
+	_clock_last_usec = Time.get_ticks_usec()
+	_clock_smoothed_drift = 0.0
+	_clock_last_video_pos = -1.0
+	_clock_video_interp_time = 0.0
 	var song_gain := clampf(game_manager.current_song.audio_gain_db, -18.0, 12.0) if game_manager.current_song != null else 0.0
 	media_fade_tween = create_tween()
 	media_fade_tween.set_parallel(true)
@@ -2269,7 +2283,7 @@ func _start_gameplay_media() -> void:
 		if song_player == null or song_player.stream == null:
 			background_video_player.volume_db = -48.0
 		background_video_player.play()
-		if game_manager.current_song != null:
+		if game_manager.current_song != null and game_manager.current_song.background_video_start_seconds > 0.001:
 			background_video_player.stream_position = (
 				game_manager.current_song.background_video_start_seconds
 			)
@@ -2321,33 +2335,48 @@ func _update_song_clock(delta: float) -> void:
 			_play_start_countdown_cue(0)
 			_start_gameplay_media()
 		return
+	var step_delta := delta
+	if is_processing():
+		var now_usec := Time.get_ticks_usec()
+		if _clock_last_usec > 0:
+			var wall_dt := float(now_usec - _clock_last_usec) * 0.000001
+			if wall_dt > 0.0 and wall_dt <= 0.12:
+				step_delta = wall_dt
+			else:
+				step_delta = clampf(delta, 0.0005, 0.033)
+		_clock_last_usec = now_usec
 	var has_reference := false
 	var target_time := 0.0
-	var is_video_clock := false
 	if song_player != null and song_player.playing:
 		target_time = song_player.get_playback_position()
 		target_time += AudioServer.get_time_since_last_mix()
 		target_time -= AudioServer.get_output_latency()
 		has_reference = true
 	elif background_video_player != null and background_video_player.is_playing():
-		target_time = background_video_player.stream_position
+		var raw_vpos := background_video_player.stream_position
 		if game_manager.current_song != null:
-			target_time -= game_manager.current_song.background_video_start_seconds
+			raw_vpos -= game_manager.current_song.background_video_start_seconds
+		if not is_equal_approx(raw_vpos, _clock_last_video_pos):
+			_clock_last_video_pos = raw_vpos
+			_clock_video_interp_time = raw_vpos
+		else:
+			_clock_video_interp_time += step_delta
+		target_time = _clock_video_interp_time
 		has_reference = true
-		is_video_clock = true
 	var previous_time := gameplay_time
-	gameplay_time += delta
 	if has_reference:
 		target_time = maxf(target_time, 0.0)
-		var drift := target_time - gameplay_time
-		var snap_threshold := 0.140 if is_video_clock else 0.095
-		if absf(drift) > snap_threshold:
+		var raw_drift := target_time - (gameplay_time + step_delta)
+		if absf(raw_drift) > 0.240:
 			gameplay_time = maxf(target_time, previous_time)
+			_clock_smoothed_drift = 0.0
 		else:
-			var pull_rate := 1.8 if is_video_clock else 3.2
-			var corrected := gameplay_time + drift * minf(delta * pull_rate, 1.0)
-			gameplay_time = maxf(corrected, previous_time + delta * 0.65)
+			_clock_smoothed_drift = lerpf(_clock_smoothed_drift, raw_drift, minf(step_delta * 2.5, 1.0))
+			var rate_adjust := clampf(_clock_smoothed_drift * 0.85, -0.025, 0.025)
+			gameplay_time = previous_time + step_delta * (1.0 + rate_adjust)
 		gameplay_time = maxf(gameplay_time, 0.0)
+	else:
+		gameplay_time += step_delta
 
 
 func _get_note_travel_time() -> float:
@@ -2537,9 +2566,12 @@ func _update_active_notes() -> void:
 	var timing_offset := cached_timing_offset_seconds
 	var judgment_time := gameplay_time + timing_offset
 	var travel_time := cached_note_travel_time if cached_note_travel_time > 0.0 else _get_note_travel_time()
+	var inv_travel_time := 1.0 / maxf(travel_time, 0.001)
 	var note_half_height := cached_note_half_height if cached_note_half_height > 0.0 else _get_note_visual_half_height()
 	var active_profile_id := cached_profile_id if not cached_profile_id.is_empty() else _get_gameplay_visual_profile()
 	var is_aurora_neon := active_profile_id in ["aurora", "fnf"]
+	var hit_offset := SKIN_HIT_OFFSET if use_gameplay_skin else RECEPTOR_TOP_OFFSET + HIT_LINE_GAP
+	var holding_lanes_mask := 0
 
 	_active_notes_scratch.clear()
 	_active_notes_scratch.append_array(active_notes)
@@ -2550,23 +2582,25 @@ func _update_active_notes() -> void:
 			active_notes.erase(note_entry)
 			continue
 		var layer := lane_note_layers[lane]
-		var receptor_y := maxf(layer.size.y - (SKIN_HIT_OFFSET if use_gameplay_skin else RECEPTOR_TOP_OFFSET + HIT_LINE_GAP), 100.0)
+		var receptor_y := maxf(layer.size.y - hit_offset, 100.0)
 		var note_time := float(note_entry["time"])
 		var duration := float(note_entry.get("duration", 0.0))
 		var is_hold := duration >= HOLD_NOTE_MIN_DURATION
 		var is_holding := bool(note_entry.get("holding", false))
+		if is_holding:
+			holding_lanes_mask |= (1 << lane)
 		if is_aurora_neon:
 			var visual := note_entry.get("visual") as Control
 			if visual != null and is_instance_valid(visual):
 				visual.set_holding(is_holding)
-		var progress := 1.0 - (note_time - gameplay_time) / travel_time
+		var progress := 1.0 - (note_time - gameplay_time) * inv_travel_time
 		var note_y := receptor_y if is_holding else lerpf(-note_half_height, receptor_y, progress)
 		var hold_height := 0.0
 		if is_hold:
 			var travel_distance := maxf(receptor_y + note_half_height, 1.0)
 			var remaining_duration := maxf(note_time + duration - gameplay_time, 0.0) if is_holding else duration
 			hold_height = maxf(
-				remaining_duration / travel_time * travel_distance,
+				remaining_duration * inv_travel_time * travel_distance,
 				note_half_height * 2.0
 			)
 		var target_height := note_half_height * 2.0 + hold_height
@@ -2582,7 +2616,7 @@ func _update_active_notes() -> void:
 		if not shift_id.is_empty():
 			if bool(note_entry.get("shift_secondary", false)):
 				continue
-			if bool(note_entry.get("holding", false)):
+			if is_holding:
 				var shift_hold_end := note_time + duration
 				if judgment_time - shift_hold_end > GOOD_WINDOW:
 					_finish_shift_hold(shift_id, judgment_time)
@@ -2590,7 +2624,7 @@ func _update_active_notes() -> void:
 				_judge_shift_pair(shift_id, "MISS", 0.0, 0, AuroraUi.CORAL)
 			continue
 
-		if bool(note_entry.get("holding", false)):
+		if is_holding:
 			var hold_end_time := note_time + duration
 			if judgment_time - hold_end_time > GOOD_WINDOW:
 				_finish_hold_note(note_entry, judgment_time)
@@ -2605,12 +2639,7 @@ func _update_active_notes() -> void:
 		elif judgment_time - note_time > MISS_WINDOW:
 			_judge_note(note_entry, "MISS", 0.0, 0, AuroraUi.CORAL)
 	for lane_index in range(lane_receptors.size()):
-		var holding := false
-		for entry in active_notes:
-			if int(entry["lane"]) == lane_index and bool(entry.get("holding", false)):
-				holding = true
-				break
-		lane_receptors[lane_index].set_holding(holding)
+		lane_receptors[lane_index].set_holding((holding_lanes_mask & (1 << lane_index)) != 0)
 
 
 func _judge_note(
@@ -2986,15 +3015,10 @@ func _update_ambient_frame() -> void:
 	var track_alpha := _get_cinematic_opacity()
 	if cabinet_art_overlay != null:
 		var target_cabinet_alpha := cached_lane_opacity * track_alpha
-		if absf(cabinet_art_overlay.modulate.a - target_cabinet_alpha) > 0.005:
+		if absf(cabinet_art_overlay.modulate.a - target_cabinet_alpha) > 0.003:
 			cabinet_art_overlay.modulate = Color(1.0, 1.0, 1.0, target_cabinet_alpha)
-	if not cached_background_animation_enabled or cached_reduced_motion:
-		if absf(frame_panel.modulate.a - track_alpha) > 0.005 or absf(frame_panel.modulate.r - 1.0) > 0.005:
-			frame_panel.modulate = Color(1.0, 1.0, 1.0, track_alpha)
-		return
-	var pulse := 0.94 + sin(ambient_time * (0.7 + cached_background_animation_intensity * 0.08)) * 0.06
-	if absf(frame_panel.modulate.r - pulse) > 0.008 or absf(frame_panel.modulate.a - track_alpha) > 0.005:
-		frame_panel.modulate = Color(pulse, pulse, 1.0, track_alpha)
+	if absf(frame_panel.modulate.a - track_alpha) > 0.003 or absf(frame_panel.modulate.r - 1.0) > 0.003:
+		frame_panel.modulate = Color(1.0, 1.0, 1.0, track_alpha)
 
 
 func _apply_visual_settings() -> void:

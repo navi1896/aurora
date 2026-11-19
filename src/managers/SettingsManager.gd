@@ -232,23 +232,21 @@ func apply_display_settings() -> void:
 	var vsync_mode := DisplayServer.VSYNC_ENABLED if vsync_on else DisplayServer.VSYNC_DISABLED
 	DisplayServer.window_set_vsync_mode(vsync_mode)
 	var configured_fps := int(get_setting("fps_limit", 120))
-	Engine.max_fps = 0 if vsync_on else configured_fps
+	if vsync_on:
+		Engine.max_fps = 0
+	elif configured_fps > 0:
+		Engine.max_fps = configured_fps
+	else:
+		var refresh := DisplayServer.screen_get_refresh_rate()
+		Engine.max_fps = maxi(240, roundi(refresh * 4.0) if refresh > 0.0 else 240)
 
 
 func apply_graphics_settings() -> void:
 	var viewport := get_viewport()
 	if viewport == null:
 		return
-	match str(get_setting("graphics_quality", "high")):
-		"low":
-			viewport.msaa_2d = Viewport.MSAA_DISABLED
-			viewport.use_debanding = false
-		"medium":
-			viewport.msaa_2d = Viewport.MSAA_2X
-			viewport.use_debanding = true
-		_:
-			viewport.msaa_2d = Viewport.MSAA_4X
-			viewport.use_debanding = true
+	viewport.msaa_2d = Viewport.MSAA_DISABLED
+	viewport.use_debanding = false
 
 
 func _apply_setting(key: String) -> void:

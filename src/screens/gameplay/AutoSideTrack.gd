@@ -11,6 +11,7 @@ var tint := Color(0.08, 0.86, 1.0)
 var cursor := 0
 var resolved: Dictionary = {}
 var holding: Dictionary = {}
+var _was_drawing_notes := false
 
 
 func set_note_holding(index: int, value: bool) -> void:
@@ -28,6 +29,8 @@ func resolve_note(index: int) -> void:
 
 
 func set_playback_time(value: float, travel: float) -> void:
+	if notes.is_empty():
+		return
 	if value < playback_time:
 		cursor = 0
 	playback_time = value
@@ -37,7 +40,17 @@ func set_playback_time(value: float, travel: float) -> void:
 		if float(note["time"]) + float(note["duration"]) + 0.12 >= value:
 			break
 		cursor += 1
-	queue_redraw()
+	var has_visible := false
+	for index in range(cursor, notes.size()):
+		if resolved.has(index):
+			continue
+		var note: Dictionary = notes[index]
+		if float(note["time"]) - playback_time <= travel_time:
+			has_visible = true
+		break
+	if has_visible or _was_drawing_notes:
+		_was_drawing_notes = has_visible
+		queue_redraw()
 
 
 func _draw() -> void:

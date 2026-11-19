@@ -105,15 +105,17 @@ func _draw() -> void:
 		draw_rect(body, Color(body_color, 0.96 if holding else 0.86))
 		# Broad color and repeated chevrons remain recognizable before the hold starts.
 		draw_rect(Rect2(size.x * 0.38, body.position.y, size.x * 0.24, body.size.y), Color(tint.lerp(Color.WHITE, 0.55), 0.28))
-		var arrow_y := chip_height + 12.0 * scale_value
-		while arrow_y < head_y - 6.0 * scale_value:
-			var center_x := size.x * 0.5
-			draw_polyline(PackedVector2Array([
-				Vector2(center_x - 13.0, arrow_y + 5.0),
-				Vector2(center_x, arrow_y - 3.0),
-				Vector2(center_x + 13.0, arrow_y + 5.0),
-			]), Color(0.88, 1.0, 1.0, 0.76 if holding else 0.54), 2.0 * scale_value)
-			arrow_y += 38.0 * scale_value
+		var arrow_y := head_y - 14.0 * scale_value
+		var center_x := size.x * 0.5
+		var arrow_color := Color(0.88, 1.0, 1.0, 0.76 if holding else 0.54)
+		var line_w := 2.0 * scale_value
+		var step_y := 38.0 * scale_value
+		var min_arrow_y := chip_height + 8.0 * scale_value
+		while arrow_y > min_arrow_y:
+			var apex := Vector2(center_x, arrow_y - 3.0)
+			draw_line(Vector2(center_x - 13.0, arrow_y + 5.0), apex, arrow_color, line_w)
+			draw_line(apex, Vector2(center_x + 13.0, arrow_y + 5.0), arrow_color, line_w)
+			arrow_y -= step_y
 		for edge in [body.position.x, body.end.x]:
 			draw_rect(Rect2(edge - 1.0 * scale_value, body.position.y, 2.0 * scale_value, body.size.y), Color(tint.lerp(Color.WHITE, 0.72), 1.0))
 		if holding:
